@@ -57,8 +57,52 @@ func TestPlannerRejectsUnsupportedSearchMode(t *testing.T) {
 		Semantic: &types.SemanticRequest{
 			Field: "body",
 		},
-	}, memory.New())
+	}, memory.New(memory.Config{}))
 	if err == nil {
 		t.Fatalf("expected unsupported capability error")
+	}
+}
+
+func TestPlannerUsesConfiguredDefaults(t *testing.T) {
+	registry := indexing.NewRegistry()
+	_ = registry.Register(types.IndexDefinition{Name: "media", GroupByDefault: "parent_id"}, nil)
+	p, err := New(Config{
+		Registry: registry,
+		Defaults: Defaults{
+			SearchPage:                 2,
+			SearchPerPage:              15,
+			SuggestLimit:               7,
+			DefaultSearchMode:          types.SearchModeHybrid,
+			DisableIndexGroupByDefault: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("new planner: %v", err)
+	}
+	searchPlan, err := p.BuildSearchPlan(context.Background(), types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "prayer",
+	})
+	if err != nil {
+		t.Fatalf("build search plan: %v", err)
+	}
+	if searchPlan.Request.Page != 2 || searchPlan.Request.PerPage != 15 {
+		t.Fatalf("expected configured pagination defaults, got %+v", searchPlan.Request)
+	}
+	if searchPlan.Request.Mode != types.SearchModeHybrid {
+		t.Fatalf("expected configured default mode, got %s", searchPlan.Request.Mode)
+	}
+	if searchPlan.Request.GroupBy != "" {
+		t.Fatalf("expected index group default to be disabled, got %q", searchPlan.Request.GroupBy)
+	}
+	suggestPlan, err := p.BuildSuggestPlan(context.Background(), types.SuggestRequest{
+		Indexes: []string{"media"},
+		Query:   "prayer",
+	})
+	if err != nil {
+		t.Fatalf("build suggest plan: %v", err)
+	}
+	if suggestPlan.Request.Limit != 7 {
+		t.Fatalf("expected configured suggest limit, got %d", suggestPlan.Request.Limit)
 	}
 }

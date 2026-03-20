@@ -3,18 +3,18 @@ package bunstore
 import (
 	"context"
 	"database/sql"
-	"os"
 	"testing"
 
+	"github.com/goliatone/go-search/internal/testkit"
 	_ "github.com/lib/pq"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 )
 
 func TestGenerationStoreIntegration(t *testing.T) {
-	dsn := os.Getenv("GO_SEARCH_TEST_POSTGRES_DSN")
+	dsn := testkit.Integration.Postgres.DSN
 	if dsn == "" {
-		t.Skip("GO_SEARCH_TEST_POSTGRES_DSN is not set")
+		t.Skip("testkit.Integration.Postgres.DSN is not set")
 	}
 	sqlDB, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -26,7 +26,7 @@ func TestGenerationStoreIntegration(t *testing.T) {
 	if err := Migrations().Migrate(ctx, db); err != nil {
 		t.Fatalf("migrate generation store: %v", err)
 	}
-	store := New(db)
+	store := New(Config{DB: db})
 	generation, err := store.Bump(ctx, "media")
 	if err != nil {
 		t.Fatalf("bump: %v", err)

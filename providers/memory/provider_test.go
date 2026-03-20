@@ -11,12 +11,12 @@ import (
 func TestProviderContractSuite(t *testing.T) {
 	providers.RunContractSuite(t, func(t *testing.T) providers.Provider {
 		t.Helper()
-		return New()
+		return New(Config{})
 	})
 }
 
 func TestProviderEnforcesScopeForSearchAndSuggest(t *testing.T) {
-	provider := New()
+	provider := New(Config{})
 	ctx := context.Background()
 	if err := provider.EnsureIndex(ctx, types.IndexDefinition{Name: "media"}); err != nil {
 		t.Fatalf("ensure index: %v", err)
@@ -67,7 +67,7 @@ func TestProviderEnforcesScopeForSearchAndSuggest(t *testing.T) {
 }
 
 func TestProviderPreferParentSuggestionsAreDeduplicated(t *testing.T) {
-	provider := New()
+	provider := New(Config{})
 	ctx := context.Background()
 	if err := provider.EnsureIndex(ctx, types.IndexDefinition{Name: "media"}); err != nil {
 		t.Fatalf("ensure index: %v", err)

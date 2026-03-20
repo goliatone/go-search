@@ -3,10 +3,10 @@ package bunstore
 import (
 	"context"
 	"database/sql"
-	"os"
 	"testing"
 	"time"
 
+	"github.com/goliatone/go-search/internal/testkit"
 	"github.com/goliatone/go-search/pkg/types"
 	_ "github.com/lib/pq"
 	"github.com/uptrace/bun"
@@ -14,9 +14,9 @@ import (
 )
 
 func TestEditorialStoreIntegration(t *testing.T) {
-	dsn := os.Getenv("GO_SEARCH_TEST_POSTGRES_DSN")
+	dsn := testkit.Integration.Postgres.DSN
 	if dsn == "" {
-		t.Skip("GO_SEARCH_TEST_POSTGRES_DSN is not set")
+		t.Skip("testkit.Integration.Postgres.DSN is not set")
 	}
 	sqlDB, err := sql.Open("postgres", dsn)
 	if err != nil {
