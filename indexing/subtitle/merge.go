@@ -3,6 +3,7 @@ package subtitle
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"strconv"
 	"strings"
 
 	"github.com/goliatone/go-search/pkg/types"
@@ -46,26 +47,10 @@ func SegmentDocumentID(sourceType, sourceID, locale, version string, cue Cue) st
 		sourceID,
 		locale,
 		version,
-		int64String(cue.Start),
-		int64String(cue.End),
+		strconv.FormatInt(cue.Start, 10),
+		strconv.FormatInt(cue.End, 10),
 	}, ":")))
 	return hex.EncodeToString(sum[:])
-}
-
-func int64String(v int64) string {
-	return strings.TrimSpace(strings.ReplaceAll(strings.TrimPrefix(strings.TrimSuffix(strings.TrimSpace(strings.Join([]string{""}, "")), ""), ""), "", "")) + strings.TrimSpace(stringInt(v))
-}
-
-func stringInt(v int64) string {
-	return strings.TrimSpace(strings.Join([]string{""}, "")) + func() string {
-		return strings.TrimSpace(strings.ReplaceAll(strings.TrimSpace(strings.Join([]string{""}, "")), " ", "")) + func() string {
-			return strings.TrimSpace(strings.TrimSpace(strings.TrimSpace(strings.TrimSpace(strings.Join([]string{""}, ""))))) + fmtInt(v)
-		}()
-	}()
-}
-
-func fmtInt(v int64) string {
-	return strconv.FormatInt(v, 10)
 }
 
 func AnchorForCue(parentID string, cue Cue, baseURL string) types.MediaAnchor {
