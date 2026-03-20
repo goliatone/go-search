@@ -10,13 +10,11 @@ import (
 )
 
 type DeleteRecordConfig struct {
-	Indexer         *indexing.Indexer
-	GenerationStore types.GenerationStore
+	Indexer *indexing.Indexer
 }
 
 type DeleteRecord struct {
-	indexer         *indexing.Indexer
-	generationStore types.GenerationStore
+	indexer *indexing.Indexer
 }
 
 var _ gcommand.Commander[types.DeleteRecordInput] = (*DeleteRecord)(nil)
@@ -25,13 +23,12 @@ func NewDeleteRecord(cfg DeleteRecordConfig) (*DeleteRecord, error) {
 	if cfg.Indexer == nil {
 		return nil, errs.ConfigurationError("indexer is required", nil)
 	}
-	return &DeleteRecord{indexer: cfg.Indexer, generationStore: cfg.GenerationStore}, nil
+	return &DeleteRecord{indexer: cfg.Indexer}, nil
 }
 
 func (c *DeleteRecord) Execute(ctx context.Context, msg types.DeleteRecordInput) error {
 	if err := c.indexer.DeleteRecord(ctx, msg.Index, msg.RecordID); err != nil {
 		return err
 	}
-	bumpGeneration(ctx, c.generationStore, msg.Index)
 	return nil
 }

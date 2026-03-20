@@ -2,18 +2,21 @@ package command
 
 import (
 	"context"
-	"time"
 
+	"github.com/goliatone/go-search/internal/errs"
 	"github.com/goliatone/go-search/pkg/types"
 )
 
-func notifyActivities(ctx context.Context, hooks []types.ActivityHook, verb, objectType, objectID string, metadata map[string]any) {
+func notifyActivities(ctx context.Context, clock types.Clock, hooks []types.ActivityHook, verb, objectType, objectID string, metadata map[string]any) {
+	if clock == nil {
+		clock = types.SystemClock()
+	}
 	event := types.ActivityEvent{
 		Channel:    "search",
 		Verb:       verb,
 		ObjectType: objectType,
 		ObjectID:   objectID,
-		OccurredAt: time.Now().UnixMilli(),
+		OccurredAt: clock.Now().UnixMilli(),
 		Metadata:   metadata,
 	}
 	for _, hook := range hooks {
@@ -21,9 +24,12 @@ func notifyActivities(ctx context.Context, hooks []types.ActivityHook, verb, obj
 	}
 }
 
-func bumpGeneration(ctx context.Context, store types.GenerationStore, index string) {
+func bumpGeneration(ctx context.Context, store types.GenerationStore, index string) error {
 	if store == nil || index == "" {
-		return
+		return nil
 	}
-	_, _ = store.Bump(ctx, index)
+	if _, err := store.Bump(ctx, index); err != nil {
+		return errs.Wrap(err, map[string]any{"index": index, "operation": "generation_bump"})
+	}
+	return nil
 }
