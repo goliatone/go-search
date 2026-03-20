@@ -1,19 +1,19 @@
 package types
 
 type CapabilitySet struct {
-	Facets               bool
-	DisjunctiveFacets    bool
-	PrefixSearch         bool
-	TypoTolerance        bool
-	Highlighting         bool
-	Snippets             bool
-	Grouping             bool
-	SemanticSearch       bool
-	HybridSearch         bool
-	AutoEmbedding        bool
-	ExternalEmbeddings   bool
-	DistanceThreshold    bool
-	MultilingualEmbeds   bool
-	SupportedSearchModes []SearchMode
-	Metadata             map[string]any
+	Facets               bool           `json:"facets"`
+	DisjunctiveFacets    bool           `json:"disjunctive_facets"`
+	PrefixSearch         bool           `json:"prefix_search"`
+	TypoTolerance        bool           `json:"typo_tolerance"`
+	Highlighting         bool           `json:"highlighting"`
+	Snippets             bool           `json:"snippets"`
+	Grouping             bool           `json:"grouping"`
+	SemanticSearch       bool           `json:"semantic_search"`
+	HybridSearch         bool           `json:"hybrid_search"`
+	AutoEmbedding        bool           `json:"auto_embedding"`
+	ExternalEmbeddings   bool           `json:"external_embeddings"`
+	DistanceThreshold    bool           `json:"distance_threshold"`
+	MultilingualEmbeds   bool           `json:"multilingual_embeds"`
+	SupportedSearchModes []SearchMode   `json:"supported_search_modes"`
+	Metadata             map[string]any `json:"metadata"`
 }

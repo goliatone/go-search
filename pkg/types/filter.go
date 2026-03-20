@@ -4,22 +4,28 @@ type FilterExpr interface {
 	isFilterExpr()
 }
 
-type AndExpr struct{ Terms []FilterExpr }
-type OrExpr struct{ Terms []FilterExpr }
-type NotExpr struct{ Term FilterExpr }
+type AndExpr struct {
+	Terms []FilterExpr `json:"terms"`
+}
+type OrExpr struct {
+	Terms []FilterExpr `json:"terms"`
+}
+type NotExpr struct {
+	Term FilterExpr `json:"term"`
+}
 type TermExpr struct {
-	Field string
-	Op    FilterOp
-	Value any
+	Field string   `json:"field"`
+	Op    FilterOp `json:"op"`
+	Value any      `json:"value"`
 }
 type RangeExpr struct {
-	Field string
-	GTE   any
-	LTE   any
+	Field string `json:"field"`
+	GTE   any    `json:"gte"`
+	LTE   any    `json:"lte"`
 }
 type ExistsExpr struct {
-	Field  string
-	Exists bool
+	Field  string `json:"field"`
+	Exists bool   `json:"exists"`
 }
 
 func (AndExpr) isFilterExpr()    {}
@@ -46,11 +52,11 @@ const (
 )
 
 type Sort struct {
-	Field     string
-	Direction SortDirection
+	Field     string        `json:"field"`
+	Direction SortDirection `json:"direction"`
 }
 
 type FacetRequest struct {
-	Field string
-	Limit int
+	Field string `json:"field"`
+	Limit int    `json:"limit"`
 }

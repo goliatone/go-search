@@ -5,9 +5,9 @@ import "maps"
 import "context"
 
 type Scope struct {
-	TenantID string
-	OrgID    string
-	Labels   map[string]string
+	TenantID string            `json:"tenant_id"`
+	OrgID    string            `json:"org_id"`
+	Labels   map[string]string `json:"labels"`
 }
 
 func (s Scope) Clone() Scope {
@@ -20,17 +20,17 @@ func (s Scope) Clone() Scope {
 }
 
 type ActorRef struct {
-	UserID   string
-	TenantID string
-	OrgID    string
-	Metadata map[string]any
+	UserID   string         `json:"user_id"`
+	TenantID string         `json:"tenant_id"`
+	OrgID    string         `json:"org_id"`
+	Metadata map[string]any `json:"metadata"`
 }
 
 type Visibility struct {
-	Public      bool
-	Roles       []string
-	Permissions []string
-	Status      string
+	Public      bool     `json:"public"`
+	Roles       []string `json:"roles"`
+	Permissions []string `json:"permissions"`
+	Status      string   `json:"status"`
 }
 
 func (v Visibility) Clone() Visibility {
@@ -67,14 +67,14 @@ type MetricsHook interface {
 }
 
 type ActivityEvent struct {
-	Channel    string
-	Verb       string
-	ObjectType string
-	ObjectID   string
-	ActorID    string
-	TenantID   string
-	OccurredAt int64
-	Metadata   map[string]any
+	Channel    string         `json:"channel"`
+	Verb       string         `json:"verb"`
+	ObjectType string         `json:"object_type"`
+	ObjectID   string         `json:"object_id"`
+	ActorID    string         `json:"actor_id"`
+	TenantID   string         `json:"tenant_id"`
+	OccurredAt int64          `json:"occurred_at"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
 type ActivityHook interface {
@@ -82,18 +82,13 @@ type ActivityHook interface {
 }
 
 type ProgressUpdate struct {
-	Index     string
-	Completed int
-	Total     int
-	Message   string
-	Metadata  map[string]any
+	Index     string         `json:"index"`
+	Completed int            `json:"completed"`
+	Total     int            `json:"total"`
+	Message   string         `json:"message"`
+	Metadata  map[string]any `json:"metadata"`
 }
 
 type ProgressReporter interface {
 	Report(ctx context.Context, update ProgressUpdate)
-}
-
-type LocalePolicy interface {
-	Normalize(locale string) string
-	NormalizeMany(locales []string) []string
 }

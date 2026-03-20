@@ -9,63 +9,63 @@ const (
 )
 
 type SearchRequest struct {
-	Indexes        []string
-	Query          string
-	Locale         string
-	Locales        []string
-	Page           int
-	PerPage        int
-	Sort           []Sort
-	Filters        FilterExpr
-	Facets         []FacetRequest
-	GroupBy        string
-	Highlight      []string
-	IncludeFields  []string
-	RankingProfile string
-	Mode           SearchMode
-	Semantic       *SemanticRequest
-	Metadata       map[string]any
-	Actor          ActorRef
-	Scope          Scope
-	Request        any
+	Indexes        []string         `json:"indexes"`
+	Query          string           `json:"query"`
+	Locale         string           `json:"locale"`
+	Locales        []string         `json:"locales"`
+	Page           int              `json:"page"`
+	PerPage        int              `json:"per_page"`
+	Sort           []Sort           `json:"sort"`
+	Filters        FilterExpr       `json:"filters"`
+	Facets         []FacetRequest   `json:"facets"`
+	GroupBy        string           `json:"group_by"`
+	Highlight      []string         `json:"highlight"`
+	IncludeFields  []string         `json:"include_fields"`
+	RankingProfile string           `json:"ranking_profile"`
+	Mode           SearchMode       `json:"mode"`
+	Semantic       *SemanticRequest `json:"semantic"`
+	Metadata       map[string]any   `json:"metadata"`
+	Actor          ActorRef         `json:"actor"`
+	Scope          Scope            `json:"scope"`
+	Request        any              `json:"request"`
 }
 
 func (SearchRequest) Type() string { return "search::search" }
 
 type SemanticRequest struct {
-	Field             string
-	QueryText         string
-	QueryEmbedding    []float32
-	K                 int
-	DistanceThreshold *float64
-	Alpha             *float64
-	Rerank            bool
-	LocaleStrategy    string
-	Model             string
-	Metadata          map[string]any
+	Field             string         `json:"field"`
+	QueryText         string         `json:"query_text"`
+	QueryEmbedding    []float32      `json:"query_embedding"`
+	K                 int            `json:"k"`
+	DistanceThreshold *float64       `json:"distance_threshold"`
+	Alpha             *float64       `json:"alpha"`
+	Rerank            bool           `json:"rerank"`
+	LocaleStrategy    string         `json:"locale_strategy"`
+	Model             string         `json:"model"`
+	Metadata          map[string]any `json:"metadata"`
 }
 
 type SuggestRequest struct {
-	Indexes      []string
-	Query        string
-	Locale       string
-	Limit        int
-	PreferParent bool
-	Metadata     map[string]any
-	Actor        ActorRef
-	Scope        Scope
+	Indexes      []string       `json:"indexes"`
+	Query        string         `json:"query"`
+	Locale       string         `json:"locale"`
+	Limit        int            `json:"limit"`
+	PreferParent bool           `json:"prefer_parent"`
+	Metadata     map[string]any `json:"metadata"`
+	Actor        ActorRef       `json:"actor"`
+	Scope        Scope          `json:"scope"`
 }
 
 func (SuggestRequest) Type() string { return "search::suggest" }
 
 type HealthRequest struct {
-	Indexes []string
+	Indexes []string `json:"indexes"`
 }
 
 func (HealthRequest) Type() string { return "search::health" }
 
 type StatsRequest struct {
-	Indexes []string
+	Indexes []string `json:"indexes"`
 }
 
 func (StatsRequest) Type() string { return "search::stats" }

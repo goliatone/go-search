@@ -10,32 +10,32 @@ const (
 )
 
 type Document struct {
-	ID            string
-	Index         string
-	Type          string
-	ParentID      string
-	SourceType    string
-	SourceID      string
-	SourceVersion string
-	Title         string
-	Summary       string
-	Body          string
-	URL           string
-	AnchorURL     string
-	Locale        string
-	Score         float64
-	CreatedAt     *time.Time
-	UpdatedAt     *time.Time
-	PublishedAt   *time.Time
-	StartMS       *int64
-	EndMS         *int64
-	Fields        map[string]any
-	Facets        map[string][]string
-	Numeric       map[string]float64
-	Booleans      map[string]bool
-	Scope         Scope
-	Visibility    Visibility
-	Metadata      map[string]any
+	ID            string              `json:"id"`
+	Index         string              `json:"index"`
+	Type          string              `json:"type"`
+	ParentID      string              `json:"parent_id"`
+	SourceType    string              `json:"source_type"`
+	SourceID      string              `json:"source_id"`
+	SourceVersion string              `json:"source_version"`
+	Title         string              `json:"title"`
+	Summary       string              `json:"summary"`
+	Body          string              `json:"body"`
+	URL           string              `json:"url"`
+	AnchorURL     string              `json:"anchor_url"`
+	Locale        string              `json:"locale"`
+	Score         float64             `json:"score"`
+	CreatedAt     *time.Time          `json:"created_at"`
+	UpdatedAt     *time.Time          `json:"updated_at"`
+	PublishedAt   *time.Time          `json:"published_at"`
+	StartMS       *int64              `json:"start_ms"`
+	EndMS         *int64              `json:"end_ms"`
+	Fields        map[string]any      `json:"fields"`
+	Facets        map[string][]string `json:"facets"`
+	Numeric       map[string]float64  `json:"numeric"`
+	Booleans      map[string]bool     `json:"booleans"`
+	Scope         Scope               `json:"scope"`
+	Visibility    Visibility          `json:"visibility"`
+	Metadata      map[string]any      `json:"metadata"`
 }
 
 func (d Document) Clone() Document {
@@ -51,22 +51,22 @@ func (d Document) Clone() Document {
 }
 
 type MediaAnchor struct {
-	ParentID   string
-	ParentType string
-	StartMS    int64
-	EndMS      int64
-	Label      string
-	URL        string
+	ParentID   string `json:"parent_id"`
+	ParentType string `json:"parent_type"`
+	StartMS    int64  `json:"start_ms"`
+	EndMS      int64  `json:"end_ms"`
+	Label      string `json:"label"`
+	URL        string `json:"url"`
 }
 
 type TranscriptTrack struct {
-	MediaID      string
-	Locale       string
-	SourceFormat string
-	TrackKind    string
-	SourceLocale string
-	IsMachine    bool
-	Metadata     map[string]any
+	MediaID      string         `json:"media_id"`
+	Locale       string         `json:"locale"`
+	SourceFormat string         `json:"source_format"`
+	TrackKind    string         `json:"track_kind"`
+	SourceLocale string         `json:"source_locale"`
+	IsMachine    bool           `json:"is_machine"`
+	Metadata     map[string]any `json:"metadata"`
 }
 
 func cloneMap[T any](in map[string]T) map[string]T {

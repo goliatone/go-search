@@ -3,114 +3,114 @@ package types
 import "time"
 
 type SearchResultPage struct {
-	Hits       []SearchHit
-	Groups     []SearchGroup
-	Facets     []SearchFacet
-	Page       int
-	PerPage    int
-	Total      int
-	DurationMS int64
-	Metadata   map[string]any
+	Hits       []SearchHit    `json:"hits"`
+	Groups     []SearchGroup  `json:"groups"`
+	Facets     []SearchFacet  `json:"facets"`
+	Page       int            `json:"page"`
+	PerPage    int            `json:"per_page"`
+	Total      int            `json:"total"`
+	DurationMS int64          `json:"duration_ms"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
 type SearchHit struct {
-	ID         string
-	Type       string
-	Title      string
-	Summary    string
-	URL        string
-	Locale     string
-	Score      float64
-	BaseScore  float64
-	FinalScore float64
-	Anchor     *MediaAnchor
-	Parent     *SearchParent
-	Snippet    *SearchSnippet
-	Fields     map[string]any
-	Ranking    *AppliedRankingSignals
-	Retrieval  *AppliedRetrievalSignals
-	Document   *Document
+	ID         string                   `json:"id"`
+	Type       string                   `json:"type"`
+	Title      string                   `json:"title"`
+	Summary    string                   `json:"summary"`
+	URL        string                   `json:"url"`
+	Locale     string                   `json:"locale"`
+	Score      float64                  `json:"score"`
+	BaseScore  float64                  `json:"base_score"`
+	FinalScore float64                  `json:"final_score"`
+	Anchor     *MediaAnchor             `json:"anchor"`
+	Parent     *SearchParent            `json:"parent"`
+	Snippet    *SearchSnippet           `json:"snippet"`
+	Fields     map[string]any           `json:"fields"`
+	Ranking    *AppliedRankingSignals   `json:"ranking"`
+	Retrieval  *AppliedRetrievalSignals `json:"retrieval"`
+	Document   *Document                `json:"document"`
 }
 
 type SearchParent struct {
-	ID        string
-	Type      string
-	Title     string
-	Thumbnail string
-	URL       string
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	Title     string `json:"title"`
+	Thumbnail string `json:"thumbnail"`
+	URL       string `json:"url"`
 }
 
 type SearchSnippet struct {
-	Text        string
-	Highlighted string
+	Text        string `json:"text"`
+	Highlighted string `json:"highlighted"`
 }
 
 type SearchGroup struct {
-	Key      string
-	Parent   *SearchParent
-	TopHit   *SearchHit
-	Hits     []SearchHit
-	Count    int
-	Metadata map[string]any
+	Key      string         `json:"key"`
+	Parent   *SearchParent  `json:"parent"`
+	TopHit   *SearchHit     `json:"top_hit"`
+	Hits     []SearchHit    `json:"hits"`
+	Count    int            `json:"count"`
+	Metadata map[string]any `json:"metadata"`
 }
 
 type SearchFacet struct {
-	Field  string
-	Values []SearchFacetValue
+	Field  string             `json:"field"`
+	Values []SearchFacetValue `json:"values"`
 }
 
 type SearchFacetValue struct {
-	Value string
-	Count int
+	Value string `json:"value"`
+	Count int    `json:"count"`
 }
 
 type SuggestResult struct {
-	Items      []SuggestHit
-	DurationMS int64
-	Metadata   map[string]any
+	Items      []SuggestHit   `json:"items"`
+	DurationMS int64          `json:"duration_ms"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
 type SuggestHit struct {
-	ID       string
-	Type     string
-	Title    string
-	URL      string
-	Locale   string
-	Score    float64
-	Parent   *SearchParent
-	Document *Document
+	ID       string        `json:"id"`
+	Type     string        `json:"type"`
+	Title    string        `json:"title"`
+	URL      string        `json:"url"`
+	Locale   string        `json:"locale"`
+	Score    float64       `json:"score"`
+	Parent   *SearchParent `json:"parent"`
+	Document *Document     `json:"document"`
 }
 
 type HealthStatus struct {
-	Provider  string
-	Healthy   bool
-	CheckedAt time.Time
-	Message   string
-	Indexes   []IndexHealth
-	Metadata  map[string]any
+	Provider  string         `json:"provider"`
+	Healthy   bool           `json:"healthy"`
+	CheckedAt time.Time      `json:"checked_at"`
+	Message   string         `json:"message"`
+	Indexes   []IndexHealth  `json:"indexes"`
+	Metadata  map[string]any `json:"metadata"`
 }
 
 type IndexHealth struct {
-	Name      string
-	Ready     bool
-	Documents int
-	Message   string
-	Metadata  map[string]any
+	Name      string         `json:"name"`
+	Ready     bool           `json:"ready"`
+	Documents int            `json:"documents"`
+	Message   string         `json:"message"`
+	Metadata  map[string]any `json:"metadata"`
 }
 
 type StatsResult struct {
-	Provider     string
-	Capabilities CapabilitySet
-	Indexes      []IndexStats
-	Metadata     map[string]any
+	Provider     string         `json:"provider"`
+	Capabilities CapabilitySet  `json:"capabilities"`
+	Indexes      []IndexStats   `json:"indexes"`
+	Metadata     map[string]any `json:"metadata"`
 }
 
 type IndexStats struct {
-	Name           string
-	Documents      int
-	Generation     int64
-	LastIndexedAt  *time.Time
-	Registered     bool
-	ProviderStatus string
-	Metadata       map[string]any
+	Name           string         `json:"name"`
+	Documents      int            `json:"documents"`
+	Generation     int64          `json:"generation"`
+	LastIndexedAt  *time.Time     `json:"last_indexed_at"`
+	Registered     bool           `json:"registered"`
+	ProviderStatus string         `json:"provider_status"`
+	Metadata       map[string]any `json:"metadata"`
 }
