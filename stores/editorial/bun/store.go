@@ -56,6 +56,38 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	return err
 }
 
+func (s *Store) SetEnabled(ctx context.Context, id string, enabled bool) error {
+	_, err := s.db.NewUpdate().
+		Model((*RuleModel)(nil)).
+		Set("enabled = ?", enabled).
+		Where("id = ?", id).
+		Exec(ctx)
+	return err
+}
+
+func (s *Store) List(ctx context.Context, req types.EditorialRuleListRequest) ([]types.EditorialRankRule, error) {
+	models := []RuleModel{}
+	q := s.db.NewSelect().Model(&models)
+	if req.Enabled != nil {
+		q = q.Where("enabled = ?", *req.Enabled)
+	}
+	if len(req.Indexes) == 1 {
+		q = q.Where("array_length(indexes, 1) IS NULL OR ? = ANY(indexes)", req.Indexes[0])
+	}
+	if req.Locale != "" {
+		q = q.Where("(locale = '' OR locale = ?)", req.Locale)
+	}
+	q = q.OrderExpr("id ASC")
+	if err := q.Scan(ctx); err != nil {
+		return nil, err
+	}
+	out := make([]types.EditorialRankRule, 0, len(models))
+	for _, model := range models {
+		out = append(out, toRule(model))
+	}
+	return out, nil
+}
+
 func (s *Store) ListApplicable(ctx context.Context, req types.SearchRequest) ([]types.EditorialRankRule, error) {
 	models := []RuleModel{}
 	q := s.db.NewSelect().Model(&models).Where("enabled = ?", true)
@@ -74,6 +106,7 @@ func (s *Store) ListApplicable(ctx context.Context, req types.SearchRequest) ([]
 	if req.RankingProfile != "" {
 		q = q.Where("(ranking_profile = '' OR ranking_profile = ?)", req.RankingProfile)
 	}
+	q = q.OrderExpr("id ASC")
 	if err := q.Scan(ctx); err != nil {
 		return nil, err
 	}

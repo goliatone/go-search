@@ -53,6 +53,31 @@ func TestEditorialStoreIntegration(t *testing.T) {
 	if len(rules) == 0 {
 		t.Fatalf("expected editorial rules")
 	}
+	enabled := true
+	rules, err = store.List(ctx, types.EditorialRuleListRequest{
+		Indexes: []string{"media"},
+		Locale:  "en",
+		Enabled: &enabled,
+	})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("expected one listed rule, got %d", len(rules))
+	}
+	if err := store.SetEnabled(ctx, "rule-1", false); err != nil {
+		t.Fatalf("set enabled: %v", err)
+	}
+	rules, err = store.ListApplicable(ctx, types.SearchRequest{
+		Indexes: []string{"media"},
+		Locale:  "en",
+	})
+	if err != nil {
+		t.Fatalf("list applicable after disable: %v", err)
+	}
+	if len(rules) != 0 {
+		t.Fatalf("expected no applicable rules after disable, got %d", len(rules))
+	}
 	if err := store.Delete(ctx, "rule-1"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
