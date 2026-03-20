@@ -2,6 +2,7 @@ package types
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -68,6 +69,43 @@ type EditorialRuleStore interface {
 	ListApplicable(ctx context.Context, req SearchRequest) ([]EditorialRankRule, error)
 	Upsert(ctx context.Context, rule EditorialRankRule) error
 	Delete(ctx context.Context, id string) error
+}
+
+type EditorialRuleAdminStore interface {
+	EditorialRuleStore
+	List(ctx context.Context, req EditorialRuleListRequest) ([]EditorialRankRule, error)
+	SetEnabled(ctx context.Context, id string, enabled bool) error
+}
+
+type EditorialRuleListRequest struct {
+	Indexes []string `json:"indexes"`
+	Locale  string   `json:"locale"`
+	Enabled *bool    `json:"enabled"`
+}
+
+func (EditorialRuleListRequest) Type() string { return "search::list_editorial_rules" }
+
+type UpsertEditorialRuleInput struct {
+	Rule EditorialRankRule `json:"rule"`
+}
+
+func (UpsertEditorialRuleInput) Type() string { return "search::upsert_editorial_rule" }
+
+type DeleteEditorialRuleInput struct {
+	ID string `json:"id"`
+}
+
+func (DeleteEditorialRuleInput) Type() string { return "search::delete_editorial_rule" }
+
+type SetEditorialRuleEnabledInput struct {
+	ID      string `json:"id"`
+	Enabled bool   `json:"enabled"`
+}
+
+func (SetEditorialRuleEnabledInput) Type() string { return "search::set_editorial_rule_enabled" }
+
+func (rule EditorialRankRule) RequiresParentTarget() bool {
+	return strings.TrimSpace(rule.ParentTargetID) == "" && strings.TrimSpace(rule.TargetID) != ""
 }
 
 type GenerationStore interface {
