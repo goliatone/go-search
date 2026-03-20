@@ -2,7 +2,6 @@ package query
 
 import (
 	"context"
-	"time"
 
 	gcommand "github.com/goliatone/go-command"
 	"github.com/goliatone/go-search/internal/errs"
@@ -17,6 +16,7 @@ type SearchConfig struct {
 	Provider      providers.Provider
 	Editorial     types.EditorialRuleStore
 	RankingPolicy ranking.Policy
+	Clock         types.Clock
 }
 
 type Search struct {
@@ -24,6 +24,7 @@ type Search struct {
 	provider      providers.Provider
 	editorial     types.EditorialRuleStore
 	rankingPolicy ranking.Policy
+	clock         types.Clock
 }
 
 var _ gcommand.Querier[types.SearchRequest, types.SearchResultPage] = (*Search)(nil)
@@ -38,11 +39,15 @@ func NewSearch(cfg SearchConfig) (*Search, error) {
 	if cfg.RankingPolicy == nil {
 		cfg.RankingPolicy = ranking.NewDefaultPolicy()
 	}
+	if cfg.Clock == nil {
+		cfg.Clock = types.SystemClock()
+	}
 	return &Search{
 		planner:       cfg.Planner,
 		provider:      cfg.Provider,
 		editorial:     cfg.Editorial,
 		rankingPolicy: cfg.RankingPolicy,
+		clock:         cfg.Clock,
 	}, nil
 }
 
@@ -51,8 +56,7 @@ func (q *Search) Query(ctx context.Context, req types.SearchRequest) (types.Sear
 	if err != nil {
 		return types.SearchResultPage{}, err
 	}
-	page, err := q.provider.Search(ctx, plan.Request)
-	if err != nil {
+	if err := q.planner.ValidateSearchCapabilities(ctx, plan.Request, q.provider); err != nil {
 		return types.SearchResultPage{}, err
 	}
 	rules := []types.EditorialRankRule{}
@@ -62,9 +66,30 @@ func (q *Search) Query(ctx context.Context, req types.SearchRequest) (types.Sear
 			return types.SearchResultPage{}, err
 		}
 	}
-	page, err = q.rankingPolicy.Apply(plan.Request, page, rules, time.Now())
+	requiresPost := requiresPostProcessing(plan.Request, rules, q.planner.ScopeGuard())
+	providerReq := plan.Request
+	if requiresPost {
+		providerReq.Page = 1
+		providerReq.PerPage = 0
+		providerReq.GroupBy = ""
+	}
+	page, err := q.provider.Search(ctx, providerReq)
+	if err != nil {
+		return types.SearchResultPage{}, err
+	}
+	page = filterSearchPage(ctx, plan.Request, page, q.planner.ScopeGuard())
+	if !requiresPost {
+		return page, nil
+	}
+	page.Page = plan.Request.Page
+	page.PerPage = plan.Request.PerPage
+	page, err = q.rankingPolicy.Apply(plan.Request, page, rules, q.clock.Now())
 	if err != nil {
 		return types.SearchResultPage{}, errs.RankingFailure(err, map[string]any{"indexes": req.Indexes})
 	}
 	return page, nil
+}
+
+func requiresPostProcessing(req types.SearchRequest, rules []types.EditorialRankRule, guard types.ScopeGuard) bool {
+	return req.GroupBy != "" || len(rules) > 0 || guard != nil
 }

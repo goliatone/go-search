@@ -26,6 +26,6 @@ func NewHealth(cfg HealthConfig) (*Health, error) {
 	return &Health{provider: cfg.Provider}, nil
 }
 
-func (q *Health) Query(ctx context.Context, _ types.HealthRequest) (types.HealthStatus, error) {
-	return q.provider.Health(ctx)
+func (q *Health) Query(ctx context.Context, req types.HealthRequest) (types.HealthStatus, error) {
+	return q.provider.Health(ctx, req)
 }

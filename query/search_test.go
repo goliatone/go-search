@@ -32,7 +32,7 @@ func TestSearchGroupsAfterEditorialRanking(t *testing.T) {
 	if err := registry.Register(def, nil); err != nil {
 		t.Fatalf("register index: %v", err)
 	}
-	provider := memory.New()
+	provider := memory.New(memory.Config{})
 	if err := provider.EnsureIndex(context.Background(), def); err != nil {
 		t.Fatalf("ensure index: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestSearchGroupsAfterEditorialRanking(t *testing.T) {
 				ParentTargetID: "video-2",
 				Action:         types.EditorialActionPin,
 				Enabled:        true,
-				Position:       ptr(0),
+				Position:       new(0),
 				Scope:          types.EditorialScope{Indexes: []string{"media"}, Locale: "en"},
 			},
 		}},
@@ -126,7 +126,7 @@ func TestSearchRejectsUnsupportedSemanticMode(t *testing.T) {
 	if err := registry.Register(def, nil); err != nil {
 		t.Fatalf("register index: %v", err)
 	}
-	provider := memory.New()
+	provider := memory.New(memory.Config{})
 	if err := provider.EnsureIndex(context.Background(), def); err != nil {
 		t.Fatalf("ensure index: %v", err)
 	}
@@ -151,6 +151,7 @@ func TestSearchRejectsUnsupportedSemanticMode(t *testing.T) {
 	}
 }
 
+//go:fix inline
 func ptr[T any](value T) *T {
-	return &value
+	return new(value)
 }
