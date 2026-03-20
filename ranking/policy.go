@@ -32,10 +32,12 @@ func (p *DefaultPolicy) Apply(req types.SearchRequest, page types.SearchResultPa
 		page.Total = len(allGroups)
 		page.Groups = PaginateGroups(allGroups, req.Page, req.PerPage)
 		page.Hits = FlattenGroupHits(page.Groups)
+		page.Metadata = mergePageRankingMetadata(page.Metadata, page.Hits, page.Groups, rules)
 		return page, nil
 	}
 	page.Total = len(page.Hits)
 	page.Hits = PaginateHits(page.Hits, req.Page, req.PerPage)
+	page.Metadata = mergePageRankingMetadata(page.Metadata, page.Hits, nil, rules)
 	return page, nil
 }
 
@@ -48,21 +50,29 @@ func ApplyRulesToHits(req types.SearchRequest, hits []types.SearchHit, rules []t
 		}
 		hit.FinalScore = evaluation.score
 		hit.Score = evaluation.score
-		if len(evaluation.applied) > 0 || evaluation.pin != nil {
-			if hit.Ranking == nil {
-				hit.Ranking = &types.AppliedRankingSignals{}
+		if hit.Ranking == nil {
+			hit.Ranking = &types.AppliedRankingSignals{}
+		}
+		hit.Ranking.Editorial = evaluation.applied
+		if hit.Ranking.Metadata == nil {
+			hit.Ranking.Metadata = map[string]any{}
+		}
+		hit.Ranking.Metadata["base_score"] = hit.BaseScore
+		hit.Ranking.Metadata["final_score"] = evaluation.score
+		hit.Ranking.Metadata["matched_parent_target"] = evaluation.matchedParentTarget
+		hit.Ranking.Metadata["rule_count"] = len(evaluation.applied)
+		if localeMatch := localeMatchLabel(hit); localeMatch != "" {
+			hit.Ranking.Metadata["locale_match"] = localeMatch
+		}
+		if exactLocale, ok := exactLocaleFlag(hit); ok {
+			hit.Ranking.Metadata["exact_locale"] = exactLocale
+		}
+		if evaluation.pin != nil {
+			if evaluation.pin.Position != nil {
+				hit.Ranking.Metadata["pin_position"] = *evaluation.pin.Position
 			}
-			hit.Ranking.Editorial = evaluation.applied
-			if evaluation.pin != nil {
-				if hit.Ranking.Metadata == nil {
-					hit.Ranking.Metadata = map[string]any{}
-				}
-				if evaluation.pin.Position != nil {
-					hit.Ranking.Metadata["pin_position"] = *evaluation.pin.Position
-				}
-				hit.Ranking.Metadata["pin_rule_id"] = evaluation.pin.ID
-				hit.Ranking.Metadata["pin_specificity"] = evaluation.pinSpecificity
-			}
+			hit.Ranking.Metadata["pin_rule_id"] = evaluation.pin.ID
+			hit.Ranking.Metadata["pin_specificity"] = evaluation.pinSpecificity
 		}
 		out = append(out, hit)
 	}
@@ -102,6 +112,11 @@ func GroupHits(hits []types.SearchHit) []types.SearchGroup {
 			TopHit: &top,
 			Hits:   groupHits,
 			Count:  len(groupHits),
+			Metadata: map[string]any{
+				"top_hit_id":   top.ID,
+				"final_score":  top.FinalScore,
+				"locale_match": localeMatchLabel(top),
+			},
 		}
 		if group.Parent == nil {
 			group.Parent = &types.SearchParent{
@@ -122,11 +137,14 @@ func GroupHits(hits []types.SearchHit) []types.SearchGroup {
 	return groups
 }
 
-func matchesRule(req types.SearchRequest, targetID string, rule types.EditorialRankRule, now time.Time) bool {
+func matchesRule(req types.SearchRequest, targetID string, parentTargetID string, rule types.EditorialRankRule, now time.Time) bool {
 	if !rule.Enabled {
 		return false
 	}
-	if rule.TargetID != "" && rule.TargetID != targetID && rule.ParentTargetID != targetID {
+	if rule.TargetID != "" && rule.TargetID != targetID {
+		return false
+	}
+	if rule.ParentTargetID != "" && rule.ParentTargetID != parentTargetID {
 		return false
 	}
 	if rule.StartsAt != nil && now.Before(*rule.StartsAt) {
@@ -178,6 +196,7 @@ func contains(needles []string, haystack []string) bool {
 type hitEvaluation struct {
 	applied        []types.AppliedEditorialSignal
 	hidden         bool
+	matchedParentTarget string
 	score          float64
 	pin            *types.EditorialRankRule
 	pinSpecificity int
@@ -186,11 +205,13 @@ type hitEvaluation struct {
 func evaluateHit(req types.SearchRequest, hit types.SearchHit, rules []types.EditorialRankRule, now time.Time) hitEvaluation {
 	evaluation := hitEvaluation{score: hit.BaseScore}
 	targetID := hit.ID
+	parentTargetID := hit.ID
 	if hit.Parent != nil && hit.Parent.ID != "" {
-		targetID = hit.Parent.ID
+		parentTargetID = hit.Parent.ID
 	}
+	evaluation.matchedParentTarget = parentTargetID
 	for _, rule := range rules {
-		if !matchesRule(req, targetID, rule, now) {
+		if !matchesRule(req, targetID, parentTargetID, rule, now) {
 			continue
 		}
 		evaluation.applied = append(evaluation.applied, types.AppliedEditorialSignal{
@@ -280,6 +301,12 @@ func compareHits(req types.SearchRequest, left, right types.SearchHit) bool {
 }
 
 func localeRank(req types.SearchRequest, hit types.SearchHit) int {
+	if exact, ok := exactLocaleFlag(hit); ok {
+		if exact {
+			return 0
+		}
+		return 1
+	}
 	if req.Locale == "" || hit.Locale == "" {
 		return 1
 	}
@@ -287,6 +314,33 @@ func localeRank(req types.SearchRequest, hit types.SearchHit) int {
 		return 0
 	}
 	return 1
+}
+
+func exactLocaleFlag(hit types.SearchHit) (bool, bool) {
+	if hit.Retrieval == nil || hit.Retrieval.Metadata == nil {
+		return false, false
+	}
+	raw, ok := hit.Retrieval.Metadata["exact_locale"]
+	if !ok {
+		return false, false
+	}
+	value, ok := raw.(bool)
+	return value, ok
+}
+
+func localeMatchLabel(hit types.SearchHit) string {
+	if hit.Retrieval == nil || hit.Retrieval.Metadata == nil {
+		return ""
+	}
+	raw, ok := hit.Retrieval.Metadata["locale_match"]
+	if !ok {
+		return ""
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	return value
 }
 
 func hitPinPosition(hit types.SearchHit) (int, bool) {
@@ -471,4 +525,28 @@ func FlattenGroupHits(groups []types.SearchGroup) []types.SearchHit {
 		out = append(out, group.Hits...)
 	}
 	return out
+}
+
+func mergePageRankingMetadata(metadata map[string]any, hits []types.SearchHit, groups []types.SearchGroup, rules []types.EditorialRankRule) map[string]any {
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	applied := 0
+	pinned := 0
+	for _, hit := range hits {
+		if hit.Ranking != nil {
+			applied += len(hit.Ranking.Editorial)
+		}
+		if _, ok := hitPinPosition(hit); ok {
+			pinned++
+		}
+	}
+	metadata["ranking"] = map[string]any{
+		"rule_count":         len(rules),
+		"applied_rule_count": applied,
+		"pinned_hit_count":   pinned,
+		"group_count":        len(groups),
+		"hit_count":          len(hits),
+	}
+	return metadata
 }
