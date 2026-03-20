@@ -1,0 +1,83 @@
+{
+  "schema_version": "1",
+  "default_locale": "en",
+  "locales": {
+    "en": {
+      "display_name": "English",
+      "active": true,
+      "metadata": {
+        "search_enabled": true,
+        "analyzer": "english",
+        "semantic_model": "semantic-en",
+        "embedding_strategy": "shared-multilingual",
+        "semantic_enabled": true,
+        "search_labels": {
+          "ui": "English",
+          "index": "archive-en"
+        }
+      }
+    },
+    "es": {
+      "display_name": "Spanish",
+      "active": true,
+      "metadata": {
+        "search_enabled": true,
+        "search_fallbacks": [
+          "en"
+        ],
+        "analyzer": "spanish",
+        "semantic_model": "semantic-es",
+        "embedding_strategy": "shared-multilingual",
+        "semantic_enabled": true,
+        "search_labels": {
+          "ui": "Espanol",
+          "index": "archive-es"
+        }
+      }
+    },
+    "es-419": {
+      "display_name": "Spanish Latin America",
+      "active": true,
+      "fallbacks": [
+        "es",
+        "en"
+      ],
+      "metadata": {
+        "search_enabled": true,
+        "search_fallbacks": [
+          "es",
+          "en"
+        ],
+        "analyzer": "spanish",
+        "semantic_model": "semantic-es-419",
+        "embedding_strategy": "shared-multilingual",
+        "semantic_enabled": true,
+        "search_labels": {
+          "ui": "Spanish LATAM",
+          "index": "archive-es-419"
+        }
+      }
+    },
+    "fr": {
+      "display_name": "French",
+      "active": false,
+      "fallbacks": [
+        "en"
+      ],
+      "metadata": {
+        "search_enabled": false,
+        "search_fallbacks": [
+          "en"
+        ],
+        "analyzer": "french",
+        "semantic_model": "semantic-fr",
+        "embedding_strategy": "shared-multilingual",
+        "semantic_enabled": false,
+        "search_labels": {
+          "ui": "Francais",
+          "index": "archive-fr"
+        }
+      }
+    }
+  }
+}

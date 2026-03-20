@@ -1,0 +1,94 @@
+{
+  "normalization": [
+    {
+      "name": "request-and-cache-key-normalization",
+      "locale": " ES_mx ",
+      "locales": [" es_mx ", "ES", "bo", "es"],
+      "canonical_locale": "es-MX",
+      "canonical_locales": ["es-MX", "es", "bo"],
+      "cache_key_locales": ["bo", "es", "es-MX"]
+    }
+  ],
+  "request_binding": [
+    {
+      "name": "explicit-supported-locale-uses-catalog-match",
+      "requested_locale": " ES_mx ",
+      "default_locale": "en",
+      "scope": "all",
+      "bound_locale": "es-419",
+      "source": "explicit",
+      "supported": true
+    },
+    {
+      "name": "accept-language-default-scope-includes-inactive-locales",
+      "accept_language": "fr-CA,fr;q=0.9,en;q=0.8",
+      "default_locale": "en",
+      "scope": "all",
+      "bound_locale": "fr",
+      "source": "accept_language",
+      "supported": true
+    },
+    {
+      "name": "accept-language-active-only-scope-falls-back-to-active-locale",
+      "accept_language": "fr-CA,fr;q=0.9,en;q=0.8",
+      "default_locale": "en",
+      "scope": "active_only",
+      "bound_locale": "en",
+      "source": "accept_language",
+      "supported": true
+    },
+    {
+      "name": "default-locale-used-when-input-is-empty",
+      "default_locale": "en",
+      "scope": "all",
+      "bound_locale": "en",
+      "source": "default",
+      "supported": false
+    }
+  ],
+  "metadata_decode": [
+    {
+      "name": "consumer-owned-search-metadata",
+      "locale": "es",
+      "expected": {
+        "search_enabled": true,
+        "search_fallbacks": ["en"],
+        "analyzer": "spanish",
+        "semantic_model": "semantic-es",
+        "embedding_strategy": "shared-multilingual",
+        "semantic_enabled": true,
+        "search_labels": {
+          "ui": "Espanol",
+          "index": "archive-es"
+        }
+      }
+    }
+  ],
+  "resolution": [
+    {
+      "name": "explicit-resolution-for-search-planning",
+      "locale": "es-MX",
+      "options": {
+        "default_locale": "en",
+        "match_strategy": "exact_or_parent",
+        "scope": "all",
+        "expand_parents": true,
+        "expand_fallbacks": true,
+        "include_default": true
+      },
+      "expected": {
+        "canonical": "es-MX",
+        "matched": "es-419",
+        "parents": ["es-419", "es"],
+        "fallbacks": ["es", "en"],
+        "default": "en",
+        "chain": ["es-419", "es", "en"]
+      },
+      "origins": {
+        "es-419": "matched",
+        "es": "parent",
+        "en": "fallback"
+      }
+    }
+  ]
+}
