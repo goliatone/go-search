@@ -14,6 +14,7 @@ require (
 
 require (
 	github.com/alecthomas/kong v1.11.0 // indirect
+	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -26,8 +27,11 @@ require (
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-sqlite3 v1.14.34 // indirect
+	github.com/oapi-codegen/runtime v1.1.1 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
+	github.com/sony/gobreaker v1.0.0 // indirect
 	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect
+	github.com/typesense/typesense-go/v3 v3.2.0 // indirect
 	github.com/uptrace/bun/dbfixture v1.2.18 // indirect
 	github.com/uptrace/bun/extra/bundebug v1.2.18 // indirect
 	github.com/uptrace/bun/extra/bunotel v1.2.18 // indirect
@@ -47,6 +51,8 @@ require (
 replace github.com/goliatone/go-command => ../go-command
 
 replace github.com/goliatone/go-errors => ../go-errors
+
+replace github.com/goliatone/go-i18n => ../go-i18n
 
 replace github.com/goliatone/go-repository-bun => ../go-repository-bun
 
