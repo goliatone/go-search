@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/goliatone/go-search/indexing"
+	"github.com/goliatone/go-search/locale"
 	"github.com/goliatone/go-search/pkg/types"
 	"github.com/goliatone/go-search/planner"
 	"github.com/goliatone/go-search/providers/memory"
@@ -148,6 +149,88 @@ func TestSearchRejectsUnsupportedSemanticMode(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("expected unsupported semantic mode error")
+	}
+}
+
+func TestSearchPrefersExactLocaleAndAnnotatesFallbackOrigins(t *testing.T) {
+	registry := indexing.NewRegistry()
+	def := types.IndexDefinition{Name: "media"}
+	if err := registry.Register(def, nil); err != nil {
+		t.Fatalf("register index: %v", err)
+	}
+	provider := memory.New(memory.Config{})
+	if err := provider.EnsureIndex(context.Background(), def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	if err := provider.UpsertDocuments(context.Background(), "media", []types.Document{
+		{
+			ID:     "doc-exact",
+			Index:  "media",
+			Title:  "Oracion exacta",
+			Body:   "prayer in spanish",
+			Locale: "es",
+		},
+		{
+			ID:     "doc-fallback",
+			Index:  "media",
+			Title:  "Fallback prayer",
+			Body:   "prayer in english",
+			Locale: "en",
+		},
+	}); err != nil {
+		t.Fatalf("upsert docs: %v", err)
+	}
+
+	runtime, err := locale.NewI18nRuntimeFromCultureData("../testdata/locale_search_culture.json", "en")
+	if err != nil {
+		t.Fatalf("new locale runtime: %v", err)
+	}
+	p, err := planner.New(planner.Config{
+		Registry:      registry,
+		LocaleRuntime: runtime,
+		LocalePolicy: planner.LocalePolicy{
+			MatchStrategy:   locale.MatchExactOrParent,
+			Scope:           locale.ScopeActiveOnly,
+			ExpandFallbacks: true,
+			IncludeDefault:  true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("new planner: %v", err)
+	}
+	search, err := NewSearch(SearchConfig{Planner: p, Provider: provider})
+	if err != nil {
+		t.Fatalf("new search query: %v", err)
+	}
+
+	page, err := search.Query(context.Background(), types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "prayer",
+		Locale:  "es",
+		Page:    1,
+		PerPage: 10,
+	})
+	if err != nil {
+		t.Fatalf("search query: %v", err)
+	}
+
+	if len(page.Hits) != 2 {
+		t.Fatalf("expected two hits, got %+v", page.Hits)
+	}
+	if page.Hits[0].ID != "doc-exact" {
+		t.Fatalf("expected exact hit first, got %+v", page.Hits)
+	}
+	if page.Hits[0].Retrieval == nil || page.Hits[0].Retrieval.Metadata["locale_match"] != "exact" {
+		t.Fatalf("exact hit metadata = %+v", page.Hits[0].Retrieval)
+	}
+	if origin := page.Hits[0].Retrieval.Metadata["locale_origin"]; origin != "matched" {
+		t.Fatalf("exact hit locale origin = %#v", origin)
+	}
+	if page.Hits[1].Retrieval == nil || page.Hits[1].Retrieval.Metadata["locale_match"] != "fallback" {
+		t.Fatalf("fallback hit metadata = %+v", page.Hits[1].Retrieval)
+	}
+	if origin := page.Hits[1].Retrieval.Metadata["locale_origin"]; origin != "default" {
+		t.Fatalf("fallback hit locale origin = %#v", origin)
 	}
 }
 

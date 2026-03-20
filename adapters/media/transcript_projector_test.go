@@ -64,3 +64,47 @@ chanting prayer
 		t.Fatalf("expected anchored playback url, got %s", doc.AnchorURL)
 	}
 }
+
+func TestTranscriptProjectorCanonicalizesLocaleWrites(t *testing.T) {
+	record := TranscriptRecord{
+		ID: "track-1",
+		Media: MediaRecord{
+			ID:    "video-1",
+			Title: "Ocean Wind",
+			URL:   "https://example.org/videos/ocean-wind",
+			Topic: "archive",
+		},
+		Track: types.TranscriptTrack{
+			MediaID:      "video-1",
+			Locale:       " EN_us ",
+			SourceFormat: "srt",
+			TrackKind:    "translation",
+		},
+		Format: "srt",
+		Content: `1
+00:00:01,000 --> 00:00:02,500
+ocean wind
+`,
+	}
+	projector := NewTranscriptProjector(TranscriptProjectorConfig{
+		Index:        "media",
+		SourceType:   "transcript",
+		MergeVersion: "v1",
+	})
+	docs, err := projector.Project(context.Background(), record)
+	if err != nil {
+		t.Fatalf("project transcript: %v", err)
+	}
+	if len(docs) != 1 {
+		t.Fatalf("expected one document, got %d", len(docs))
+	}
+	if docs[0].Locale != "en-US" {
+		t.Fatalf("document locale = %q", docs[0].Locale)
+	}
+	if got := docs[0].Facets["locale"]; len(got) != 1 || got[0] != "en-US" {
+		t.Fatalf("locale facet = %#v", got)
+	}
+	if got := docs[0].Metadata["track_locale"]; got != "en-US" {
+		t.Fatalf("track locale metadata = %#v", got)
+	}
+}

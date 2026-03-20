@@ -2,9 +2,11 @@ package query
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/goliatone/go-search/indexing"
+	"github.com/goliatone/go-search/locale"
 	"github.com/goliatone/go-search/pkg/types"
 	"github.com/goliatone/go-search/planner"
 	"github.com/goliatone/go-search/providers/memory"
@@ -29,6 +31,11 @@ func (g allowListScopeGuard) AllowDocument(_ context.Context, _ types.ActorRef, 
 
 type capturingSuggestProvider struct {
 	lastSuggest types.SuggestRequest
+}
+
+type capturingSearchProvider struct {
+	lastSearch types.SearchRequest
+	page       types.SearchResultPage
 }
 
 func (p *capturingSuggestProvider) Name() string { return "capture" }
@@ -69,6 +76,78 @@ func (p *capturingSuggestProvider) DeleteBySource(context.Context, string, []str
 func (p *capturingSuggestProvider) Health(context.Context, types.HealthRequest) (types.HealthStatus, error) {
 	return types.HealthStatus{}, nil
 }
+
+func (p *capturingSearchProvider) Name() string { return "capture-search" }
+
+func (p *capturingSearchProvider) Capabilities(context.Context) (types.CapabilitySet, error) {
+	return types.CapabilitySet{SupportedSearchModes: []types.SearchMode{types.SearchModeLexical}}, nil
+}
+
+func (p *capturingSearchProvider) EnsureIndex(context.Context, types.IndexDefinition) error {
+	return nil
+}
+
+func (p *capturingSearchProvider) Search(_ context.Context, req types.SearchRequest) (types.SearchResultPage, error) {
+	p.lastSearch = req
+	return p.page, nil
+}
+
+func (p *capturingSearchProvider) Suggest(context.Context, types.SuggestRequest) (types.SuggestResult, error) {
+	return types.SuggestResult{}, nil
+}
+
+func (p *capturingSearchProvider) UpsertDocuments(context.Context, string, []types.Document) error {
+	return nil
+}
+
+func (p *capturingSearchProvider) ReplaceDocuments(context.Context, string, []string, []types.Document) error {
+	return nil
+}
+
+func (p *capturingSearchProvider) DeleteDocuments(context.Context, string, []string) error {
+	return nil
+}
+
+func (p *capturingSearchProvider) DeleteBySource(context.Context, string, []string) error {
+	return nil
+}
+
+func (p *capturingSearchProvider) Health(context.Context, types.HealthRequest) (types.HealthStatus, error) {
+	return types.HealthStatus{}, nil
+}
+
+type queryLocaleRuntime struct{}
+
+func (queryLocaleRuntime) Normalize(value string) string { return locale.Normalize(value) }
+func (queryLocaleRuntime) NormalizeMany(values []string) []string {
+	return locale.NormalizeMany(values)
+}
+func (queryLocaleRuntime) NormalizeAndSort(values []string) []string {
+	return locale.NormalizeAndSort(values)
+}
+func (queryLocaleRuntime) Match(value string) (string, bool) {
+	if locale.Normalize(value) == "es-MX" {
+		return "es", true
+	}
+	return "", false
+}
+func (queryLocaleRuntime) MatchAcceptLanguage(string) (string, bool) { return "", false }
+func (queryLocaleRuntime) MatchAcceptLanguageWithOptions(string, locale.MatchOptions) (string, bool) {
+	return "", false
+}
+func (queryLocaleRuntime) Resolve(value string, _ locale.ResolveOptions) locale.Resolution {
+	canonical := locale.Normalize(value)
+	if canonical == "es-MX" {
+		return locale.Resolution{
+			Requested: value,
+			Canonical: canonical,
+			Matched:   "es",
+			Chain:     []string{"es"},
+		}
+	}
+	return locale.Resolution{Requested: value, Canonical: canonical, Chain: []string{canonical}}
+}
+func (queryLocaleRuntime) DecodeMetadata(string, any) error { return nil }
 
 func TestSearchFiltersUnauthorizedHitsGroupsAndFacets(t *testing.T) {
 	registry := indexing.NewRegistry()
@@ -238,5 +317,49 @@ func TestSuggestUsesConfiguredScopeGuardOverfetch(t *testing.T) {
 	}
 	if provider.lastSuggest.Limit != 8 {
 		t.Fatalf("expected configured overfetch limit 8, got %d", provider.lastSuggest.Limit)
+	}
+}
+
+func TestSearchUsesPlannerCompiledLocaleRequest(t *testing.T) {
+	registry := indexing.NewRegistry()
+	def := types.IndexDefinition{Name: "media"}
+	if err := registry.Register(def, nil); err != nil {
+		t.Fatalf("register index: %v", err)
+	}
+	p, err := planner.New(planner.Config{
+		Registry:      registry,
+		LocaleRuntime: queryLocaleRuntime{},
+	})
+	if err != nil {
+		t.Fatalf("new planner: %v", err)
+	}
+	provider := &capturingSearchProvider{
+		page: types.SearchResultPage{
+			Hits: []types.SearchHit{{ID: "doc-1", Locale: "es"}},
+		},
+	}
+	search, err := NewSearch(SearchConfig{Planner: p, Provider: provider})
+	if err != nil {
+		t.Fatalf("new search query: %v", err)
+	}
+	page, err := search.Query(context.Background(), types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "prayer",
+		Locale:  " ES_mx ",
+		Locales: []string{"BO", "es"},
+		Page:    1,
+		PerPage: 10,
+	})
+	if err != nil {
+		t.Fatalf("search query: %v", err)
+	}
+	if provider.lastSearch.Locale != "es" {
+		t.Fatalf("provider locale = %q", provider.lastSearch.Locale)
+	}
+	if !reflect.DeepEqual(provider.lastSearch.Locales, []string{"bo"}) {
+		t.Fatalf("provider locales = %#v", provider.lastSearch.Locales)
+	}
+	if page.Hits[0].Retrieval == nil || page.Hits[0].Retrieval.Metadata["locale_match"] != "exact" {
+		t.Fatalf("expected locale annotation on result hit, got %+v", page.Hits[0].Retrieval)
 	}
 }
