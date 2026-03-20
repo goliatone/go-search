@@ -67,7 +67,7 @@ func (q *Search) Query(ctx context.Context, req types.SearchRequest) (types.Sear
 		}
 	}
 	requiresPost := requiresPostProcessing(plan.Request, rules, q.planner.ScopeGuard())
-	providerReq := plan.Request
+	providerReq := plan.ProviderRequest()
 	if requiresPost {
 		providerReq.Page = 1
 		providerReq.PerPage = 0
@@ -77,6 +77,7 @@ func (q *Search) Query(ctx context.Context, req types.SearchRequest) (types.Sear
 	if err != nil {
 		return types.SearchResultPage{}, err
 	}
+	page = annotateSearchPageLocales(page, plan.Locale)
 	page = filterSearchPage(ctx, plan.Request, page, q.planner.ScopeGuard())
 	if !requiresPost {
 		return page, nil

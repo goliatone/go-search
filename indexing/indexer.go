@@ -2,7 +2,6 @@ package indexing
 
 import (
 	"context"
-	"time"
 
 	"github.com/goliatone/go-search/internal/errs"
 	"github.com/goliatone/go-search/pkg/types"
@@ -10,19 +9,25 @@ import (
 )
 
 type Indexer struct {
-	registry   *Registry
-	provider   providers.Provider
-	progress   types.ProgressReporter
-	activities []types.ActivityHook
-	metrics    []types.MetricsHook
+	registry         *Registry
+	provider         providers.Provider
+	generationStore  types.GenerationStore
+	progress         types.ProgressReporter
+	activities       []types.ActivityHook
+	metrics          []types.MetricsHook
+	defaultBatchSize int
+	clock            types.Clock
 }
 
 type IndexerConfig struct {
-	Registry   *Registry
-	Provider   providers.Provider
-	Progress   types.ProgressReporter
-	Activities []types.ActivityHook
-	Metrics    []types.MetricsHook
+	Registry         *Registry
+	Provider         providers.Provider
+	GenerationStore  types.GenerationStore
+	Progress         types.ProgressReporter
+	Activities       []types.ActivityHook
+	Metrics          []types.MetricsHook
+	DefaultBatchSize int
+	Clock            types.Clock
 }
 
 func NewIndexer(cfg IndexerConfig) (*Indexer, error) {
@@ -32,50 +37,35 @@ func NewIndexer(cfg IndexerConfig) (*Indexer, error) {
 	if cfg.Provider == nil {
 		return nil, errs.ConfigurationError("provider is required", nil)
 	}
+	if cfg.DefaultBatchSize <= 0 {
+		cfg.DefaultBatchSize = 50
+	}
+	if cfg.Clock == nil {
+		cfg.Clock = types.SystemClock()
+	}
 	return &Indexer{
-		registry:   cfg.Registry,
-		provider:   cfg.Provider,
-		progress:   cfg.Progress,
-		activities: cfg.Activities,
-		metrics:    cfg.Metrics,
+		registry:         cfg.Registry,
+		provider:         cfg.Provider,
+		generationStore:  cfg.GenerationStore,
+		progress:         cfg.Progress,
+		activities:       cfg.Activities,
+		metrics:          cfg.Metrics,
+		defaultBatchSize: cfg.DefaultBatchSize,
+		clock:            cfg.Clock,
 	}, nil
 }
 
 func (i *Indexer) IndexRecord(ctx context.Context, index, recordID string) ([]types.Document, error) {
-	indexer, err := i.registry.MustIndexer(index)
-	if err != nil {
-		return nil, err
-	}
-	docs, err := indexer.IndexRecord(ctx, recordID)
-	if err != nil {
-		return nil, errs.ProjectorFailure(err, map[string]any{"index": index, "record_id": recordID})
-	}
-	if err := i.provider.UpsertDocuments(ctx, index, docs); err != nil {
-		return nil, err
-	}
-	i.emitActivity(ctx, "indexed", indexer.SourceType(), recordID, map[string]any{"documents": len(docs), "index": index})
-	return docs, nil
+	return i.indexRecord(ctx, index, recordID, true, true)
 }
 
 func (i *Indexer) DeleteRecord(ctx context.Context, index, recordID string) error {
-	indexer, err := i.registry.MustIndexer(index)
-	if err != nil {
-		return err
-	}
-	sourceIDs, err := indexer.DeleteSourceIDs(ctx, recordID)
-	if err != nil {
-		return err
-	}
-	if err := i.provider.DeleteBySource(ctx, index, sourceIDs); err != nil {
-		return err
-	}
-	i.emitActivity(ctx, "deleted", indexer.SourceType(), recordID, map[string]any{"index": index})
-	return nil
+	return i.deleteRecord(ctx, index, recordID, true, true)
 }
 
 func (i *Indexer) ReindexIndex(ctx context.Context, index string, batchSize int) error {
 	if batchSize <= 0 {
-		batchSize = 50
+		batchSize = i.defaultBatchSize
 	}
 	indexer, err := i.registry.MustIndexer(index)
 	if err != nil {
@@ -89,7 +79,7 @@ func (i *Indexer) ReindexIndex(ctx context.Context, index string, batchSize int)
 			return err
 		}
 		for _, id := range ids {
-			if _, err := i.IndexRecord(ctx, index, id); err != nil {
+			if _, err := i.indexRecord(ctx, index, id, false, false); err != nil {
 				return err
 			}
 			total++
@@ -102,8 +92,69 @@ func (i *Indexer) ReindexIndex(ctx context.Context, index string, batchSize int)
 		}
 		cursor = next
 	}
+	if err := i.bumpGeneration(ctx, index); err != nil {
+		return err
+	}
 	i.emitActivity(ctx, "reindexed", indexer.SourceType(), index, map[string]any{"index": index, "documents": total})
 	return nil
+}
+
+func (i *Indexer) indexRecord(ctx context.Context, index, recordID string, emitActivity bool, bumpGeneration bool) ([]types.Document, error) {
+	indexer, err := i.registry.MustIndexer(index)
+	if err != nil {
+		return nil, err
+	}
+	docs, err := indexer.IndexRecord(ctx, recordID)
+	if err != nil {
+		return nil, errs.ProjectorFailure(err, map[string]any{"index": index, "record_id": recordID})
+	}
+	sourceIDs, err := indexer.DeleteSourceIDs(ctx, recordID)
+	if err != nil {
+		return nil, err
+	}
+	if err := i.provider.ReplaceDocuments(ctx, index, sourceIDs, docs); err != nil {
+		return nil, err
+	}
+	if bumpGeneration {
+		if err := i.bumpGeneration(ctx, index); err != nil {
+			return nil, err
+		}
+	}
+	if emitActivity {
+		i.emitActivity(ctx, "indexed", indexer.SourceType(), recordID, map[string]any{"documents": len(docs), "index": index})
+	}
+	return docs, nil
+}
+
+func (i *Indexer) deleteRecord(ctx context.Context, index, recordID string, emitActivity bool, bumpGeneration bool) error {
+	indexer, err := i.registry.MustIndexer(index)
+	if err != nil {
+		return err
+	}
+	sourceIDs, err := indexer.DeleteSourceIDs(ctx, recordID)
+	if err != nil {
+		return err
+	}
+	if err := i.provider.DeleteBySource(ctx, index, sourceIDs); err != nil {
+		return err
+	}
+	if bumpGeneration {
+		if err := i.bumpGeneration(ctx, index); err != nil {
+			return err
+		}
+	}
+	if emitActivity {
+		i.emitActivity(ctx, "deleted", indexer.SourceType(), recordID, map[string]any{"index": index})
+	}
+	return nil
+}
+
+func (i *Indexer) bumpGeneration(ctx context.Context, index string) error {
+	if i.generationStore == nil || index == "" {
+		return nil
+	}
+	_, err := i.generationStore.Bump(ctx, index)
+	return err
 }
 
 func (i *Indexer) emitActivity(ctx context.Context, verb, objectType, objectID string, metadata map[string]any) {
@@ -115,7 +166,7 @@ func (i *Indexer) emitActivity(ctx context.Context, verb, objectType, objectID s
 		Verb:       verb,
 		ObjectType: objectType,
 		ObjectID:   objectID,
-		OccurredAt: time.Now().UnixMilli(),
+		OccurredAt: i.clock.Now().UnixMilli(),
 		Metadata:   metadata,
 	}
 	for _, hook := range i.activities {

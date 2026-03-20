@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
+	"github.com/goliatone/go-search/internal/errs"
 	"github.com/goliatone/go-search/pkg/types"
 	"github.com/goliatone/go-search/ranking"
 )
@@ -18,12 +18,21 @@ type Provider struct {
 	mu      sync.RWMutex
 	indexes map[string]types.IndexDefinition
 	docs    map[string]map[string]types.Document
+	clock   types.Clock
 }
 
-func New() *Provider {
+type Config struct {
+	Clock types.Clock
+}
+
+func New(cfg Config) *Provider {
+	if cfg.Clock == nil {
+		cfg.Clock = types.SystemClock()
+	}
 	return &Provider{
 		indexes: map[string]types.IndexDefinition{},
 		docs:    map[string]map[string]types.Document{},
+		clock:   cfg.Clock,
 	}
 }
 
@@ -63,6 +72,30 @@ func (p *Provider) UpsertDocuments(_ context.Context, index string, docs []types
 	return nil
 }
 
+func (p *Provider) ReplaceDocuments(_ context.Context, index string, sourceIDs []string, docs []types.Document) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if _, ok := p.docs[index]; !ok {
+		p.docs[index] = map[string]types.Document{}
+	}
+	sourceSet := map[string]struct{}{}
+	for _, id := range sourceIDs {
+		sourceSet[id] = struct{}{}
+	}
+	if len(sourceSet) > 0 {
+		for id, doc := range p.docs[index] {
+			if _, ok := sourceSet[doc.SourceID]; ok {
+				delete(p.docs[index], id)
+			}
+		}
+	}
+	for _, doc := range docs {
+		doc.Index = index
+		p.docs[index][doc.ID] = doc.Clone()
+	}
+	return nil
+}
+
 func (p *Provider) DeleteDocuments(_ context.Context, index string, ids []string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -90,28 +123,31 @@ func (p *Provider) DeleteBySource(_ context.Context, index string, sourceIDs []s
 func (p *Provider) Search(_ context.Context, req types.SearchRequest) (types.SearchResultPage, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	started := time.Now()
+	if err := validateSearchRequest(req); err != nil {
+		return types.SearchResultPage{}, err
+	}
+	started := p.clock.Now()
 	hits := []types.SearchHit{}
 	for _, index := range req.Indexes {
 		for _, doc := range p.docs[index] {
-			if !matchesLocale(req, doc) || !matchesFilter(req.Filters, doc) {
+			if !matchesScope(req.Scope, doc) || !matchesLocale(req, doc) || !matchesFilter(req.Filters, doc) {
 				continue
 			}
 			score, ok := scoreDocument(req.Query, doc)
 			if !ok {
 				continue
 			}
-			hits = append(hits, toHit(doc, score))
+			hits = append(hits, toHit(doc, score, req))
 		}
 	}
-	sortHits(hits, req.Sort)
+	sortHits(hits, req)
 	page := types.SearchResultPage{
 		Hits:       paginateHits(hits, req.Page, req.PerPage),
 		Facets:     buildFacets(req, hits),
 		Page:       req.Page,
 		PerPage:    req.PerPage,
 		Total:      len(hits),
-		DurationMS: time.Since(started).Milliseconds(),
+		DurationMS: p.clock.Now().Sub(started).Milliseconds(),
 	}
 	if req.GroupBy != "" {
 		page.Groups = paginateGroups(ranking.GroupHits(hits), req.Page, req.PerPage)
@@ -125,25 +161,24 @@ func (p *Provider) Suggest(_ context.Context, req types.SuggestRequest) (types.S
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	items := []types.SuggestHit{}
+	seen := map[string]struct{}{}
 	for _, index := range req.Indexes {
 		for _, doc := range p.docs[index] {
-			if req.Locale != "" && doc.Locale != "" && req.Locale != doc.Locale {
+			if !matchesScope(req.Scope, doc) {
 				continue
 			}
-			if req.PreferParent && doc.ParentID != "" {
+			if req.Locale != "" && doc.Locale != "" && req.Locale != doc.Locale {
 				continue
 			}
 			if !strings.Contains(strings.ToLower(doc.Title), strings.ToLower(req.Query)) {
 				continue
 			}
-			items = append(items, types.SuggestHit{
-				ID:     doc.ID,
-				Type:   doc.Type,
-				Title:  doc.Title,
-				URL:    doc.URL,
-				Locale: doc.Locale,
-				Score:  1,
-			})
+			item := suggestHit(doc, req.PreferParent)
+			if _, ok := seen[item.ID]; ok {
+				continue
+			}
+			seen[item.ID] = struct{}{}
+			items = append(items, item)
 		}
 	}
 	sort.SliceStable(items, func(i, j int) bool {
@@ -158,29 +193,82 @@ func (p *Provider) Suggest(_ context.Context, req types.SuggestRequest) (types.S
 	return types.SuggestResult{Items: items}, nil
 }
 
-func (p *Provider) Health(_ context.Context) (types.HealthStatus, error) {
+func (p *Provider) Health(_ context.Context, req types.HealthRequest) (types.HealthStatus, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	indexes := make([]types.IndexHealth, 0, len(p.docs))
+	requested := make(map[string]struct{}, len(req.Indexes))
+	for _, name := range req.Indexes {
+		requested[name] = struct{}{}
+	}
 	for name, docs := range p.docs {
+		if len(requested) > 0 {
+			if _, ok := requested[name]; !ok {
+				continue
+			}
+		}
 		indexes = append(indexes, types.IndexHealth{Name: name, Ready: true, Documents: len(docs)})
 	}
+	sort.SliceStable(indexes, func(i, j int) bool {
+		return indexes[i].Name < indexes[j].Name
+	})
 	return types.HealthStatus{
 		Provider:  p.Name(),
 		Healthy:   true,
-		CheckedAt: time.Now(),
+		CheckedAt: p.clock.Now(),
 		Indexes:   indexes,
 	}, nil
 }
 
 func matchesLocale(req types.SearchRequest, doc types.Document) bool {
-	if req.Locale != "" && doc.Locale != "" && req.Locale != doc.Locale {
-		return false
-	}
-	if len(req.Locales) == 0 || doc.Locale == "" {
+	if req.Locale == "" && len(req.Locales) == 0 {
 		return true
 	}
+	if doc.Locale == "" {
+		return true
+	}
+	if req.Locale != "" && strings.EqualFold(req.Locale, doc.Locale) {
+		return true
+	}
+	if len(req.Locales) == 0 {
+		return false
+	}
 	return slices.Contains(req.Locales, doc.Locale)
+}
+
+func localeMatchLabel(req types.SearchRequest, got string) string {
+	switch {
+	case strings.TrimSpace(got) == "":
+		return "any"
+	case isExactLocaleMatch(req.Locale, got):
+		return "exact"
+	case slices.Contains(req.Locales, got):
+		return "fallback"
+	default:
+		return "none"
+	}
+}
+
+func isExactLocaleMatch(requested, got string) bool {
+	if strings.TrimSpace(requested) == "" || strings.TrimSpace(got) == "" {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(requested), strings.TrimSpace(got))
+}
+
+func matchesScope(scope types.Scope, doc types.Document) bool {
+	if scope.TenantID != "" && doc.Scope.TenantID != "" && scope.TenantID != doc.Scope.TenantID {
+		return false
+	}
+	if scope.OrgID != "" && doc.Scope.OrgID != "" && scope.OrgID != doc.Scope.OrgID {
+		return false
+	}
+	for key, want := range scope.Labels {
+		if got, ok := doc.Scope.Labels[key]; !ok || got != want {
+			return false
+		}
+	}
+	return true
 }
 
 func matchesFilter(expr types.FilterExpr, doc types.Document) bool {
@@ -233,6 +321,18 @@ func termMatches(term types.TermExpr, doc types.Document) bool {
 			values = []string{strings.TrimSpace(toString(field))}
 		}
 	}
+	switch term.Op {
+	case types.FilterOpNEQ:
+		want := strings.TrimSpace(strings.ToLower(toString(term.Value)))
+		for _, value := range values {
+			if strings.EqualFold(strings.TrimSpace(value), want) {
+				return false
+			}
+		}
+		return len(values) > 0
+	case types.FilterOpIn:
+		return inMatches(values, term.Value)
+	}
 	want := strings.TrimSpace(strings.ToLower(toString(term.Value)))
 	for _, value := range values {
 		got := strings.ToLower(strings.TrimSpace(value))
@@ -241,18 +341,32 @@ func termMatches(term types.TermExpr, doc types.Document) bool {
 			if got == want {
 				return true
 			}
-		case types.FilterOpNEQ:
-			if got != want {
-				return true
-			}
 		case types.FilterOpContains:
 			if strings.Contains(got, want) {
 				return true
 			}
-		case types.FilterOpIn:
-			if got == want {
-				return true
-			}
+		}
+	}
+	return false
+}
+
+func inMatches(values []string, raw any) bool {
+	wanted := map[string]struct{}{}
+	switch list := raw.(type) {
+	case []string:
+		for _, item := range list {
+			wanted[strings.ToLower(strings.TrimSpace(item))] = struct{}{}
+		}
+	case []any:
+		for _, item := range list {
+			wanted[strings.ToLower(strings.TrimSpace(toString(item)))] = struct{}{}
+		}
+	default:
+		wanted[strings.ToLower(strings.TrimSpace(toString(raw)))] = struct{}{}
+	}
+	for _, value := range values {
+		if _, ok := wanted[strings.ToLower(strings.TrimSpace(value))]; ok {
+			return true
 		}
 	}
 	return false
@@ -294,7 +408,7 @@ func scoreDocument(query string, doc types.Document) (float64, bool) {
 	return score, true
 }
 
-func toHit(doc types.Document, score float64) types.SearchHit {
+func toHit(doc types.Document, score float64, req types.SearchRequest) types.SearchHit {
 	hit := types.SearchHit{
 		ID:         doc.ID,
 		Type:       doc.Type,
@@ -307,14 +421,20 @@ func toHit(doc types.Document, score float64) types.SearchHit {
 		FinalScore: score,
 		Fields:     cloneMap(doc.Fields),
 		Document:   &doc,
+		Retrieval: &types.AppliedRetrievalSignals{
+			Mode:          types.SearchModeLexical,
+			ProviderScore: &score,
+			LexicalScore:  &score,
+			Metadata: map[string]any{
+				"locale_match":   localeMatchLabel(req, doc.Locale),
+				"exact_locale":   isExactLocaleMatch(req.Locale, doc.Locale),
+				"memory_hit":     true,
+				"transcript_hit": doc.Type == types.DocumentTypeTranscriptSegment,
+			},
+		},
 	}
 	if doc.ParentID != "" {
-		hit.Parent = &types.SearchParent{
-			ID:    doc.ParentID,
-			Type:  types.DocumentTypeVideo,
-			Title: doc.Title,
-			URL:   doc.URL,
-		}
+		hit.Parent = searchParent(doc)
 	}
 	if doc.StartMS != nil && doc.EndMS != nil {
 		hit.Anchor = &types.MediaAnchor{
@@ -395,17 +515,20 @@ func flattenGroupHits(groups []types.SearchGroup) []types.SearchHit {
 	return out
 }
 
-func sortHits(hits []types.SearchHit, sorts []types.Sort) {
-	if len(sorts) == 0 {
-		sort.SliceStable(hits, func(i, j int) bool {
+func sortHits(hits []types.SearchHit, req types.SearchRequest) {
+	sorts := req.Sort
+	sort.SliceStable(hits, func(i, j int) bool {
+		leftExact := isExactLocaleMatch(req.Locale, hits[i].Locale)
+		rightExact := isExactLocaleMatch(req.Locale, hits[j].Locale)
+		if leftExact != rightExact {
+			return leftExact
+		}
+		if len(sorts) == 0 {
 			if hits[i].FinalScore == hits[j].FinalScore {
 				return hits[i].ID < hits[j].ID
 			}
 			return hits[i].FinalScore > hits[j].FinalScore
-		})
-		return
-	}
-	sort.SliceStable(hits, func(i, j int) bool {
+		}
 		for _, s := range sorts {
 			left := fieldValue(hits[i], s.Field)
 			right := fieldValue(hits[j], s.Field)
@@ -451,4 +574,65 @@ func cloneMap(in map[string]any) map[string]any {
 	out := make(map[string]any, len(in))
 	maps.Copy(out, in)
 	return out
+}
+
+func validateSearchRequest(req types.SearchRequest) error {
+	switch req.Mode {
+	case "", types.SearchModeLexical:
+		return nil
+	case types.SearchModeSemantic:
+		return errs.UnsupportedCapability("semantic_search", map[string]any{"mode": req.Mode})
+	case types.SearchModeHybrid:
+		return errs.UnsupportedCapability("hybrid_search", map[string]any{"mode": req.Mode})
+	default:
+		return errs.UnsupportedCapability("search_mode", map[string]any{"mode": req.Mode})
+	}
+}
+
+func suggestHit(doc types.Document, preferParent bool) types.SuggestHit {
+	parent := searchParent(doc)
+	if preferParent && parent != nil {
+		return types.SuggestHit{
+			ID:       parent.ID,
+			Type:     parent.Type,
+			Title:    parent.Title,
+			URL:      parent.URL,
+			Locale:   doc.Locale,
+			Score:    1,
+			Parent:   parent,
+			Document: &doc,
+		}
+	}
+	return types.SuggestHit{
+		ID:       doc.ID,
+		Type:     doc.Type,
+		Title:    doc.Title,
+		URL:      doc.URL,
+		Locale:   doc.Locale,
+		Score:    1,
+		Parent:   parent,
+		Document: &doc,
+	}
+}
+
+func searchParent(doc types.Document) *types.SearchParent {
+	if doc.ParentID == "" {
+		return nil
+	}
+	parent := &types.SearchParent{
+		ID:    doc.ParentID,
+		Type:  types.DocumentTypeVideo,
+		Title: doc.Title,
+		URL:   doc.URL,
+	}
+	if title, ok := doc.Fields["parent_title"]; ok && strings.TrimSpace(toString(title)) != "" {
+		parent.Title = toString(title)
+	}
+	if url, ok := doc.Fields["parent_url"]; ok && strings.TrimSpace(toString(url)) != "" {
+		parent.URL = toString(url)
+	}
+	if thumbnail, ok := doc.Fields["parent_thumbnail"]; ok {
+		parent.Thumbnail = toString(thumbnail)
+	}
+	return parent
 }

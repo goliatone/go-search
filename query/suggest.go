@@ -52,7 +52,7 @@ func (q *Suggest) Query(ctx context.Context, req types.SuggestRequest) (types.Su
 	if err != nil {
 		return types.SuggestResult{}, err
 	}
-	providerReq := plan.Request
+	providerReq := plan.ProviderRequest()
 	if q.planner.ScopeGuard() != nil {
 		providerReq.Limit = max(plan.Request.Limit*q.scopeGuardFetchMultiplier, q.minimumScopeFetchSize)
 	}
@@ -61,11 +61,4 @@ func (q *Suggest) Query(ctx context.Context, req types.SuggestRequest) (types.Su
 		return types.SuggestResult{}, err
 	}
 	return filterSuggestResult(ctx, plan.Request.Actor, result, q.planner.ScopeGuard(), plan.Request.Limit), nil
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

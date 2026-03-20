@@ -19,7 +19,7 @@ func RunContractSuite(t *testing.T, factory Factory) {
 		if err := provider.EnsureIndex(ctx, def); err != nil {
 			t.Fatalf("ensure index: %v", err)
 		}
-		health, err := provider.Health(ctx)
+		health, err := provider.Health(ctx, types.HealthRequest{})
 		if err != nil {
 			t.Fatalf("health: %v", err)
 		}

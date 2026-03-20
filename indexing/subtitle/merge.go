@@ -3,9 +3,11 @@ package subtitle
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"fmt"
 	"strconv"
 	"strings"
 
+	"github.com/goliatone/go-search/locale"
 	"github.com/goliatone/go-search/pkg/types"
 )
 
@@ -15,13 +17,16 @@ type MergeConfig struct {
 	Version       string
 }
 
+func DefaultMergeConfig() MergeConfig {
+	return MergeConfig{
+		MaxCharacters: 280,
+		MaxGapMS:      1500,
+		Version:       "v1",
+	}
+}
+
 func MergeCues(cues []Cue, cfg MergeConfig) []Cue {
-	if cfg.MaxCharacters <= 0 {
-		cfg.MaxCharacters = 280
-	}
-	if cfg.MaxGapMS <= 0 {
-		cfg.MaxGapMS = 1500
-	}
+	cfg = normalizeMergeConfig(cfg)
 	if len(cues) == 0 {
 		return nil
 	}
@@ -41,11 +46,26 @@ func MergeCues(cues []Cue, cfg MergeConfig) []Cue {
 	return out
 }
 
-func SegmentDocumentID(sourceType, sourceID, locale, version string, cue Cue) string {
+func normalizeMergeConfig(cfg MergeConfig) MergeConfig {
+	out := DefaultMergeConfig()
+	if cfg.MaxCharacters > 0 {
+		out.MaxCharacters = cfg.MaxCharacters
+	}
+	if cfg.MaxGapMS > 0 {
+		out.MaxGapMS = cfg.MaxGapMS
+	}
+	if cfg.Version != "" {
+		out.Version = cfg.Version
+	}
+	return out
+}
+
+func SegmentDocumentID(sourceType, sourceID, localeCode, version string, cue Cue) string {
+	localeCode = locale.Normalize(localeCode)
 	sum := sha1.Sum([]byte(strings.Join([]string{
 		sourceType,
 		sourceID,
-		locale,
+		localeCode,
 		version,
 		strconv.FormatInt(cue.Start, 10),
 		strconv.FormatInt(cue.End, 10),
@@ -58,7 +78,7 @@ func AnchorForCue(parentID string, cue Cue, baseURL string) types.MediaAnchor {
 		ParentID: parentID,
 		StartMS:  cue.Start,
 		EndMS:    cue.End,
-		URL:      baseURL,
+		URL:      fmt.Sprintf("%s#t=%d", strings.TrimSpace(baseURL), cue.Start/1000),
 		Label:    cue.Text,
 	}
 }

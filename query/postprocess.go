@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/goliatone/go-search/pkg/types"
+	"github.com/goliatone/go-search/planner"
 )
 
 func filterSearchPage(ctx context.Context, req types.SearchRequest, page types.SearchResultPage, guard types.ScopeGuard) types.SearchResultPage {
@@ -121,4 +122,44 @@ func limitSuggests(result types.SuggestResult, limit int) types.SuggestResult {
 		result.Items = result.Items[:limit]
 	}
 	return result
+}
+
+func annotateSearchPageLocales(page types.SearchResultPage, localePlan planner.LocalePlan) types.SearchResultPage {
+	for i := range page.Hits {
+		annotateHitLocale(&page.Hits[i], localePlan)
+	}
+	for i := range page.Groups {
+		for j := range page.Groups[i].Hits {
+			annotateHitLocale(&page.Groups[i].Hits[j], localePlan)
+		}
+		if page.Groups[i].TopHit != nil {
+			top := *page.Groups[i].TopHit
+			annotateHitLocale(&top, localePlan)
+			page.Groups[i].TopHit = &top
+		}
+	}
+	return page
+}
+
+func annotateHitLocale(hit *types.SearchHit, localePlan planner.LocalePlan) {
+	if hit == nil {
+		return
+	}
+	if hit.Retrieval == nil {
+		hit.Retrieval = &types.AppliedRetrievalSignals{Metadata: map[string]any{}}
+	}
+	if hit.Retrieval.Metadata == nil {
+		hit.Retrieval.Metadata = map[string]any{}
+	}
+	if _, ok := hit.Retrieval.Metadata["locale_match"]; !ok {
+		hit.Retrieval.Metadata["locale_match"] = localePlan.MatchLabel(hit.Locale)
+	}
+	if _, ok := hit.Retrieval.Metadata["exact_locale"]; !ok {
+		hit.Retrieval.Metadata["exact_locale"] = localePlan.IsExact(hit.Locale)
+	}
+	if _, ok := hit.Retrieval.Metadata["locale_origin"]; !ok {
+		if origin := localePlan.Origin(hit.Locale); origin != "" {
+			hit.Retrieval.Metadata["locale_origin"] = origin
+		}
+	}
 }
