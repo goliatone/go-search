@@ -96,7 +96,7 @@ func (r *Registration[T]) ListRecordIDs(ctx context.Context, limit int, cursor s
 
 func recordID[T any](record T) string {
 	value := reflect.ValueOf(record)
-	if value.Kind() == reflect.Ptr && !value.IsNil() {
+	if value.Kind() == reflect.Pointer && !value.IsNil() {
 		value = value.Elem()
 	}
 	if value.Kind() == reflect.Struct {

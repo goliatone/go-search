@@ -1,5 +1,7 @@
 package types
 
+import "maps"
+
 import "time"
 
 const (
@@ -72,9 +74,7 @@ func cloneMap[T any](in map[string]T) map[string]T {
 		return nil
 	}
 	out := make(map[string]T, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 

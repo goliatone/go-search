@@ -36,10 +36,7 @@ func (s *TranscriptSource) List(_ context.Context, limit int, cursor string) ([]
 	if limit <= 0 {
 		limit = len(s.order)
 	}
-	end := start + limit
-	if end > len(s.order) {
-		end = len(s.order)
-	}
+	end := min(start+limit, len(s.order))
 	out := make([]TranscriptRecord, 0, end-start)
 	for _, id := range s.order[start:end] {
 		out = append(out, s.records[id])

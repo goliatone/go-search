@@ -1,6 +1,7 @@
 package subtitle
 
 import (
+	"maps"
 	"strings"
 
 	"github.com/goliatone/go-search/pkg/types"
@@ -56,8 +57,6 @@ func clone(in map[string]any) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }

@@ -2,6 +2,7 @@ package errs
 
 import (
 	stderrors "errors"
+	"maps"
 	"net/http"
 
 	goerrors "github.com/goliatone/go-errors"
@@ -94,11 +95,7 @@ func merge(base map[string]any, extra map[string]any) map[string]any {
 		return nil
 	}
 	out := map[string]any{}
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range extra {
-		out[k] = v
-	}
+	maps.Copy(out, base)
+	maps.Copy(out, extra)
 	return out
 }

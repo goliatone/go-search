@@ -3,6 +3,8 @@ package memory
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -178,12 +180,7 @@ func matchesLocale(req types.SearchRequest, doc types.Document) bool {
 	if len(req.Locales) == 0 || doc.Locale == "" {
 		return true
 	}
-	for _, locale := range req.Locales {
-		if locale == doc.Locale {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(req.Locales, doc.Locale)
 }
 
 func matchesFilter(expr types.FilterExpr, doc types.Document) bool {
@@ -374,10 +371,7 @@ func paginateHits(hits []types.SearchHit, page, perPage int) []types.SearchHit {
 	if start >= len(hits) || start < 0 {
 		return nil
 	}
-	end := start + perPage
-	if end > len(hits) {
-		end = len(hits)
-	}
+	end := min(start+perPage, len(hits))
 	return hits[start:end]
 }
 
@@ -389,10 +383,7 @@ func paginateGroups(groups []types.SearchGroup, page, perPage int) []types.Searc
 	if start >= len(groups) || start < 0 {
 		return nil
 	}
-	end := start + perPage
-	if end > len(groups) {
-		end = len(groups)
-	}
+	end := min(start+perPage, len(groups))
 	return groups[start:end]
 }
 
@@ -458,8 +449,6 @@ func cloneMap(in map[string]any) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }

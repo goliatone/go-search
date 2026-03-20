@@ -1,6 +1,7 @@
 package ranking
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -170,10 +171,8 @@ func matchesRule(req types.SearchRequest, targetID string, rule types.EditorialR
 
 func contains(needles []string, haystack []string) bool {
 	for _, n := range needles {
-		for _, h := range haystack {
-			if n == h {
-				return true
-			}
+		if slices.Contains(haystack, n) {
+			return true
 		}
 	}
 	return len(needles) == 0

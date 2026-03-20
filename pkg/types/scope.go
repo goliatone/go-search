@@ -1,5 +1,7 @@
 package types
 
+import "maps"
+
 import "context"
 
 type Scope struct {
@@ -12,9 +14,7 @@ func (s Scope) Clone() Scope {
 	out := s
 	if len(s.Labels) > 0 {
 		out.Labels = make(map[string]string, len(s.Labels))
-		for k, v := range s.Labels {
-			out.Labels[k] = v
-		}
+		maps.Copy(out.Labels, s.Labels)
 	}
 	return out
 }
