@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+
+set -u
+
+EXAMPLE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GO_BIN="${GO_BIN:-$(command -v go 2>/dev/null || true)}"
+
+function _ensure:go {
+    if [ -z "${GO_BIN}" ] || [ ! -x "${GO_BIN}" ]; then
+        echo "Go binary not found. Set GO_BIN or install go."
+        return 1
+    fi
+}
+
+function dev:serve {
+    _ensure:go || return 1
+    (
+        cd "${EXAMPLE_DIR}" || exit 1
+        "${GO_BIN}" run ./cmd/demo
+    )
+}
+
+function dev:test {
+    _ensure:go || return 1
+    (
+        cd "${EXAMPLE_DIR}" || exit 1
+        "${GO_BIN}" test ./...
+    )
+}
+
+function dev:fmt {
+    _ensure:go || return 1
+    (
+        cd "${EXAMPLE_DIR}" || exit 1
+        "${GO_BIN}" fmt ./...
+    )
+}
+
+function dev:tidy {
+    _ensure:go || return 1
+    (
+        cd "${EXAMPLE_DIR}" || exit 1
+        "${GO_BIN}" mod tidy
+    )
+}
+
+function help {
+    echo ""
+    echo "$0 <task>"
+    echo ""
+    echo "Tasks:"
+    echo "  dev:serve"
+    echo "  dev:test"
+    echo "  dev:fmt"
+    echo "  dev:tidy"
+    echo ""
+}
+
+"${@:-help}"

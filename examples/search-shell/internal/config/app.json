@@ -1,0 +1,36 @@
+{
+  "name": "go-search shell",
+  "env": "development",
+  "server": {
+    "address": ":8484",
+    "print_routes": true
+  },
+  "admin": {
+    "base_path": "/admin",
+    "title": "Search Shell",
+    "default_locale": "en"
+  },
+  "auth": {
+    "signing_key": "search-shell-dev-signing-key",
+    "demo_username": "admin",
+    "demo_email": "admin@example.com",
+    "demo_password": "admin.pwd"
+  },
+  "features": {
+    "dashboard": true,
+    "cms": false,
+    "search": true,
+    "commands": false,
+    "settings": false,
+    "jobs": false,
+    "media": false,
+    "users": false
+  },
+  "search_demo": {
+    "provider": "memory",
+    "seed_on_start": true,
+    "index_name": "media_transcripts",
+    "default_locale": "en",
+    "culture_data_path": ""
+  }
+}
