@@ -71,13 +71,14 @@ type SuggestResult struct {
 }
 
 type SuggestHit struct {
-	ID     string
-	Type   string
-	Title  string
-	URL    string
-	Locale string
-	Score  float64
-	Parent *SearchParent
+	ID       string
+	Type     string
+	Title    string
+	URL      string
+	Locale   string
+	Score    float64
+	Parent   *SearchParent
+	Document *Document
 }
 
 type HealthStatus struct {
