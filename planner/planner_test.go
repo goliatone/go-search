@@ -6,6 +6,7 @@ import (
 
 	"github.com/goliatone/go-search/indexing"
 	"github.com/goliatone/go-search/pkg/types"
+	"github.com/goliatone/go-search/providers/memory"
 )
 
 func TestPlannerNormalizesAndValidates(t *testing.T) {
@@ -39,5 +40,25 @@ func TestPlannerRejectsInvalidFilter(t *testing.T) {
 	err := ValidateFilter(types.TermExpr{Field: "", Op: types.FilterOpEQ, Value: "x"})
 	if err == nil {
 		t.Fatalf("expected invalid filter error")
+	}
+}
+
+func TestPlannerRejectsUnsupportedSearchMode(t *testing.T) {
+	registry := indexing.NewRegistry()
+	_ = registry.Register(types.IndexDefinition{Name: "media"}, nil)
+	p, err := New(Config{Registry: registry})
+	if err != nil {
+		t.Fatalf("new planner: %v", err)
+	}
+	err = p.ValidateSearchCapabilities(context.Background(), types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "prayer",
+		Mode:    types.SearchModeSemantic,
+		Semantic: &types.SemanticRequest{
+			Field: "body",
+		},
+	}, memory.New())
+	if err == nil {
+		t.Fatalf("expected unsupported capability error")
 	}
 }

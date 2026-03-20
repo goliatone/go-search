@@ -63,6 +63,13 @@ func TestIndexerIndexDeleteAndReindex(t *testing.T) {
 	if page.Total != 0 {
 		t.Fatalf("expected zero results after delete")
 	}
+	health, err := provider.Health(context.Background())
+	if err != nil {
+		t.Fatalf("provider health: %v", err)
+	}
+	if len(health.Indexes) != 1 || health.Indexes[0].Documents != 0 {
+		t.Fatalf("expected delete-by-source to remove all derived documents, got %+v", health.Indexes)
+	}
 	if err := indexer.ReindexIndex(context.Background(), "media", 10); err != nil {
 		t.Fatalf("reindex index: %v", err)
 	}
