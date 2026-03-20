@@ -37,6 +37,13 @@ func InvalidSort(message string, metadata map[string]any) error {
 		WithMetadata(metadata)
 }
 
+func InvalidEditorialRule(message string, metadata map[string]any) error {
+	return goerrors.New(message, goerrors.CategoryValidation).
+		WithCode(http.StatusBadRequest).
+		WithTextCode(types.TextCodeInvalidEditorialRule).
+		WithMetadata(metadata)
+}
+
 func IndexingSourceMissing(index string, metadata map[string]any) error {
 	return goerrors.New("indexing source is not registered", goerrors.CategoryNotFound).
 		WithCode(http.StatusNotFound).
