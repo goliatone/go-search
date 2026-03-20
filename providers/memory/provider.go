@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -28,11 +29,11 @@ func (p *Provider) Name() string { return "memory" }
 
 func (p *Provider) Capabilities(context.Context) (types.CapabilitySet, error) {
 	return types.CapabilitySet{
-		Facets:            true,
-		Grouping:          true,
-		Highlighting:      true,
-		Snippets:          true,
-		PrefixSearch:      true,
+		Facets:               true,
+		Grouping:             true,
+		Highlighting:         true,
+		Snippets:             true,
+		PrefixSearch:         true,
 		SupportedSearchModes: []types.SearchMode{types.SearchModeLexical},
 	}, nil
 }
@@ -448,7 +449,7 @@ func toString(value any) string {
 	case string:
 		return v
 	default:
-		return strings.TrimSpace(strings.ReplaceAll(strings.TrimPrefix(strings.TrimSuffix(strings.TrimSpace(strings.Join([]string{""}, "")), ""), ""), "", "")) + ""
+		return fmt.Sprint(v)
 	}
 }
 
