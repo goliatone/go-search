@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS search_editorial_rules (
+    id TEXT PRIMARY KEY,
+    target_type TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    parent_target_id TEXT,
+    action TEXT NOT NULL,
+    weight DOUBLE PRECISION NOT NULL DEFAULT 0,
+    position INTEGER,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    indexes TEXT[],
+    tenant_id TEXT,
+    org_id TEXT,
+    locale TEXT,
+    topic TEXT,
+    query TEXT,
+    ranking_profile TEXT,
+    filters JSONB,
+    starts_at_unix BIGINT,
+    ends_at_unix BIGINT,
+    reason TEXT,
+    metadata JSONB
+);
