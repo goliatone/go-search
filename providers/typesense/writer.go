@@ -16,13 +16,13 @@ func upsertDocuments(ctx context.Context, client *tstypesense.Client, runtime ma
 	if len(docs) == 0 {
 		return nil
 	}
-	payload := make([]interface{}, 0, len(docs))
+	payload := make([]any, 0, len(docs))
 	for _, doc := range docs {
 		payload = append(payload, compileDocument(runtime.def, doc))
 	}
 	results, err := client.Collection(runtime.collectionName).Documents().Import(ctx, payload, &tsapi.ImportDocumentsParams{
 		Action:   indexActionPtr(tsapi.Upsert),
-		ReturnId: boolPtr(true),
+		ReturnId: new(true),
 	})
 	if err != nil {
 		return errs.Wrap(err, map[string]any{"collection": runtime.collectionName, "index": runtime.def.Name})
@@ -209,7 +209,7 @@ func listDocumentIDsBySource(ctx context.Context, client *tstypesense.Client, ru
 			Q:             &query,
 			QueryBy:       &queryBy,
 			FilterBy:      &filter,
-			Page:          intPtr(pageNumber),
+			Page:          new(pageNumber),
 			PerPage:       &perPage,
 			IncludeFields: &includeFields,
 		})
@@ -243,7 +243,8 @@ func hasMeaningfulValue(value any) bool {
 	}
 }
 
-func indexActionPtr(value tsapi.IndexAction) *tsapi.IndexAction { return &value }
+//go:fix inline
+func indexActionPtr(value tsapi.IndexAction) *tsapi.IndexAction { return new(value) }
 
 func stringify(value any) string {
 	switch v := value.(type) {

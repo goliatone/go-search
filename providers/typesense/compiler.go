@@ -20,16 +20,16 @@ func compileSearchParams(cfg Config, def types.IndexDefinition, req types.Search
 
 	params := &tsapi.SearchCollectionParams{
 		Q:                    &query,
-		QueryBy:              stringPtr(strings.Join(queryFields, ",")),
-		Page:                 intPtr(req.Page),
-		PerPage:              intPtr(req.PerPage),
-		PrioritizeExactMatch: boolPtr(true),
+		QueryBy:              new(strings.Join(queryFields, ",")),
+		Page:                 new(req.Page),
+		PerPage:              new(req.PerPage),
+		PrioritizeExactMatch: new(true),
 	}
 
 	if req.GroupBy != "" {
-		params.GroupBy = stringPtr(req.GroupBy)
-		params.GroupLimit = intPtr(cfg.GroupedEvidenceLimit)
-		params.GroupMissingValues = boolPtr(false)
+		params.GroupBy = new(req.GroupBy)
+		params.GroupLimit = new(cfg.GroupedEvidenceLimit)
+		params.GroupMissingValues = new(false)
 	}
 
 	if filter, err := compileCombinedFilter(def, req); err != nil {
@@ -50,9 +50,9 @@ func compileSearchParams(cfg Config, def types.IndexDefinition, req types.Search
 				maxFacetValues = facet.Limit
 			}
 		}
-		params.FacetBy = stringPtr(strings.Join(fields, ","))
+		params.FacetBy = new(strings.Join(fields, ","))
 		if maxFacetValues > 0 {
-			params.MaxFacetValues = intPtr(maxFacetValues)
+			params.MaxFacetValues = new(maxFacetValues)
 		}
 	}
 
@@ -67,10 +67,10 @@ func compileSearchParams(cfg Config, def types.IndexDefinition, req types.Search
 	if len(highlight) == 0 {
 		highlight = queryFields
 	}
-	params.HighlightFields = stringPtr(strings.Join(highlight, ","))
+	params.HighlightFields = new(strings.Join(highlight, ","))
 
 	if len(req.IncludeFields) > 0 {
-		params.IncludeFields = stringPtr(strings.Join(req.IncludeFields, ","))
+		params.IncludeFields = new(strings.Join(req.IncludeFields, ","))
 	}
 
 	return params, nil
@@ -93,13 +93,13 @@ func compileSuggestParams(cfg Config, def types.IndexDefinition, req types.Sugge
 	fetchLimit := max(req.Limit*cfg.SuggestFetchMultiplier, cfg.SuggestMinimumFetchLimit)
 	params := &tsapi.SearchCollectionParams{
 		Q:                    &query,
-		QueryBy:              stringPtr(strings.Join(queryFields, ",")),
-		QueryByWeights:       stringPtr(strings.Join(queryByWeights, ",")),
-		PerPage:              intPtr(fetchLimit),
-		Page:                 intPtr(1),
-		Prefix:               stringPtr(strings.TrimRight(strings.Repeat("true,", len(queryFields)), ",")),
-		PrioritizeExactMatch: boolPtr(true),
-		HighlightFields:      stringPtr("none"),
+		QueryBy:              new(strings.Join(queryFields, ",")),
+		QueryByWeights:       new(strings.Join(queryByWeights, ",")),
+		PerPage:              new(fetchLimit),
+		Page:                 new(1),
+		Prefix:               new(strings.TrimRight(strings.Repeat("true,", len(queryFields)), ",")),
+		PrioritizeExactMatch: new(true),
+		HighlightFields:      new("none"),
 	}
 
 	if req.Locale != "" {
@@ -415,4 +415,5 @@ func dedupe(values []string) []string {
 	return out
 }
 
-func intPtr(value int) *int { return &value }
+//go:fix inline
+func intPtr(value int) *int { return new(value) }

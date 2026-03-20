@@ -402,7 +402,7 @@ func (p *Provider) exactGroupCount(ctx context.Context, runtime managedIndex, re
 
 	total := 0
 	for pageNumber := 1; ; pageNumber++ {
-		params.Page = intPtr(pageNumber)
+		params.Page = new(pageNumber)
 		result, err := p.client.Collection(runtime.collectionName).Documents().Search(ctx, params)
 		if err != nil {
 			return 0, errs.Wrap(err, map[string]any{"index": runtime.def.Name, "collection": runtime.collectionName, "page": pageNumber})
@@ -506,13 +506,6 @@ func flattenFacetMap(in map[string]map[string]int) []types.SearchFacet {
 		out = append(out, types.SearchFacet{Field: field, Values: values})
 	}
 	return out
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func normalizeConfig(cfg Config) Config {

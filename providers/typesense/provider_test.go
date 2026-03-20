@@ -167,4 +167,5 @@ func TestMapSuggestHitsPreferParentDeduplicates(t *testing.T) {
 	}
 }
 
-func int64Ptr(value int64) *int64 { return &value }
+//go:fix inline
+func int64Ptr(value int64) *int64 { return new(value) }

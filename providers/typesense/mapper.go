@@ -123,8 +123,8 @@ func mapResultHit(hit tsapi.SearchResultHit, req types.SearchRequest) types.Sear
 		Document:   &doc,
 		Retrieval: &types.AppliedRetrievalSignals{
 			Mode:          types.SearchModeLexical,
-			ProviderScore: float64Ptr(baseScore),
-			LexicalScore:  float64Ptr(baseScore),
+			ProviderScore: new(baseScore),
+			LexicalScore:  new(baseScore),
 			Metadata: map[string]any{
 				"locale_match":    localeMatchLabel(req.Locale, doc.Locale),
 				"exact_locale":    isExactLocaleMatch(req.Locale, doc.Locale),
@@ -445,7 +445,8 @@ func ensureNumeric(in map[string]float64) map[string]float64 {
 	return in
 }
 
-func float64Ptr(value float64) *float64 { return &value }
+//go:fix inline
+func float64Ptr(value float64) *float64 { return new(value) }
 
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {

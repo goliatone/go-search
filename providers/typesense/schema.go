@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -74,22 +75,22 @@ func buildCollectionSchema(cfg Config, def types.IndexDefinition) (*tsapi.Collec
 		field := tsapi.Field{
 			Name:     name,
 			Type:     spec.Type,
-			Optional: boolPtr(spec.Optional),
+			Optional: new(spec.Optional),
 		}
 		if spec.Facet {
-			field.Facet = boolPtr(true)
+			field.Facet = new(true)
 		}
 		if spec.Sort {
-			field.Sort = boolPtr(true)
+			field.Sort = new(true)
 		}
 		if spec.Index {
-			field.Index = boolPtr(true)
+			field.Index = new(true)
 		}
 		if spec.RangeIndex {
-			field.RangeIndex = boolPtr(true)
+			field.RangeIndex = new(true)
 		}
 		if spec.Locale != "" {
-			field.Locale = stringPtr(spec.Locale)
+			field.Locale = new(spec.Locale)
 		}
 		schemaFields = append(schemaFields, field)
 	}
@@ -284,12 +285,7 @@ func existsFieldName(field string) string {
 }
 
 func contains(list []string, value string) bool {
-	for _, item := range list {
-		if item == value {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, value)
 }
 
 func isNumericType(typeName string) bool {
@@ -301,9 +297,11 @@ func isNumericType(typeName string) bool {
 	}
 }
 
-func boolPtr(value bool) *bool { return &value }
+//go:fix inline
+func boolPtr(value bool) *bool { return new(value) }
 
-func stringPtr(value string) *string { return &value }
+//go:fix inline
+func stringPtr(value string) *string { return new(value) }
 
 func ptrBool(value *bool) bool {
 	return value != nil && *value
