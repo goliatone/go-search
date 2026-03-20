@@ -121,6 +121,118 @@ func TestSearchGroupsAfterEditorialRanking(t *testing.T) {
 	}
 }
 
+func TestSearchHideRuleRemovesParentGroup(t *testing.T) {
+	registry := indexing.NewRegistry()
+	def := types.IndexDefinition{Name: "media", GroupByDefault: "parent_id"}
+	if err := registry.Register(def, nil); err != nil {
+		t.Fatalf("register index: %v", err)
+	}
+	provider := memory.New(memory.Config{})
+	if err := provider.EnsureIndex(context.Background(), def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	if err := provider.UpsertDocuments(context.Background(), "media", []types.Document{
+		{ID: "segment-1", Index: "media", Type: types.DocumentTypeTranscriptSegment, ParentID: "video-1", Title: "Ocean Wind", Body: "prayer on the shore", Locale: "en"},
+		{ID: "segment-2", Index: "media", Type: types.DocumentTypeTranscriptSegment, ParentID: "video-2", Title: "Mountain Prayer", Body: "prayer in the mountains", Locale: "en"},
+	}); err != nil {
+		t.Fatalf("upsert docs: %v", err)
+	}
+	p, err := planner.New(planner.Config{Registry: registry})
+	if err != nil {
+		t.Fatalf("new planner: %v", err)
+	}
+	search, err := NewSearch(SearchConfig{
+		Planner:  p,
+		Provider: provider,
+		Editorial: staticEditorialStore{rules: []types.EditorialRankRule{
+			{
+				ID:             "hide-video-1",
+				ParentTargetID: "video-1",
+				Action:         types.EditorialActionHide,
+				Enabled:        true,
+				Scope:          types.EditorialScope{Indexes: []string{"media"}, Locale: "en"},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("new search query: %v", err)
+	}
+	page, err := search.Query(context.Background(), types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "prayer",
+		Locale:  "en",
+		Page:    1,
+		PerPage: 10,
+		GroupBy: "parent_id",
+	})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if len(page.Groups) != 1 || page.Groups[0].Key != "video-2" {
+		t.Fatalf("groups = %#v", page.Groups)
+	}
+}
+
+func TestSearchParentTargetDoesNotMatchUnrelatedHit(t *testing.T) {
+	registry := indexing.NewRegistry()
+	def := types.IndexDefinition{Name: "media", GroupByDefault: "parent_id"}
+	if err := registry.Register(def, nil); err != nil {
+		t.Fatalf("register index: %v", err)
+	}
+	provider := memory.New(memory.Config{})
+	if err := provider.EnsureIndex(context.Background(), def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	if err := provider.UpsertDocuments(context.Background(), "media", []types.Document{
+		{ID: "segment-1", Index: "media", Type: types.DocumentTypeTranscriptSegment, ParentID: "video-1", Title: "Ocean Wind", Body: "prayer on the shore", Locale: "en"},
+		{ID: "segment-2", Index: "media", Type: types.DocumentTypeTranscriptSegment, ParentID: "video-2", Title: "Mountain Prayer", Body: "prayer in the mountains", Locale: "en"},
+	}); err != nil {
+		t.Fatalf("upsert docs: %v", err)
+	}
+	p, err := planner.New(planner.Config{Registry: registry})
+	if err != nil {
+		t.Fatalf("new planner: %v", err)
+	}
+	search, err := NewSearch(SearchConfig{
+		Planner:  p,
+		Provider: provider,
+		Editorial: staticEditorialStore{rules: []types.EditorialRankRule{
+			{
+				ID:             "boost-video-2",
+				ParentTargetID: "video-2",
+				Action:         types.EditorialActionBoost,
+				Weight:         100,
+				Enabled:        true,
+				Scope:          types.EditorialScope{Indexes: []string{"media"}, Locale: "en"},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("new search query: %v", err)
+	}
+	page, err := search.Query(context.Background(), types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "prayer",
+		Locale:  "en",
+		Page:    1,
+		PerPage: 10,
+	})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if len(page.Hits) < 2 {
+		t.Fatalf("hits = %#v", page.Hits)
+	}
+	if page.Hits[0].Parent != nil && page.Hits[0].Parent.ID != "video-2" {
+		t.Fatalf("unexpected top hit after parent-target boost: %#v", page.Hits[0])
+	}
+	for _, hit := range page.Hits {
+		if hit.Parent != nil && hit.Parent.ID == "video-1" && hit.FinalScore >= 100 {
+			t.Fatalf("unexpected unrelated boost on hit %#v", hit)
+		}
+	}
+}
+
 func TestSearchRejectsUnsupportedSemanticMode(t *testing.T) {
 	registry := indexing.NewRegistry()
 	def := types.IndexDefinition{Name: "media"}
