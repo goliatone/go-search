@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/goliatone/go-search/internal/errs"
+	"github.com/goliatone/go-search/internal/observe"
 	"github.com/goliatone/go-search/pkg/types"
 	"github.com/goliatone/go-search/providers"
 )
@@ -15,6 +16,7 @@ type Indexer struct {
 	progress         types.ProgressReporter
 	activities       []types.ActivityHook
 	metrics          []types.MetricsHook
+	logger           types.Logger
 	defaultBatchSize int
 	clock            types.Clock
 }
@@ -26,6 +28,7 @@ type IndexerConfig struct {
 	Progress         types.ProgressReporter
 	Activities       []types.ActivityHook
 	Metrics          []types.MetricsHook
+	Logger           types.Logger
 	DefaultBatchSize int
 	Clock            types.Clock
 }
@@ -50,6 +53,7 @@ func NewIndexer(cfg IndexerConfig) (*Indexer, error) {
 		progress:         cfg.Progress,
 		activities:       cfg.Activities,
 		metrics:          cfg.Metrics,
+		logger:           cfg.Logger,
 		defaultBatchSize: cfg.DefaultBatchSize,
 		clock:            cfg.Clock,
 	}, nil
@@ -64,6 +68,7 @@ func (i *Indexer) DeleteRecord(ctx context.Context, index, recordID string) erro
 }
 
 func (i *Indexer) ReindexIndex(ctx context.Context, index string, batchSize int) error {
+	startedAt := i.clock.Now()
 	if batchSize <= 0 {
 		batchSize = i.defaultBatchSize
 	}
@@ -93,9 +98,12 @@ func (i *Indexer) ReindexIndex(ctx context.Context, index string, batchSize int)
 		cursor = next
 	}
 	if err := i.bumpGeneration(ctx, index); err != nil {
+		observe.Count(ctx, i.metrics, i.logger, "search.reindex.error.count", 1, map[string]string{"index": index})
 		return err
 	}
 	i.emitActivity(ctx, "reindexed", indexer.SourceType(), index, map[string]any{"index": index, "documents": total})
+	observe.Count(ctx, i.metrics, i.logger, "search.reindex.count", int64(total), map[string]string{"index": index})
+	observe.ObserveDuration(ctx, i.metrics, i.logger, "search.reindex.duration_ms", startedAt, map[string]string{"index": index})
 	return nil
 }
 
@@ -113,6 +121,7 @@ func (i *Indexer) indexRecord(ctx context.Context, index, recordID string, emitA
 		return nil, err
 	}
 	if err := i.provider.ReplaceDocuments(ctx, index, sourceIDs, docs); err != nil {
+		observe.Count(ctx, i.metrics, i.logger, "search.index_record.error.count", 1, map[string]string{"index": index})
 		return nil, err
 	}
 	if bumpGeneration {
@@ -123,6 +132,7 @@ func (i *Indexer) indexRecord(ctx context.Context, index, recordID string, emitA
 	if emitActivity {
 		i.emitActivity(ctx, "indexed", indexer.SourceType(), recordID, map[string]any{"documents": len(docs), "index": index})
 	}
+	observe.Count(ctx, i.metrics, i.logger, "search.index_record.count", int64(len(docs)), map[string]string{"index": index})
 	return docs, nil
 }
 
@@ -136,6 +146,7 @@ func (i *Indexer) deleteRecord(ctx context.Context, index, recordID string, emit
 		return err
 	}
 	if err := i.provider.DeleteBySource(ctx, index, sourceIDs); err != nil {
+		observe.Count(ctx, i.metrics, i.logger, "search.delete_record.error.count", 1, map[string]string{"index": index})
 		return err
 	}
 	if bumpGeneration {
@@ -146,6 +157,7 @@ func (i *Indexer) deleteRecord(ctx context.Context, index, recordID string, emit
 	if emitActivity {
 		i.emitActivity(ctx, "deleted", indexer.SourceType(), recordID, map[string]any{"index": index})
 	}
+	observe.Count(ctx, i.metrics, i.logger, "search.delete_record.count", 1, map[string]string{"index": index})
 	return nil
 }
 
@@ -169,7 +181,5 @@ func (i *Indexer) emitActivity(ctx context.Context, verb, objectType, objectID s
 		OccurredAt: i.clock.Now().UnixMilli(),
 		Metadata:   metadata,
 	}
-	for _, hook := range i.activities {
-		hook.Notify(ctx, event)
-	}
+	observe.NotifyActivities(ctx, i.activities, i.logger, event)
 }
