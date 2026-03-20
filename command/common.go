@@ -4,10 +4,11 @@ import (
 	"context"
 
 	"github.com/goliatone/go-search/internal/errs"
+	"github.com/goliatone/go-search/internal/observe"
 	"github.com/goliatone/go-search/pkg/types"
 )
 
-func notifyActivities(ctx context.Context, clock types.Clock, hooks []types.ActivityHook, verb, objectType, objectID string, metadata map[string]any) {
+func notifyActivities(ctx context.Context, clock types.Clock, hooks []types.ActivityHook, logger types.Logger, verb, objectType, objectID string, metadata map[string]any) {
 	if clock == nil {
 		clock = types.SystemClock()
 	}
@@ -19,9 +20,7 @@ func notifyActivities(ctx context.Context, clock types.Clock, hooks []types.Acti
 		OccurredAt: clock.Now().UnixMilli(),
 		Metadata:   metadata,
 	}
-	for _, hook := range hooks {
-		hook.Notify(ctx, event)
-	}
+	observe.NotifyActivities(ctx, hooks, logger, event)
 }
 
 func bumpGeneration(ctx context.Context, store types.GenerationStore, index string) error {

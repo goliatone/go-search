@@ -5,6 +5,7 @@ import (
 
 	gcommand "github.com/goliatone/go-command"
 	"github.com/goliatone/go-search/internal/errs"
+	"github.com/goliatone/go-search/internal/observe"
 	"github.com/goliatone/go-search/pkg/types"
 	"github.com/goliatone/go-search/providers"
 )
@@ -13,6 +14,8 @@ type UpsertDocumentsConfig struct {
 	Provider        providers.Provider
 	GenerationStore types.GenerationStore
 	Activities      []types.ActivityHook
+	Metrics         []types.MetricsHook
+	Logger          types.Logger
 	Clock           types.Clock
 }
 
@@ -20,6 +23,8 @@ type UpsertDocuments struct {
 	provider        providers.Provider
 	generationStore types.GenerationStore
 	activities      []types.ActivityHook
+	metrics         []types.MetricsHook
+	logger          types.Logger
 	clock           types.Clock
 }
 
@@ -36,17 +41,24 @@ func NewUpsertDocuments(cfg UpsertDocumentsConfig) (*UpsertDocuments, error) {
 		provider:        cfg.Provider,
 		generationStore: cfg.GenerationStore,
 		activities:      cfg.Activities,
+		metrics:         cfg.Metrics,
+		logger:          cfg.Logger,
 		clock:           cfg.Clock,
 	}, nil
 }
 
 func (c *UpsertDocuments) Execute(ctx context.Context, msg types.UpsertDocumentsInput) error {
+	startedAt := c.clock.Now()
 	if err := c.provider.UpsertDocuments(ctx, msg.Index, msg.Documents); err != nil {
+		observe.Count(ctx, c.metrics, c.logger, "search.upsert_documents.error.count", 1, map[string]string{"index": msg.Index})
 		return err
 	}
 	if err := bumpGeneration(ctx, c.generationStore, msg.Index); err != nil {
+		observe.Count(ctx, c.metrics, c.logger, "search.upsert_documents.error.count", 1, map[string]string{"index": msg.Index})
 		return err
 	}
-	notifyActivities(ctx, c.clock, c.activities, "upserted", "documents", msg.Index, map[string]any{"index": msg.Index, "count": len(msg.Documents)})
+	observe.Count(ctx, c.metrics, c.logger, "search.upsert_documents.count", int64(len(msg.Documents)), map[string]string{"index": msg.Index})
+	observe.ObserveDuration(ctx, c.metrics, c.logger, "search.upsert_documents.duration_ms", startedAt, map[string]string{"index": msg.Index})
+	notifyActivities(ctx, c.clock, c.activities, c.logger, "upserted", "documents", msg.Index, map[string]any{"index": msg.Index, "count": len(msg.Documents)})
 	return nil
 }
