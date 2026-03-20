@@ -3,20 +3,29 @@ package bunstore
 import (
 	"context"
 	"database/sql"
-	"time"
 
 	repository "github.com/goliatone/go-repository-bun"
+	"github.com/goliatone/go-search/pkg/types"
 	"github.com/uptrace/bun"
 )
 
 type Store struct {
-	db *bun.DB
+	db    *bun.DB
+	clock types.Clock
 }
 
 var _ repository.DBProvider = (*Store)(nil)
 
-func New(db *bun.DB) *Store {
-	return &Store{db: db}
+type Config struct {
+	DB    *bun.DB
+	Clock types.Clock
+}
+
+func New(cfg Config) *Store {
+	if cfg.Clock == nil {
+		cfg.Clock = types.SystemClock()
+	}
+	return &Store{db: cfg.DB, clock: cfg.Clock}
 }
 
 func (s *Store) DB() *bun.DB {
@@ -44,7 +53,7 @@ func (s *Store) Bump(ctx context.Context, index string) (int64, error) {
 	model := GenerationModel{
 		IndexName:     index,
 		Generation:    next,
-		LastIndexedAt: time.Now().Unix(),
+		LastIndexedAt: s.clock.Now().Unix(),
 	}
 	_, err = s.db.NewInsert().
 		Model(&model).

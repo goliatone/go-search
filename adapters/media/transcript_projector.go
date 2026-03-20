@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/goliatone/go-search/indexing/subtitle"
+	"github.com/goliatone/go-search/locale"
 	"github.com/goliatone/go-search/pkg/types"
 )
 
@@ -40,13 +41,21 @@ type TranscriptProjector struct {
 }
 
 func NewTranscriptProjector(cfg TranscriptProjectorConfig) *TranscriptProjector {
+	defaults := subtitle.DefaultMergeConfig()
 	if cfg.MergeVersion == "" {
-		cfg.MergeVersion = "v1"
+		cfg.MergeVersion = defaults.Version
+	}
+	if cfg.MaxChars <= 0 {
+		cfg.MaxChars = defaults.MaxCharacters
+	}
+	if cfg.MaxGapMS <= 0 {
+		cfg.MaxGapMS = defaults.MaxGapMS
 	}
 	return &TranscriptProjector{cfg: cfg}
 }
 
 func (p *TranscriptProjector) Project(_ context.Context, record TranscriptRecord) ([]types.Document, error) {
+	trackLocale := locale.Normalize(record.Track.Locale)
 	cues, err := subtitle.Parse(record.Format, record.Content)
 	if err != nil {
 		return nil, err
@@ -56,42 +65,31 @@ func (p *TranscriptProjector) Project(_ context.Context, record TranscriptRecord
 		MaxGapMS:      p.cfg.MaxGapMS,
 		Version:       p.cfg.MergeVersion,
 	})
-	parent := types.Document{
-		ID:         record.Media.ID,
-		Index:      p.cfg.Index,
-		Type:       types.DocumentTypeVideo,
-		SourceType: p.cfg.SourceType,
-		SourceID:   record.Media.ID,
-		Title:      record.Media.Title,
-		Summary:    record.Media.Summary,
-		URL:        record.Media.URL,
-		Locale:     record.Media.Locale,
-		Facets: map[string][]string{
+	return subtitle.BuildSegmentDocuments(merged, subtitle.DocumentOptions{
+		Index:           p.cfg.Index,
+		SourceType:      p.cfg.SourceType,
+		SourceID:        record.ID,
+		ParentID:        record.Media.ID,
+		Locale:          trackLocale,
+		Version:         p.cfg.MergeVersion,
+		BaseURL:         record.Media.URL,
+		ParentTitle:     record.Media.Title,
+		ParentSummary:   record.Media.Summary,
+		ParentURL:       record.Media.URL,
+		ParentThumbnail: record.Media.Thumbnail,
+		ParentFacets: map[string][]string{
 			"topic":  compact(record.Media.Topic),
-			"locale": compact(record.Media.Locale),
+			"locale": compact(trackLocale),
 		},
-		Metadata: map[string]any{
-			"thumbnail": record.Media.Thumbnail,
-		},
-	}
-	docs := []types.Document{parent}
-	docs = append(docs, subtitle.BuildSegmentDocuments(merged, subtitle.DocumentOptions{
-		Index:       p.cfg.Index,
-		SourceType:  p.cfg.SourceType,
-		SourceID:    record.ID,
-		ParentID:    record.Media.ID,
-		Locale:      record.Track.Locale,
-		Version:     p.cfg.MergeVersion,
-		BaseURL:     record.Media.URL,
-		ParentTitle: record.Media.Title,
-		ParentURL:   record.Media.URL,
 		ParentFields: map[string]any{
-			"topic":     record.Media.Topic,
-			"thumbnail": record.Media.Thumbnail,
+			"topic":            record.Media.Topic,
+			"parent_title":     record.Media.Title,
+			"parent_summary":   record.Media.Summary,
+			"parent_url":       record.Media.URL,
+			"parent_thumbnail": record.Media.Thumbnail,
 		},
 		Track: record.Track,
-	})...)
-	return docs, nil
+	}), nil
 }
 
 func compact(values ...string) []string {

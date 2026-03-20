@@ -23,6 +23,14 @@ PATH=$(pwd)/node_modules/.bin:$PATH
 # This will make all scripts available in the ./src/bin directory
 PATH=$(pwd)/src/bin:$PATH
 
+TYPESENSE_IMAGE="${TYPESENSE_IMAGE:-typesense/typesense:0.25.2}"
+TYPESENSE_CONTAINER_NAME="${TYPESENSE_CONTAINER_NAME:-go-search-typesense}"
+TYPESENSE_DATA_DIR="${TYPESENSE_DATA_DIR:-$(pwd)/.tmp/typesense-data}"
+TYPESENSE_PORT="${TYPESENSE_PORT:-8108}"
+TYPESENSE_PROTOCOL="${TYPESENSE_PROTOCOL:-http}"
+TYPESENSE_API_KEY="${GO_SEARCH_TEST_TYPESENSE_API_KEY:-${TYPESENSE_API_KEY:-xyz}}"
+TYPESENSE_URL="${GO_SEARCH_TEST_TYPESENSE_URL:-${TYPESENSE_PROTOCOL}://localhost:${TYPESENSE_PORT}}"
+
 
 #################################################
 # Development dependencies
@@ -96,6 +104,81 @@ function dev:test {
 
 function dev:cover {
     go test -coverprofile=coverage.out ./... && go tool cover -func coverage.out
+}
+
+function dev:ts:init {
+    if ! command -v docker >/dev/null 2>&1; then
+        lgr ERR "docker is required"
+        return 1
+    fi
+
+    mkdir -p "${TYPESENSE_DATA_DIR}"
+
+    if docker container inspect "${TYPESENSE_CONTAINER_NAME}" >/dev/null 2>&1; then
+        lgr OK "typesense container already initialized: ${TYPESENSE_CONTAINER_NAME}"
+    else
+        lgr I "pulling ${TYPESENSE_IMAGE}"
+        docker pull "${TYPESENSE_IMAGE}" || return 1
+
+        lgr I "creating ${TYPESENSE_CONTAINER_NAME}"
+        docker create \
+            --name "${TYPESENSE_CONTAINER_NAME}" \
+            --publish "${TYPESENSE_PORT}:8108" \
+            --env "TYPESENSE_API_KEY=${TYPESENSE_API_KEY}" \
+            --env "TYPESENSE_DATA_DIR=/data" \
+            --mount "type=bind,src=${TYPESENSE_DATA_DIR},dst=/data" \
+            "${TYPESENSE_IMAGE}" \
+            --data-dir /data \
+            --api-key "${TYPESENSE_API_KEY}" \
+            --enable-cors || return 1
+    fi
+
+    lgr I "typesense url: ${TYPESENSE_URL}"
+    lgr I "typesense api key: ${TYPESENSE_API_KEY}"
+    lgr I "test env: GO_SEARCH_TEST_TYPESENSE_URL=${TYPESENSE_URL} GO_SEARCH_TEST_TYPESENSE_API_KEY=${TYPESENSE_API_KEY}"
+}
+
+function dev:ts:run {
+    if ! command -v docker >/dev/null 2>&1; then
+        lgr ERR "docker is required"
+        return 1
+    fi
+
+    if ! docker container inspect "${TYPESENSE_CONTAINER_NAME}" >/dev/null 2>&1; then
+        dev:ts:init || return 1
+    fi
+
+    if [ "$(docker inspect -f '{{.State.Running}}' "${TYPESENSE_CONTAINER_NAME}" 2>/dev/null)" = "true" ]; then
+        lgr OK "typesense container already running: ${TYPESENSE_CONTAINER_NAME}"
+    else
+        lgr I "starting ${TYPESENSE_CONTAINER_NAME}"
+        docker start "${TYPESENSE_CONTAINER_NAME}" >/dev/null || return 1
+    fi
+
+    lgr I "typesense url: ${TYPESENSE_URL}"
+    lgr I "typesense api key: ${TYPESENSE_API_KEY}"
+}
+
+function dev:ts:reset {
+    if ! command -v docker >/dev/null 2>&1; then
+        lgr ERR "docker is required"
+        return 1
+    fi
+
+    if docker container inspect "${TYPESENSE_CONTAINER_NAME}" >/dev/null 2>&1; then
+        if [ "$(docker inspect -f '{{.State.Running}}' "${TYPESENSE_CONTAINER_NAME}" 2>/dev/null)" = "true" ]; then
+            lgr I "stopping ${TYPESENSE_CONTAINER_NAME}"
+            docker stop "${TYPESENSE_CONTAINER_NAME}" >/dev/null || return 1
+        fi
+
+        lgr I "removing ${TYPESENSE_CONTAINER_NAME}"
+        docker rm "${TYPESENSE_CONTAINER_NAME}" >/dev/null || return 1
+    fi
+
+    lgr I "removing ${TYPESENSE_DATA_DIR}"
+    rm -rf "${TYPESENSE_DATA_DIR}"
+
+    dev:ts:init
 }
 
 

@@ -1,6 +1,7 @@
 package ranking
 
 import (
+	"fmt"
 	"slices"
 	"sort"
 	"strings"
@@ -20,67 +21,53 @@ func NewDefaultPolicy() *DefaultPolicy {
 }
 
 func (p *DefaultPolicy) Apply(req types.SearchRequest, page types.SearchResultPage, rules []types.EditorialRankRule, now time.Time) (types.SearchResultPage, error) {
+	page.Page = req.Page
+	page.PerPage = req.PerPage
 	page.Hits = ApplyRulesToHits(req, page.Hits, rules, now)
-	if len(page.Groups) > 0 {
-		page.Groups = GroupHits(page.Hits)
-		page.Total = len(page.Groups)
+	if req.GroupBy != "" {
+		allGroups := GroupHits(page.Hits)
+		sort.SliceStable(allGroups, func(i, j int) bool {
+			return compareHits(req, *allGroups[i].TopHit, *allGroups[j].TopHit)
+		})
+		page.Total = len(allGroups)
+		page.Groups = PaginateGroups(allGroups, req.Page, req.PerPage)
+		page.Hits = FlattenGroupHits(page.Groups)
+		return page, nil
 	}
+	page.Total = len(page.Hits)
+	page.Hits = PaginateHits(page.Hits, req.Page, req.PerPage)
 	return page, nil
 }
 
 func ApplyRulesToHits(req types.SearchRequest, hits []types.SearchHit, rules []types.EditorialRankRule, now time.Time) []types.SearchHit {
 	out := make([]types.SearchHit, 0, len(hits))
 	for _, hit := range hits {
-		applied := []types.AppliedEditorialSignal{}
-		hidden := false
-		score := hit.BaseScore
-		parentID := hit.ID
-		if hit.Parent != nil && hit.Parent.ID != "" {
-			parentID = hit.Parent.ID
-		}
-		for _, rule := range rules {
-			if !matchesRule(req, parentID, rule, now) {
-				continue
-			}
-			switch rule.Action {
-			case types.EditorialActionHide:
-				hidden = true
-			case types.EditorialActionPin:
-				score += 10_000 + rule.Weight
-			case types.EditorialActionBoost:
-				score += rule.Weight
-			case types.EditorialActionBury:
-				score -= rule.Weight
-			}
-			applied = append(applied, types.AppliedEditorialSignal{
-				RuleID: rule.ID,
-				Action: rule.Action,
-				Weight: rule.Weight,
-				Scope:  rule.Scope.Locale,
-				Reason: rule.Reason,
-			})
-		}
-		if hidden {
+		evaluation := evaluateHit(req, hit, rules, now)
+		if evaluation.hidden {
 			continue
 		}
-		hit.FinalScore = score
-		hit.Score = score
-		if len(applied) > 0 {
+		hit.FinalScore = evaluation.score
+		hit.Score = evaluation.score
+		if len(evaluation.applied) > 0 || evaluation.pin != nil {
 			if hit.Ranking == nil {
 				hit.Ranking = &types.AppliedRankingSignals{}
 			}
-			hit.Ranking.Editorial = applied
+			hit.Ranking.Editorial = evaluation.applied
+			if evaluation.pin != nil {
+				if hit.Ranking.Metadata == nil {
+					hit.Ranking.Metadata = map[string]any{}
+				}
+				if evaluation.pin.Position != nil {
+					hit.Ranking.Metadata["pin_position"] = *evaluation.pin.Position
+				}
+				hit.Ranking.Metadata["pin_rule_id"] = evaluation.pin.ID
+				hit.Ranking.Metadata["pin_specificity"] = evaluation.pinSpecificity
+			}
 		}
 		out = append(out, hit)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].FinalScore == out[j].FinalScore {
-			if out[i].Parent != nil && out[j].Parent != nil && out[i].Parent.Title != out[j].Parent.Title {
-				return out[i].Parent.Title < out[j].Parent.Title
-			}
-			return out[i].ID < out[j].ID
-		}
-		return out[i].FinalScore > out[j].FinalScore
+		return compareHits(req, out[i], out[j])
 	})
 	return out
 }
@@ -166,6 +153,16 @@ func matchesRule(req types.SearchRequest, targetID string, rule types.EditorialR
 	if rule.Scope.Query != "" && !strings.EqualFold(strings.TrimSpace(rule.Scope.Query), strings.TrimSpace(req.Query)) {
 		return false
 	}
+	if rule.Scope.Topic != "" && !requestHasFilterValue(req.Filters, "topic", rule.Scope.Topic) {
+		return false
+	}
+	for field, values := range rule.Scope.Filters {
+		for _, value := range values {
+			if !requestHasFilterValue(req.Filters, field, value) {
+				return false
+			}
+		}
+	}
 	return true
 }
 
@@ -176,4 +173,302 @@ func contains(needles []string, haystack []string) bool {
 		}
 	}
 	return len(needles) == 0
+}
+
+type hitEvaluation struct {
+	applied        []types.AppliedEditorialSignal
+	hidden         bool
+	score          float64
+	pin            *types.EditorialRankRule
+	pinSpecificity int
+}
+
+func evaluateHit(req types.SearchRequest, hit types.SearchHit, rules []types.EditorialRankRule, now time.Time) hitEvaluation {
+	evaluation := hitEvaluation{score: hit.BaseScore}
+	targetID := hit.ID
+	if hit.Parent != nil && hit.Parent.ID != "" {
+		targetID = hit.Parent.ID
+	}
+	for _, rule := range rules {
+		if !matchesRule(req, targetID, rule, now) {
+			continue
+		}
+		evaluation.applied = append(evaluation.applied, types.AppliedEditorialSignal{
+			RuleID: rule.ID,
+			Action: rule.Action,
+			Weight: rule.Weight,
+			Scope:  rule.Scope.Locale,
+			Reason: rule.Reason,
+		})
+		switch rule.Action {
+		case types.EditorialActionHide:
+			evaluation.hidden = true
+		case types.EditorialActionPin:
+			evaluation.pin, evaluation.pinSpecificity = choosePin(evaluation.pin, evaluation.pinSpecificity, rule)
+		case types.EditorialActionBoost:
+			evaluation.score += rule.Weight
+		case types.EditorialActionBury:
+			evaluation.score -= rule.Weight
+		}
+	}
+	return evaluation
+}
+
+func choosePin(current *types.EditorialRankRule, currentSpecificity int, candidate types.EditorialRankRule) (*types.EditorialRankRule, int) {
+	candidateSpecificity := ruleSpecificity(candidate)
+	if current == nil {
+		copy := candidate
+		return &copy, candidateSpecificity
+	}
+	currentPos, candidatePos := pinPosition(*current), pinPosition(candidate)
+	if candidatePos != currentPos {
+		if candidatePos < currentPos {
+			copy := candidate
+			return &copy, candidateSpecificity
+		}
+		return current, currentSpecificity
+	}
+	if candidateSpecificity != currentSpecificity {
+		if candidateSpecificity > currentSpecificity {
+			copy := candidate
+			return &copy, candidateSpecificity
+		}
+		return current, currentSpecificity
+	}
+	if candidate.Weight != current.Weight {
+		if candidate.Weight > current.Weight {
+			copy := candidate
+			return &copy, candidateSpecificity
+		}
+		return current, currentSpecificity
+	}
+	if candidate.ID < current.ID {
+		copy := candidate
+		return &copy, candidateSpecificity
+	}
+	return current, currentSpecificity
+}
+
+func compareHits(req types.SearchRequest, left, right types.SearchHit) bool {
+	leftPinPosition, leftPinned := hitPinPosition(left)
+	rightPinPosition, rightPinned := hitPinPosition(right)
+	if leftPinned || rightPinned {
+		if leftPinned != rightPinned {
+			return leftPinned
+		}
+		if leftPinPosition != rightPinPosition {
+			return leftPinPosition < rightPinPosition
+		}
+		leftSpecificity := hitPinSpecificity(left)
+		rightSpecificity := hitPinSpecificity(right)
+		if leftSpecificity != rightSpecificity {
+			return leftSpecificity > rightSpecificity
+		}
+	}
+	if left.FinalScore != right.FinalScore {
+		return left.FinalScore > right.FinalScore
+	}
+	leftLocaleRank := localeRank(req, left)
+	rightLocaleRank := localeRank(req, right)
+	if leftLocaleRank != rightLocaleRank {
+		return leftLocaleRank < rightLocaleRank
+	}
+	if left.Parent != nil && right.Parent != nil && left.Parent.Title != right.Parent.Title {
+		return left.Parent.Title < right.Parent.Title
+	}
+	return left.ID < right.ID
+}
+
+func localeRank(req types.SearchRequest, hit types.SearchHit) int {
+	if req.Locale == "" || hit.Locale == "" {
+		return 1
+	}
+	if strings.EqualFold(req.Locale, hit.Locale) {
+		return 0
+	}
+	return 1
+}
+
+func hitPinPosition(hit types.SearchHit) (int, bool) {
+	if hit.Ranking == nil || hit.Ranking.Metadata == nil {
+		return 0, false
+	}
+	if raw, ok := hit.Ranking.Metadata["pin_position"]; ok {
+		switch value := raw.(type) {
+		case int:
+			return value, true
+		case int32:
+			return int(value), true
+		case int64:
+			return int(value), true
+		case float64:
+			return int(value), true
+		}
+	}
+	if _, ok := hit.Ranking.Metadata["pin_rule_id"]; ok {
+		return 0, true
+	}
+	return 0, false
+}
+
+func hitPinSpecificity(hit types.SearchHit) int {
+	if hit.Ranking == nil || hit.Ranking.Metadata == nil {
+		return 0
+	}
+	raw, ok := hit.Ranking.Metadata["pin_specificity"]
+	if !ok {
+		return 0
+	}
+	switch value := raw.(type) {
+	case int:
+		return value
+	case int32:
+		return int(value)
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	default:
+		return 0
+	}
+}
+
+func pinPosition(rule types.EditorialRankRule) int {
+	if rule.Position != nil {
+		return *rule.Position
+	}
+	return 0
+}
+
+func ruleSpecificity(rule types.EditorialRankRule) int {
+	score := 0
+	if rule.ParentTargetID != "" {
+		score += 1000
+	}
+	if rule.TargetID != "" {
+		score += 1000
+	}
+	score += len(rule.Scope.Indexes) * 10
+	if rule.Scope.TenantID != "" {
+		score += 40
+	}
+	if rule.Scope.OrgID != "" {
+		score += 40
+	}
+	if rule.Scope.Locale != "" {
+		score += 50
+	}
+	if rule.Scope.Topic != "" {
+		score += 20
+	}
+	if rule.Scope.Query != "" {
+		score += 60
+	}
+	if rule.Scope.RankingProfile != "" {
+		score += 30
+	}
+	for _, values := range rule.Scope.Filters {
+		score += len(values) * 15
+	}
+	return score
+}
+
+func requestHasFilterValue(expr types.FilterExpr, field, want string) bool {
+	if expr == nil {
+		return false
+	}
+	want = strings.TrimSpace(strings.ToLower(want))
+	switch value := expr.(type) {
+	case types.AndExpr:
+		for _, term := range value.Terms {
+			if requestHasFilterValue(term, field, want) {
+				return true
+			}
+		}
+	case types.OrExpr:
+		for _, term := range value.Terms {
+			if requestHasFilterValue(term, field, want) {
+				return true
+			}
+		}
+	case types.NotExpr:
+		return false
+	case types.TermExpr:
+		if value.Field != field {
+			return false
+		}
+		switch value.Op {
+		case types.FilterOpEQ:
+			return strings.TrimSpace(strings.ToLower(asString(value.Value))) == want
+		case types.FilterOpContains:
+			return strings.Contains(strings.TrimSpace(strings.ToLower(asString(value.Value))), want)
+		case types.FilterOpIn:
+			for _, candidate := range asStringSlice(value.Value) {
+				if strings.TrimSpace(strings.ToLower(candidate)) == want {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func asString(value any) string {
+	switch raw := value.(type) {
+	case string:
+		return raw
+	default:
+		return fmt.Sprint(raw)
+	}
+}
+
+func asStringSlice(value any) []string {
+	switch raw := value.(type) {
+	case []string:
+		return raw
+	case []any:
+		out := make([]string, 0, len(raw))
+		for _, item := range raw {
+			out = append(out, asString(item))
+		}
+		return out
+	default:
+		s := asString(value)
+		if s == "" {
+			return nil
+		}
+		return []string{s}
+	}
+}
+
+func PaginateHits(hits []types.SearchHit, page, perPage int) []types.SearchHit {
+	if perPage <= 0 {
+		return hits
+	}
+	start := (page - 1) * perPage
+	if start >= len(hits) || start < 0 {
+		return nil
+	}
+	end := min(start+perPage, len(hits))
+	return hits[start:end]
+}
+
+func PaginateGroups(groups []types.SearchGroup, page, perPage int) []types.SearchGroup {
+	if perPage <= 0 {
+		return groups
+	}
+	start := (page - 1) * perPage
+	if start >= len(groups) || start < 0 {
+		return nil
+	}
+	end := min(start+perPage, len(groups))
+	return groups[start:end]
+}
+
+func FlattenGroupHits(groups []types.SearchGroup) []types.SearchHit {
+	out := make([]types.SearchHit, 0)
+	for _, group := range groups {
+		out = append(out, group.Hits...)
+	}
+	return out
 }
