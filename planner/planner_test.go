@@ -16,6 +16,15 @@ type stubLocaleRuntime struct {
 	matches map[string]string
 }
 
+type capabilitySourceStub struct {
+	caps types.CapabilitySet
+	err  error
+}
+
+func (s capabilitySourceStub) Capabilities(context.Context) (types.CapabilitySet, error) {
+	return s.caps, s.err
+}
+
 func (s stubLocaleRuntime) Normalize(value string) string {
 	return locale.Normalize(value)
 }
@@ -107,6 +116,27 @@ func TestPlannerRejectsUnsupportedSearchMode(t *testing.T) {
 			Field: "body",
 		},
 	}, memory.New(memory.Config{}))
+	if err == nil {
+		t.Fatalf("expected unsupported capability error")
+	}
+}
+
+func TestPlannerRejectsUnsupportedHierarchicalAndDisjunctiveFacets(t *testing.T) {
+	registry := indexing.NewRegistry()
+	_ = registry.Register(types.IndexDefinition{Name: "media"}, nil)
+	p, err := New(Config{Registry: registry})
+	if err != nil {
+		t.Fatalf("new planner: %v", err)
+	}
+	source := capabilitySourceStub{caps: types.CapabilitySet{Facets: true}}
+	err = p.ValidateSearchCapabilities(context.Background(), types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "prayer",
+		Facets: []types.FacetRequest{
+			{Field: "topic_hierarchy", Kind: types.FacetKindHierarchical},
+			{Field: "topic", Disjunctive: true},
+		},
+	}, source)
 	if err == nil {
 		t.Fatalf("expected unsupported capability error")
 	}

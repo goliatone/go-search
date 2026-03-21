@@ -2,7 +2,6 @@ package query
 
 import (
 	"context"
-	"sort"
 
 	"github.com/goliatone/go-search/pkg/types"
 	"github.com/goliatone/go-search/planner"
@@ -16,12 +15,12 @@ func filterSearchPage(ctx context.Context, req types.SearchRequest, page types.S
 		page.Groups = filterAuthorizedGroups(ctx, req.Actor, page.Groups, guard)
 		page.Hits = flattenGroupHits(page.Groups)
 		page.Total = len(page.Groups)
-		page.Facets = buildFacets(req.Facets, page.Hits)
+		page.Facets = buildFacets(req.Facets, req.Filters, page.Hits)
 		return page
 	}
 	page.Hits = filterAuthorizedHits(ctx, req.Actor, page.Hits, guard)
 	page.Total = len(page.Hits)
-	page.Facets = buildFacets(req.Facets, page.Hits)
+	page.Facets = buildFacets(req.Facets, req.Filters, page.Hits)
 	return page
 }
 
@@ -76,7 +75,7 @@ func canAccessDocument(ctx context.Context, actor types.ActorRef, doc *types.Doc
 	return guard.AllowDocument(ctx, actor, doc.Clone())
 }
 
-func buildFacets(requests []types.FacetRequest, hits []types.SearchHit) []types.SearchFacet {
+func buildFacets(requests []types.FacetRequest, filters types.FilterExpr, hits []types.SearchHit) []types.SearchFacet {
 	if len(requests) == 0 {
 		return nil
 	}
@@ -91,20 +90,7 @@ func buildFacets(requests []types.FacetRequest, hits []types.SearchHit) []types.
 				counts[value]++
 			}
 		}
-		values := make([]types.SearchFacetValue, 0, len(counts))
-		for value, count := range counts {
-			values = append(values, types.SearchFacetValue{Value: value, Count: count})
-		}
-		sort.SliceStable(values, func(i, j int) bool {
-			if values[i].Count == values[j].Count {
-				return values[i].Value < values[j].Value
-			}
-			return values[i].Count > values[j].Count
-		})
-		if facetReq.Limit > 0 && len(values) > facetReq.Limit {
-			values = values[:facetReq.Limit]
-		}
-		out = append(out, types.SearchFacet{Field: facetReq.Field, Values: values})
+		out = append(out, types.BuildFacet(facetReq, counts, types.SelectedFacetValues(filters, facetReq.Field)))
 	}
 	return out
 }

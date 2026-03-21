@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	i18n "github.com/goliatone/go-i18n"
+	"github.com/goliatone/go-search/pkg/types"
 )
 
 type MatchStrategy int
@@ -63,6 +64,16 @@ type BoundLocale struct {
 	Locale          string `json:"locale,omitempty"`
 	Source          string `json:"source,omitempty"`
 	Supported       bool   `json:"supported"`
+}
+
+type BoundSearchRequest struct {
+	Request types.SearchRequest `json:"request"`
+	Locale  BoundLocale         `json:"locale"`
+}
+
+type BoundSuggestRequest struct {
+	Request types.SuggestRequest `json:"request"`
+	Locale  BoundLocale          `json:"locale"`
 }
 
 type Runtime interface {
@@ -270,6 +281,30 @@ func BindLocale(runtime Runtime, requestedLocale, acceptLanguage, defaultLocale 
 	}
 
 	return bound
+}
+
+func BindSearchRequest(runtime Runtime, req types.SearchRequest, acceptLanguage, defaultLocale string, opts MatchOptions) BoundSearchRequest {
+	bound := BindLocale(runtime, req.Locale, acceptLanguage, defaultLocale, opts)
+	out := req
+	if normalized := firstNonEmpty(bound.Locale, out.Locale); normalized != "" {
+		out.Locale = normalized
+	}
+	return BoundSearchRequest{
+		Request: out,
+		Locale:  bound,
+	}
+}
+
+func BindSuggestRequest(runtime Runtime, req types.SuggestRequest, acceptLanguage, defaultLocale string, opts MatchOptions) BoundSuggestRequest {
+	bound := BindLocale(runtime, req.Locale, acceptLanguage, defaultLocale, opts)
+	out := req
+	if normalized := firstNonEmpty(bound.Locale, out.Locale); normalized != "" {
+		out.Locale = normalized
+	}
+	return BoundSuggestRequest{
+		Request: out,
+		Locale:  bound,
+	}
 }
 
 func ResolutionOrigins(res Resolution) map[string]string {

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/goliatone/go-search/pkg/types"
 )
 
 type consumerFixture struct {
@@ -120,6 +122,51 @@ func TestLocaleConsumerFixture_RequestBinding(t *testing.T) {
 				t.Fatalf("supported = %v, want %v", bound.Supported, tc.Supported)
 			}
 		})
+	}
+}
+
+func TestBindSearchRequestAppliesTransportLocaleWithoutMutatingOtherFields(t *testing.T) {
+	runtime := mustBuildRuntime(t)
+
+	bound := BindSearchRequest(runtime, types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "prayer",
+		Page:    2,
+		PerPage: 15,
+	}, "fr-CA,fr;q=0.9,en;q=0.8", "en", MatchOptions{Scope: ScopeActiveOnly})
+
+	if bound.Request.Locale != "en" {
+		t.Fatalf("request locale = %q", bound.Request.Locale)
+	}
+	if bound.Locale.Source != "accept_language" {
+		t.Fatalf("binding source = %q", bound.Locale.Source)
+	}
+	if bound.Request.Page != 2 || bound.Request.PerPage != 15 {
+		t.Fatalf("unexpected request mutation: %+v", bound.Request)
+	}
+}
+
+func TestBindSuggestRequestPrefersExplicitLocaleAndPreservesLimit(t *testing.T) {
+	runtime := mustBuildRuntime(t)
+
+	bound := BindSuggestRequest(runtime, types.SuggestRequest{
+		Indexes: []string{"media"},
+		Query:   "prayer",
+		Locale:  "ES_mx",
+		Limit:   7,
+	}, "fr-CA,fr;q=0.9,en;q=0.8", "en", MatchOptions{Scope: ScopeActiveOnly})
+
+	if bound.Request.Locale != "es-419" {
+		t.Fatalf("request locale = %q", bound.Request.Locale)
+	}
+	if bound.Locale.Source != "explicit" {
+		t.Fatalf("binding source = %q", bound.Locale.Source)
+	}
+	if !bound.Locale.Supported {
+		t.Fatalf("expected explicit locale to be supported")
+	}
+	if bound.Request.Limit != 7 {
+		t.Fatalf("limit = %d", bound.Request.Limit)
 	}
 }
 
