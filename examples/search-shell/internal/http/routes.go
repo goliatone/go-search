@@ -183,7 +183,7 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
 .filter-group:last-child{margin-bottom:0}
 .filter-label{font-size:12px;color:var(--muted);margin-bottom:6px;display:block}
 .filter-select,.filter-input{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff}
-.facet-list{max-height:200px;overflow-y:auto}
+.facet-list{max-height:none}
 .facet-item{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px}
 .facet-item input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent)}
 .facet-count{margin-left:auto;background:#e9ecef;padding:2px 8px;border-radius:10px;font-size:12px;color:var(--muted)}
@@ -298,7 +298,7 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
           <div class="facet-list">
             {{range .Values}}
             <label class="facet-item">
-              <input type="checkbox" name="facet_{{$field}}" value="{{.Value}}" {{if .Selected}}checked{{end}} onchange="applyFacet('{{$field}}', '{{.Value}}', this.checked)" />
+              <input type="checkbox" name="facet_{{$field}}" value="{{.Value}}" {{if eq $field "topic"}}{{if contains $.Topics .Value}}checked{{end}}{{else if eq $field "locale"}}{{if eq $.Locale .Value}}checked{{end}}{{else}}{{if contains (index $.FacetFilters $field) .Value}}checked{{end}}{{end}} onchange="applyFacet('{{$field}}', '{{.Value}}', this.checked)" />
               <span style="padding-left: {{mul .Level 14}}px">{{if .Label}}{{.Label}}{{else}}{{.Value}}{{end}}</span>
               <span class="facet-count">{{.Count}}</span>
             </label>

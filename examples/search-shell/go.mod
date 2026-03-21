@@ -96,7 +96,7 @@ require (
 	github.com/goliatone/go-export v0.7.0 // indirect
 	github.com/goliatone/go-export/adapters/template/go-template v0.7.0 // indirect
 	github.com/goliatone/go-formgen v0.18.0 // indirect
-	github.com/goliatone/go-i18n v0.3.0 // indirect
+	github.com/goliatone/go-i18n v0.4.0 // indirect
 	github.com/goliatone/go-job v0.19.0 // indirect
 	github.com/goliatone/go-logger v0.8.0 // indirect
 	github.com/goliatone/go-masker v0.1.0 // indirect
