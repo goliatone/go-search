@@ -43,6 +43,53 @@ var templateFuncs = template.FuncMap{
 	"join": func(values []string, sep string) string {
 		return strings.Join(values, sep)
 	},
+	"intValue": func(value *int) string {
+		if value == nil {
+			return ""
+		}
+		return strconv.Itoa(*value)
+	},
+	"snippetHTML": func(snippet *types.SearchSnippet) template.HTML {
+		if snippet == nil {
+			return ""
+		}
+		if strings.TrimSpace(snippet.Highlighted) != "" {
+			return template.HTML(snippet.Highlighted)
+		}
+		return template.HTML(template.HTMLEscapeString(snippet.Text))
+	},
+	"facetTitle": func(field string) string {
+		switch strings.TrimSpace(field) {
+		case media.FacetFieldTopicHierarchy:
+			return "Topic"
+		case media.FacetFieldCategoryHierarchy:
+			return "Category"
+		case media.FacetFieldPeople:
+			return "People"
+		case media.FacetFieldSubject:
+			return "Subject"
+		case media.FacetFieldText:
+			return "Text"
+		case media.FacetFieldDeity:
+			return "Deity"
+		case media.FacetFieldLocale:
+			return "Locale"
+		case media.FacetFieldDecade:
+			return "Decade"
+		case media.FacetFieldDurationBucket:
+			return "Duration"
+		case media.FacetFieldLocation:
+			return "Location"
+		case media.FacetFieldSangha:
+			return "Sangha"
+		case media.FacetFieldFormat:
+			return "Format"
+		case media.FacetFieldSeries:
+			return "Series"
+		default:
+			return strings.ReplaceAll(strings.TrimSpace(field), "_", " ")
+		}
+	},
 }
 
 var homeTemplate = template.Must(template.New("home").Funcs(templateFuncs).Parse(`<!doctype html>
@@ -210,6 +257,7 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
 .badge-type{background:#e7f5ff;color:#1971c2}
 .badge-locale{background:#fff3bf;color:#e67700}
 .badge-score{background:#d3f9d8;color:#2f9e44}
+.badge-archive{background:#ffe8cc;color:#d9480f}
 .result-snippet{font-size:14px;color:var(--muted);margin:8px 0;line-height:1.5}
 .result-snippet mark{background:#fff3bf;padding:1px 2px;border-radius:2px}
 .result-meta{font-size:12px;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap}
@@ -260,8 +308,13 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
       <!-- Preserve other params -->
       <input type="hidden" name="locale" value="{{.Locale}}" />
       <input type="hidden" name="group" value="{{if .Group}}true{{else}}false{{end}}" />
+      {{if .LandingSlug}}<input type="hidden" name="landing_slug" value="{{.LandingSlug}}" />{{end}}
       {{if .Topics}}<input type="hidden" name="topics" value="{{join .Topics ","}}" />{{end}}
       {{range $field, $values := .FacetFilters}}{{if $values}}<input type="hidden" name="facet_{{$field}}" value="{{join $values ","}}" />{{end}}{{end}}
+      {{if .PublishedYearGTE}}<input type="hidden" name="published_year_gte" value="{{intValue .PublishedYearGTE}}" />{{end}}
+      {{if .PublishedYearLTE}}<input type="hidden" name="published_year_lte" value="{{intValue .PublishedYearLTE}}" />{{end}}
+      {{if .DurationSecondsGTE}}<input type="hidden" name="duration_seconds_gte" value="{{intValue .DurationSecondsGTE}}" />{{end}}
+      {{if .DurationSecondsLTE}}<input type="hidden" name="duration_seconds_lte" value="{{intValue .DurationSecondsLTE}}" />{{end}}
       {{if .SortField}}<input type="hidden" name="sort" value="{{.SortField}}" />{{end}}
       {{if .SortDir}}<input type="hidden" name="sort_dir" value="{{.SortDir}}" />{{end}}
     </form>
@@ -288,13 +341,19 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
           Filters
           <button type="button" onclick="clearFilters()">Clear all</button>
         </div>
+        {{if .Group}}
+        <div class="filter-group">
+          <span class="filter-label">Facet counts</span>
+          <span>Grouped mode counts unique parent results, not individual transcript segments.</span>
+        </div>
+        {{end}}
 
         <!-- Facets from results -->
         {{range .Result.Facets}}
         {{if .Values}}
         <div class="filter-group">
           {{$field := .Field}}
-          <span class="filter-label">{{$field}}</span>
+          <span class="filter-label">{{facetTitle $field}}</span>
           <div class="facet-list">
             {{range .Values}}
             <label class="facet-item">
@@ -319,6 +378,22 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
         </div>
 
         <div class="filter-group">
+          <label class="filter-label" for="publishedYearGTE">Published year range</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <input type="number" class="filter-input" id="publishedYearGTE" value="{{intValue .PublishedYearGTE}}" placeholder="From" />
+            <input type="number" class="filter-input" id="publishedYearLTE" value="{{intValue .PublishedYearLTE}}" placeholder="To" />
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label" for="durationSecondsGTE">Duration seconds range</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <input type="number" class="filter-input" id="durationSecondsGTE" value="{{intValue .DurationSecondsGTE}}" placeholder="Min seconds" />
+            <input type="number" class="filter-input" id="durationSecondsLTE" value="{{intValue .DurationSecondsLTE}}" placeholder="Max seconds" />
+          </div>
+        </div>
+
+        <div class="filter-group">
           <label class="filter-label" for="filterGroup">Group results</label>
           <select class="filter-select" id="filterGroup">
             <option value="true" {{if .Group}}selected{{end}}>Grouped by parent</option>
@@ -335,11 +410,20 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
       <div class="results-header">
         <div class="results-count">
           {{if .Query}}
+          {{if .Group}}
+          <strong>{{.Result.Total}}</strong> grouped results for "<strong>{{.Query}}</strong>"
+          {{else}}
           <strong>{{.Result.Total}}</strong> results for "<strong>{{.Query}}</strong>"
+          {{end}}
+          {{else}}
+          {{if .Group}}
+          <strong>{{.Result.Total}}</strong> grouped results
           {{else}}
           <strong>{{.Result.Total}}</strong> total results
           {{end}}
+          {{end}}
           {{if .TopicFilter}} in topics <strong>{{.TopicFilter}}</strong>{{end}}
+          {{if .Group}} with facet counts by parent result{{end}}
         </div>
         <div class="sort-controls">
           <label for="sortSelect">Sort by:</label>
@@ -360,7 +444,7 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
         <div class="group-header">
           <h3 class="group-title">{{if .Parent}}{{.Parent.Title}}{{else}}{{.Key}}{{end}}</h3>
           <div class="group-meta">
-            <span>{{.Count}} matching segments</span>
+            <span>{{.Count}} matching segments in this parent result</span>
             {{if .Parent}} &bull; <a href="{{.Parent.URL}}">View media</a>{{end}}
           </div>
         </div>
@@ -370,12 +454,13 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
             <div class="result-header">
               <h4 class="result-title">{{.Title}}</h4>
               <div class="result-badges">
+                {{with index .Fields "result_badge"}}<span class="badge badge-archive">{{.}}</span>{{end}}
                 <span class="badge badge-type">{{.Type}}</span>
                 <span class="badge badge-locale">{{.Locale}}</span>
                 <span class="badge badge-score">{{printf "%.1f" .Score}}</span>
               </div>
             </div>
-            {{if .Snippet}}<p class="result-snippet">{{.Snippet.Text}}</p>{{end}}
+            {{if .Snippet}}<p class="result-snippet">{{snippetHTML .Snippet}}</p>{{end}}
             <div class="result-meta">
               {{if .Anchor}}<span>Timestamp: {{.Anchor.StartMS}}ms - {{.Anchor.EndMS}}ms</span>{{end}}
               {{if .Anchor}}<a href="{{.Anchor.URL}}">Jump to segment</a>{{end}}
@@ -392,12 +477,13 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
         <div class="result-header">
           <h3 class="result-title"><a href="{{.URL}}">{{.Title}}</a></h3>
           <div class="result-badges">
+            {{with index .Fields "result_badge"}}<span class="badge badge-archive">{{.}}</span>{{end}}
             <span class="badge badge-type">{{.Type}}</span>
             <span class="badge badge-locale">{{.Locale}}</span>
             <span class="badge badge-score">{{printf "%.1f" .Score}}</span>
           </div>
         </div>
-        {{if .Snippet}}<p class="result-snippet">{{.Snippet.Text}}</p>{{end}}
+        {{if .Snippet}}<p class="result-snippet">{{snippetHTML .Snippet}}</p>{{end}}
         <div class="result-meta">
           {{if .Parent}}<span>Parent: {{.Parent.Title}}</span>{{end}}
           {{if .Anchor}}<span>{{.Anchor.StartMS}}ms - {{.Anchor.EndMS}}ms</span>{{end}}
@@ -526,6 +612,10 @@ function applyFilters() {
 
   const group = document.getElementById('filterGroup').value;
   params.set('group', group);
+  setOptionalParam(params, 'published_year_gte', document.getElementById('publishedYearGTE').value);
+  setOptionalParam(params, 'published_year_lte', document.getElementById('publishedYearLTE').value);
+  setOptionalParam(params, 'duration_seconds_gte', document.getElementById('durationSecondsGTE').value);
+  setOptionalParam(params, 'duration_seconds_lte', document.getElementById('durationSecondsLTE').value);
   params.set('page', '1');
 
   window.location.href = '{{.ActionPath}}?' + params.toString();
@@ -537,6 +627,10 @@ function clearFilters() {
   params.delete('locale');
   params.delete('topic');
   params.delete('topics');
+  params.delete('published_year_gte');
+  params.delete('published_year_lte');
+  params.delete('duration_seconds_gte');
+  params.delete('duration_seconds_lte');
   Array.from(params.keys())
     .filter(key => key.startsWith('facet_'))
     .forEach(key => params.delete(key));
@@ -592,6 +686,12 @@ function applySort(value) {
   }
   params.set('page', '1');
   window.location.href = '{{.ActionPath}}?' + params.toString();
+}
+
+function setOptionalParam(params, key, value) {
+  const normalized = (value || '').trim();
+  if (normalized) params.set(key, normalized);
+  else params.delete(key);
 }
 
 // Debug panel
@@ -715,31 +815,36 @@ type homeView struct {
 }
 
 type searchView struct {
-	Title         string
-	ActionPath    string
-	APIPath       string
-	SuggestPath   string
-	CurrentAPIURL string
-	Query         string
-	Locale        string
-	TopicFilter   string
-	Topics        []string
-	FacetFilters  map[string][]string
-	LandingTitle  string
-	Breadcrumb    string
-	Group         bool
-	SortField     string
-	SortDir       string
-	Page          int
-	PerPage       int
-	TotalPages    int
-	HasPrev       bool
-	HasNext       bool
-	PrevURL       string
-	NextURL       string
-	Result        types.SearchResultPage
-	RequestJSON   string
-	ResultJSON    string
+	Title              string
+	ActionPath         string
+	APIPath            string
+	SuggestPath        string
+	CurrentAPIURL      string
+	Query              string
+	Locale             string
+	TopicFilter        string
+	Topics             []string
+	FacetFilters       map[string][]string
+	LandingTitle       string
+	LandingSlug        string
+	Breadcrumb         string
+	PublishedYearGTE   *int
+	PublishedYearLTE   *int
+	DurationSecondsGTE *int
+	DurationSecondsLTE *int
+	Group              bool
+	SortField          string
+	SortDir            string
+	Page               int
+	PerPage            int
+	TotalPages         int
+	HasPrev            bool
+	HasNext            bool
+	PrevURL            string
+	NextURL            string
+	Result             types.SearchResultPage
+	RequestJSON        string
+	ResultJSON         string
 }
 
 type opsView struct {
@@ -888,7 +993,7 @@ func topicLandingHandler(appCore *core.Core) router.HandlerFunc {
 		if preset, ok := media.TopicLandingPreset(request.LandingSlug); ok {
 			title = preset.Title
 		}
-		return renderSearchPage(c, appCore, title, "/demo/search", "/api/demo/search", "/api/demo/suggest", request)
+		return renderSearchPage(c, appCore, title, path.Join("/demo/topics", request.LandingSlug), "/api/demo/search", "/api/demo/suggest", request)
 	}
 }
 
@@ -921,28 +1026,33 @@ func renderSearchPage(c router.Context, appCore *core.Core, title, actionPath, a
 	}
 
 	view := searchView{
-		Title:        title,
-		ActionPath:   actionPath,
-		APIPath:      apiPath,
-		SuggestPath:  suggestPath,
-		Query:        request.Query,
-		Locale:       request.Locale,
-		TopicFilter:  strings.Join(topics, ", "),
-		Topics:       topics,
-		FacetFilters: cloneFacetFilterMap(request.FacetFilters),
-		LandingTitle: landingTitle,
-		Breadcrumb:   breadcrumb,
-		Group:        request.Group,
-		SortField:    request.SortField,
-		SortDir:      request.SortDir,
-		Page:         page,
-		PerPage:      perPage,
-		TotalPages:   totalPages,
-		HasPrev:      page > 1,
-		HasNext:      page < totalPages,
-		Result:       result,
-		RequestJSON:  prettyJSON(request),
-		ResultJSON:   prettyJSON(result),
+		Title:              title,
+		ActionPath:         actionPath,
+		APIPath:            apiPath,
+		SuggestPath:        suggestPath,
+		Query:              request.Query,
+		Locale:             request.Locale,
+		TopicFilter:        strings.Join(topics, ", "),
+		Topics:             topics,
+		FacetFilters:       cloneFacetFilterMap(request.FacetFilters),
+		LandingTitle:       landingTitle,
+		LandingSlug:        request.LandingSlug,
+		Breadcrumb:         breadcrumb,
+		PublishedYearGTE:   request.PublishedYearGTE,
+		PublishedYearLTE:   request.PublishedYearLTE,
+		DurationSecondsGTE: request.DurationSecondsGTE,
+		DurationSecondsLTE: request.DurationSecondsLTE,
+		Group:              request.Group,
+		SortField:          request.SortField,
+		SortDir:            request.SortDir,
+		Page:               page,
+		PerPage:            perPage,
+		TotalPages:         totalPages,
+		HasPrev:            page > 1,
+		HasNext:            page < totalPages,
+		Result:             result,
+		RequestJSON:        prettyJSON(request),
+		ResultJSON:         prettyJSON(result),
 	}
 	view.CurrentAPIURL = buildSearchURL(view.APIPath, view, view.Page)
 	if view.HasPrev {
@@ -1166,17 +1276,22 @@ func parseSearchRequest(c router.Context) searchdemo.SearchRequest {
 	}
 
 	return searchdemo.SearchRequest{
-		Query:          strings.TrimSpace(c.Query("q")),
-		Locale:         strings.TrimSpace(c.Query("locale")),
-		AcceptLanguage: strings.TrimSpace(c.Header("Accept-Language")),
-		Topic:          legacyTopic,
-		Topics:         topics,
-		FacetFilters:   facetFilters,
-		Group:          !strings.EqualFold(strings.TrimSpace(c.Query("group")), "false"),
-		Page:           atoiDefault(c.Query("page"), 1),
-		PerPage:        atoiDefault(c.Query("per_page"), 10),
-		SortField:      sortField,
-		SortDir:        sortDir,
+		Query:              strings.TrimSpace(c.Query("q")),
+		Locale:             strings.TrimSpace(c.Query("locale")),
+		AcceptLanguage:     strings.TrimSpace(c.Header("Accept-Language")),
+		Topic:              legacyTopic,
+		Topics:             topics,
+		FacetFilters:       facetFilters,
+		LandingSlug:        strings.TrimSpace(c.Query("landing_slug")),
+		PublishedYearGTE:   optionalInt(c.Query("published_year_gte")),
+		PublishedYearLTE:   optionalInt(c.Query("published_year_lte")),
+		DurationSecondsGTE: optionalInt(c.Query("duration_seconds_gte")),
+		DurationSecondsLTE: optionalInt(c.Query("duration_seconds_lte")),
+		Group:              !strings.EqualFold(strings.TrimSpace(c.Query("group")), "false"),
+		Page:               atoiDefault(c.Query("page"), 1),
+		PerPage:            atoiDefault(c.Query("per_page"), 10),
+		SortField:          sortField,
+		SortDir:            sortDir,
 	}
 }
 
@@ -1191,10 +1306,25 @@ func buildSearchURL(basePath string, state searchView, page int) string {
 	if len(state.Topics) > 0 {
 		params.Set("topics", strings.Join(state.Topics, ","))
 	}
+	if slug := strings.TrimSpace(state.LandingSlug); slug != "" {
+		params.Set("landing_slug", slug)
+	}
 	for field, values := range state.FacetFilters {
 		if len(values) > 0 {
 			params.Set("facet_"+field, strings.Join(values, ","))
 		}
+	}
+	if state.PublishedYearGTE != nil {
+		params.Set("published_year_gte", strconv.Itoa(*state.PublishedYearGTE))
+	}
+	if state.PublishedYearLTE != nil {
+		params.Set("published_year_lte", strconv.Itoa(*state.PublishedYearLTE))
+	}
+	if state.DurationSecondsGTE != nil {
+		params.Set("duration_seconds_gte", strconv.Itoa(*state.DurationSecondsGTE))
+	}
+	if state.DurationSecondsLTE != nil {
+		params.Set("duration_seconds_lte", strconv.Itoa(*state.DurationSecondsLTE))
 	}
 	params.Set("group", strconv.FormatBool(state.Group))
 	if page > 0 {
@@ -1251,14 +1381,15 @@ func cloneFacetFilterMap(in map[string][]string) map[string][]string {
 
 func normalizeSort(field, dir string) (string, string) {
 	switch strings.ToLower(strings.TrimSpace(field)) {
-	case "title":
+	case "title", media.FieldPublishedYear, media.FieldDurationSeconds:
 	default:
 		return "", ""
 	}
+	field = strings.ToLower(strings.TrimSpace(field))
 	if strings.EqualFold(strings.TrimSpace(dir), "desc") {
-		return "title", "desc"
+		return field, "desc"
 	}
-	return "title", "asc"
+	return field, "asc"
 }
 
 func firstNonEmpty(values ...string) string {
@@ -1296,6 +1427,14 @@ func atoiDefault(raw string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func optionalInt(raw string) *int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value <= 0 {
+		return nil
+	}
+	return &value
 }
 
 func normalizeAddress(address string) string {

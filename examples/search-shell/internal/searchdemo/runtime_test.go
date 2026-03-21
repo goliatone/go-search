@@ -4,7 +4,11 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/goliatone/go-search/adapters/media"
 )
+
+func intPtr(value int) *int { return &value }
 
 func TestRuntimeBootstrapsSeededSearch(t *testing.T) {
 	runtime, err := New(Config{
@@ -21,8 +25,8 @@ func TestRuntimeBootstrapsSeededSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	if status.Documents != 13 {
-		t.Fatalf("expected 13 seeded transcript documents, got %d", status.Documents)
+	if status.Documents != 16 {
+		t.Fatalf("expected 16 seeded transcript documents, got %d", status.Documents)
 	}
 
 	result, err := runtime.Search(context.Background(), SearchRequest{
@@ -193,5 +197,161 @@ func TestRuntimeSearchSortsByTitle(t *testing.T) {
 	}
 	if result.Hits[0].Title > result.Hits[1].Title {
 		t.Fatalf("expected ascending title sort, got %q before %q", result.Hits[0].Title, result.Hits[1].Title)
+	}
+}
+
+func TestRuntimeSearchCanDisableGrouping(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	result, err := runtime.Search(context.Background(), SearchRequest{
+		Locale: "en",
+		Group:  false,
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(result.Groups) != 0 {
+		t.Fatalf("expected individual hits, got groups: %+v", result.Groups)
+	}
+	if len(result.Hits) < 2 {
+		t.Fatalf("expected multiple hits, got %d", len(result.Hits))
+	}
+}
+
+func TestRuntimeSearchSortsGroupedResultsByPublishedYear(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	result, err := runtime.Search(context.Background(), SearchRequest{
+		Locale:    "en",
+		Group:     true,
+		SortField: media.FieldPublishedYear,
+		SortDir:   "desc",
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(result.Groups) < 2 {
+		t.Fatalf("expected multiple groups, got %d", len(result.Groups))
+	}
+	if result.Groups[0].Parent == nil || result.Groups[0].Parent.Title != "Architecture Case Studies" {
+		t.Fatalf("expected newest grouped result first, got %+v", result.Groups[0].Parent)
+	}
+}
+
+func TestRuntimeSearchArchitectureFixturesSupportVisibleFacetNarrowing(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	allArchitecture, err := runtime.Search(context.Background(), SearchRequest{
+		Locale:      "en",
+		LandingSlug: "architecture",
+		Group:       true,
+	})
+	if err != nil {
+		t.Fatalf("search all architecture: %v", err)
+	}
+	if len(allArchitecture.Groups) < 2 {
+		t.Fatalf("expected multiple architecture groups, got %+v", allArchitecture.Groups)
+	}
+
+	filtered, err := runtime.Search(context.Background(), SearchRequest{
+		Locale:      "en",
+		LandingSlug: "architecture",
+		Group:       true,
+		FacetFilters: map[string][]string{
+			media.FacetFieldSeries: {"Search Case Studies"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("search filtered architecture: %v", err)
+	}
+	if filtered.Total != 1 || len(filtered.Groups) != 1 {
+		t.Fatalf("expected one grouped result after facet narrowing, got total=%d groups=%d", filtered.Total, len(filtered.Groups))
+	}
+	if filtered.Groups[0].Parent == nil || filtered.Groups[0].Parent.Title != "Architecture Case Studies" {
+		t.Fatalf("unexpected filtered group: %+v", filtered.Groups[0].Parent)
+	}
+}
+
+func TestRuntimeSearchSupportsArchiveRangeFilteringAndBadgeMetadata(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	result, err := runtime.Search(context.Background(), SearchRequest{
+		Locale:             "en",
+		LandingSlug:        "architecture",
+		Group:              true,
+		PublishedYearGTE:   intPtr(2024),
+		DurationSecondsGTE: intPtr(1800),
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if result.Total == 0 || len(result.Groups) == 0 {
+		t.Fatalf("expected filtered grouped results, got %+v", result)
+	}
+	for _, group := range result.Groups {
+		if group.Parent == nil {
+			t.Fatalf("expected group parent, got %+v", group)
+		}
+		for _, hit := range group.Hits {
+			if hit.Document == nil {
+				t.Fatalf("expected document metadata, got %+v", hit)
+			}
+			if got := hit.Document.Numeric[media.FieldPublishedYear]; got < 2024 {
+				t.Fatalf("published year filter not applied: %+v", hit.Document.Numeric)
+			}
+			if got := hit.Document.Numeric[media.FieldDurationSeconds]; got < 1800 {
+				t.Fatalf("duration filter not applied: %+v", hit.Document.Numeric)
+			}
+			if badge := hit.Fields[media.FieldResultBadge]; badge == nil || badge == "" {
+				t.Fatalf("expected result badge metadata on hit %+v", hit.Fields)
+			}
+		}
+	}
+	foundSelected := false
+	for _, facet := range result.Facets {
+		if facet.Field != media.FacetFieldTopicHierarchy {
+			continue
+		}
+		for _, value := range facet.Values {
+			if value.Value == "Teaching Topics > Architecture" && value.Selected {
+				foundSelected = true
+				break
+			}
+		}
+	}
+	if !foundSelected {
+		t.Fatalf("expected architecture landing preset to mark the hierarchy selection in %+v", result.Facets)
 	}
 }

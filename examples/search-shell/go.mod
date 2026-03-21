@@ -8,7 +8,7 @@ require (
 	github.com/goliatone/go-admin/quickstart v0.0.0
 	github.com/goliatone/go-auth v0.36.0
 	github.com/goliatone/go-featuregate v0.6.0
-	github.com/goliatone/go-router v0.53.0
+	github.com/goliatone/go-router v0.54.0
 	github.com/goliatone/go-search v0.0.0
 )
 
@@ -85,7 +85,7 @@ require (
 	github.com/gofiber/utils v1.2.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/goliatone/go-auth/adapters/featuregate v0.36.0 // indirect
-	github.com/goliatone/go-cms v0.40.0 // indirect
+	github.com/goliatone/go-cms v0.42.0 // indirect
 	github.com/goliatone/go-command v0.18.0 // indirect
 	github.com/goliatone/go-composite-fs v0.3.0 // indirect
 	github.com/goliatone/go-config v0.13.0 // indirect
@@ -112,7 +112,7 @@ require (
 	github.com/goliatone/go-theme v0.3.0 // indirect
 	github.com/goliatone/go-uploader v0.4.0 // indirect
 	github.com/goliatone/go-urlkit v0.6.0 // indirect
-	github.com/goliatone/go-users v0.17.0 // indirect
+	github.com/goliatone/go-users v0.18.0 // indirect
 	github.com/goliatone/hashid v0.2.0 // indirect
 	github.com/goodsign/monday v1.0.2 // indirect
 	github.com/google/cel-go v0.26.1 // indirect
@@ -124,7 +124,7 @@ require (
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/jszwec/s3fs/v2 v2.0.0 // indirect
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
-	github.com/klauspost/compress v1.18.4 // indirect
+	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/knadh/koanf/maps v0.1.1 // indirect
 	github.com/knadh/koanf/parsers/json v0.1.0 // indirect
 	github.com/knadh/koanf/parsers/toml v0.1.0 // indirect
@@ -198,7 +198,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.42.0 // indirect
 	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa // indirect
-	golang.org/x/net v0.51.0 // indirect
+	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.35.0 // indirect

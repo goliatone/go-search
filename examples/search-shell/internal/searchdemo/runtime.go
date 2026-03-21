@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/goliatone/go-search/adapters/media"
 	"github.com/goliatone/go-search/command"
@@ -103,20 +104,24 @@ type Status struct {
 }
 
 type SearchRequest struct {
-	Query           string              `json:"query"`
-	Locale          string              `json:"locale"`
-	AcceptLanguage  string              `json:"accept_language,omitempty"`
-	LocaleSource    string              `json:"locale_source,omitempty"`
-	LocaleSupported bool                `json:"locale_supported,omitempty"`
-	Topic           string              `json:"topic,omitempty"`
-	Topics          []string            `json:"topics,omitempty"`
-	FacetFilters    map[string][]string `json:"facet_filters,omitempty"`
-	LandingSlug     string              `json:"landing_slug,omitempty"`
-	Group           bool                `json:"group"`
-	Page            int                 `json:"page"`
-	PerPage         int                 `json:"per_page"`
-	SortField       string              `json:"sort_field,omitempty"`
-	SortDir         string              `json:"sort_dir,omitempty"`
+	Query              string              `json:"query"`
+	Locale             string              `json:"locale"`
+	AcceptLanguage     string              `json:"accept_language,omitempty"`
+	LocaleSource       string              `json:"locale_source,omitempty"`
+	LocaleSupported    bool                `json:"locale_supported,omitempty"`
+	Topic              string              `json:"topic,omitempty"`
+	Topics             []string            `json:"topics,omitempty"`
+	FacetFilters       map[string][]string `json:"facet_filters,omitempty"`
+	LandingSlug        string              `json:"landing_slug,omitempty"`
+	PublishedYearGTE   *int                `json:"published_year_gte,omitempty"`
+	PublishedYearLTE   *int                `json:"published_year_lte,omitempty"`
+	DurationSecondsGTE *int                `json:"duration_seconds_gte,omitempty"`
+	DurationSecondsLTE *int                `json:"duration_seconds_lte,omitempty"`
+	Group              bool                `json:"group"`
+	Page               int                 `json:"page"`
+	PerPage            int                 `json:"per_page"`
+	SortField          string              `json:"sort_field,omitempty"`
+	SortDir            string              `json:"sort_dir,omitempty"`
 }
 
 type SuggestRequest struct {
@@ -175,6 +180,9 @@ func New(cfg Config) (*Runtime, error) {
 			ExpandParents:   true,
 			ExpandFallbacks: true,
 			IncludeDefault:  true,
+		},
+		Defaults: planner.Defaults{
+			DisableIndexGroupByDefault: true,
 		},
 	})
 	if err != nil {
@@ -546,7 +554,13 @@ func (r *Runtime) Search(ctx context.Context, req SearchRequest) (types.SearchRe
 			}
 		}
 	}
-	request.Filters = facetFiltersExpr(facetFilters)
+	request.Filters = searchFiltersExpr(
+		facetFilters,
+		req.PublishedYearGTE,
+		req.PublishedYearLTE,
+		req.DurationSecondsGTE,
+		req.DurationSecondsLTE,
+	)
 
 	return r.search.Query(ctx, request)
 }
@@ -664,10 +678,7 @@ func cloneFacetFilters(in map[string][]string) map[string][]string {
 	return out
 }
 
-func facetFiltersExpr(filters map[string][]string) types.FilterExpr {
-	if len(filters) == 0 {
-		return nil
-	}
+func searchFiltersExpr(filters map[string][]string, publishedYearGTE, publishedYearLTE, durationSecondsGTE, durationSecondsLTE *int) types.FilterExpr {
 	terms := make([]types.FilterExpr, 0, len(filters))
 	for field, values := range filters {
 		values = compact(values)
@@ -680,14 +691,21 @@ func facetFiltersExpr(filters map[string][]string) types.FilterExpr {
 			terms = append(terms, types.TermExpr{Field: field, Op: types.FilterOpIn, Value: values})
 		}
 	}
-	switch len(terms) {
-	case 0:
-		return nil
-	case 1:
-		return terms[0]
-	default:
-		return types.AndExpr{Terms: terms}
+	if publishedYearGTE != nil || publishedYearLTE != nil {
+		terms = append(terms, types.RangeExpr{
+			Field: media.FieldPublishedYear,
+			GTE:   optionalIntValue(publishedYearGTE),
+			LTE:   optionalIntValue(publishedYearLTE),
+		})
 	}
+	if durationSecondsGTE != nil || durationSecondsLTE != nil {
+		terms = append(terms, types.RangeExpr{
+			Field: media.FieldDurationSeconds,
+			GTE:   optionalIntValue(durationSecondsGTE),
+			LTE:   optionalIntValue(durationSecondsLTE),
+		})
+	}
+	return collapseFilterTerms(terms)
 }
 
 func compact(values []string) []string {
@@ -700,6 +718,24 @@ func compact(values []string) []string {
 	return out
 }
 
+func collapseFilterTerms(terms []types.FilterExpr) types.FilterExpr {
+	switch len(terms) {
+	case 0:
+		return nil
+	case 1:
+		return terms[0]
+	default:
+		return types.AndExpr{Terms: terms}
+	}
+}
+
+func optionalIntValue(value *int) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
 func defaultCultureDataPath() string {
 	_, file, _, ok := runtimex.Caller(0)
 	if !ok {
@@ -709,6 +745,10 @@ func defaultCultureDataPath() string {
 }
 
 func seedTranscriptRecords(locale string) []media.TranscriptRecord {
+	alternateLocale := "es"
+	if strings.EqualFold(locale, alternateLocale) {
+		alternateLocale = "en"
+	}
 	return []media.TranscriptRecord{
 		// Media 1: Search Blueprint (architecture topic)
 		{
@@ -1059,7 +1099,124 @@ WEBVTT
 Hybrid search combines the precision of lexical matching with the understanding of semantic similarity. This gives users the best of both worlds for finding relevant content.
 `),
 		},
+
+		// Media 7: Architecture Case Studies (architecture topic, different archive facets)
+		{
+			ID: "track-media-7-en-part-1",
+			Media: media.MediaRecord{
+				ID:              "media-7",
+				Title:           "Architecture Case Studies",
+				Summary:         "Applying grouped search architecture to real archive workflows.",
+				URL:             "/media/architecture-case-studies",
+				Thumbnail:       "/static/architecture-case-studies.jpg",
+				Topic:           "architecture",
+				People:          []string{"Archive Research Team"},
+				Subjects:        []string{"Architecture Review"},
+				Texts:           []string{"Field Notes"},
+				Location:        "Mexico City",
+				Sangha:          "Field Research Sangha",
+				Format:          "Workshop",
+				Series:          "Search Case Studies",
+				DurationSeconds: 2100,
+				PublishedAt:     seededPublishedAt(2025, time.February, 14),
+				Badge:           "Case Study",
+				Locale:          locale,
+			},
+			Track: types.TranscriptTrack{
+				MediaID:      "media-7",
+				Locale:       locale,
+				SourceFormat: "vtt",
+				TrackKind:    "captions",
+				SourceLocale: locale,
+			},
+			Format: "vtt",
+			Content: strings.TrimSpace(`
+WEBVTT
+
+00:00:00.000 --> 00:00:24.000
+Architecture reviews compare grouped search flows across archive surfaces so teams can verify that series, format, and location filters narrow parent results in visible ways.
+`),
+		},
+		{
+			ID: "track-media-7-en-part-2",
+			Media: media.MediaRecord{
+				ID:              "media-7",
+				Title:           "Architecture Case Studies",
+				Summary:         "Testing grouped result filters against realistic archive metadata.",
+				URL:             "/media/architecture-case-studies",
+				Thumbnail:       "/static/architecture-case-studies.jpg",
+				Topic:           "architecture",
+				People:          []string{"Archive Research Team"},
+				Subjects:        []string{"Architecture Review"},
+				Texts:           []string{"Field Notes"},
+				Location:        "Mexico City",
+				Sangha:          "Field Research Sangha",
+				Format:          "Workshop",
+				Series:          "Search Case Studies",
+				DurationSeconds: 2100,
+				PublishedAt:     seededPublishedAt(2025, time.February, 14),
+				Badge:           "Case Study",
+				Locale:          locale,
+			},
+			Track: types.TranscriptTrack{
+				MediaID:      "media-7",
+				Locale:       locale,
+				SourceFormat: "vtt",
+				TrackKind:    "captions",
+				SourceLocale: locale,
+			},
+			Format: "vtt",
+			Content: strings.TrimSpace(`
+WEBVTT
+
+00:00:24.000 --> 00:00:48.000
+This case study keeps the architecture topic but changes the archive facets, making it easier to prove that grouped search filters affect some parent results without affecting all of them.
+`),
+		},
+
+		// Media 8: Arquitectura de Busqueda (architecture topic, alternate locale)
+		{
+			ID: "track-media-8-alt-part-1",
+			Media: media.MediaRecord{
+				ID:              "media-8",
+				Title:           "Arquitectura de Busqueda",
+				Summary:         "Version localizada del recorrido de arquitectura de busqueda.",
+				URL:             "/media/arquitectura-busqueda",
+				Thumbnail:       "/static/arquitectura-busqueda.jpg",
+				Topic:           "architecture",
+				People:          []string{"Equipo de Arquitectura"},
+				Subjects:        []string{"Arquitectura de Busqueda"},
+				Texts:           []string{"Plano de Busqueda"},
+				Location:        "Bogota",
+				Sangha:          "Sangha de Traduccion",
+				Format:          "Seminar",
+				Series:          "Busqueda Global",
+				DurationSeconds: 1950,
+				PublishedAt:     seededPublishedAt(2024, time.September, 3),
+				Badge:           "Espanol",
+				Locale:          alternateLocale,
+			},
+			Track: types.TranscriptTrack{
+				MediaID:      "media-8",
+				Locale:       alternateLocale,
+				SourceFormat: "vtt",
+				TrackKind:    "captions",
+				SourceLocale: alternateLocale,
+			},
+			Format: "vtt",
+			Content: strings.TrimSpace(`
+WEBVTT
+
+00:00:00.000 --> 00:00:26.000
+La arquitectura de busqueda agrupa segmentos por recurso padre para que los filtros de locale, formato y serie sigan siendo faciles de inspeccionar.
+`),
+		},
 	}
+}
+
+func seededPublishedAt(year int, month time.Month, day int) *time.Time {
+	value := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+	return &value
 }
 
 type memoryGenerationStore struct {
@@ -1334,12 +1491,13 @@ func containsString(values []string, needle string) bool {
 
 func normalizeSearchSort(field, dir string) (string, string) {
 	switch strings.ToLower(strings.TrimSpace(field)) {
-	case "title":
+	case "title", media.FieldPublishedYear, media.FieldDurationSeconds:
 	default:
 		return "", ""
 	}
+	field = strings.ToLower(strings.TrimSpace(field))
 	if strings.EqualFold(strings.TrimSpace(dir), "desc") {
-		return "title", "desc"
+		return field, "desc"
 	}
-	return "title", "asc"
+	return field, "asc"
 }
