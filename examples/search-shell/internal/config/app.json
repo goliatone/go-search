@@ -31,6 +31,10 @@
     "seed_on_start": true,
     "index_name": "media_transcripts",
     "default_locale": "en",
-    "culture_data_path": ""
+    "culture_data_path": "",
+    "typesense_server_url": "http://localhost:8108",
+    "typesense_api_key": "xyz",
+    "typesense_collection_prefix": "search_shell_",
+    "reindex_batch_size": 25
   }
 }

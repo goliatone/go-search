@@ -7,6 +7,7 @@ require (
 	github.com/goliatone/go-admin v0.26.0
 	github.com/goliatone/go-admin/quickstart v0.0.0
 	github.com/goliatone/go-auth v0.36.0
+	github.com/goliatone/go-featuregate v0.6.0
 	github.com/goliatone/go-router v0.53.0
 	github.com/goliatone/go-search v0.0.0
 )
@@ -21,6 +22,7 @@ require (
 	github.com/alecthomas/kong v1.14.0 // indirect
 	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
+	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.41.0 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.1 // indirect
@@ -93,9 +95,8 @@ require (
 	github.com/goliatone/go-errors v0.10.0 // indirect
 	github.com/goliatone/go-export v0.7.0 // indirect
 	github.com/goliatone/go-export/adapters/template/go-template v0.7.0 // indirect
-	github.com/goliatone/go-featuregate v0.6.0 // indirect
 	github.com/goliatone/go-formgen v0.18.0 // indirect
-	github.com/goliatone/go-i18n v0.2.0 // indirect
+	github.com/goliatone/go-i18n v0.3.0 // indirect
 	github.com/goliatone/go-job v0.19.0 // indirect
 	github.com/goliatone/go-logger v0.8.0 // indirect
 	github.com/goliatone/go-masker v0.1.0 // indirect
@@ -105,6 +106,7 @@ require (
 	github.com/goliatone/go-print v0.4.1 // indirect
 	github.com/goliatone/go-repository-bun v0.15.1 // indirect
 	github.com/goliatone/go-repository-cache v0.7.1 // indirect
+	github.com/goliatone/go-search/adapters/goadmin v0.0.0 // indirect
 	github.com/goliatone/go-slug v0.1.0 // indirect
 	github.com/goliatone/go-template v0.3.1 // indirect
 	github.com/goliatone/go-theme v0.3.0 // indirect
@@ -144,6 +146,7 @@ require (
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
+	github.com/oapi-codegen/runtime v1.1.1 // indirect
 	github.com/oasdiff/yaml v0.0.0-20250309154309-f31be36b4037 // indirect
 	github.com/oasdiff/yaml3 v0.0.0-20250309153720-d2182401db90 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
@@ -157,6 +160,7 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 // indirect
 	github.com/savsgio/gotils v0.0.0-20250924091648-bce9a52d7761 // indirect
 	github.com/showa-93/go-mask v0.6.2 // indirect
+	github.com/sony/gobreaker v1.0.0 // indirect
 	github.com/soongo/path-to-regexp v1.6.4 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/stoewer/go-strcase v1.3.1 // indirect
@@ -168,6 +172,7 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect
 	github.com/traefik/yaegi v0.16.1 // indirect
+	github.com/typesense/typesense-go/v3 v3.2.0 // indirect
 	github.com/uptrace/bun v1.2.18 // indirect
 	github.com/uptrace/bun/dbfixture v1.2.18 // indirect
 	github.com/uptrace/bun/dialect/pgdialect v1.2.18 // indirect
@@ -212,6 +217,8 @@ require (
 replace github.com/goliatone/go-admin => ../../../go-admin
 
 replace github.com/goliatone/go-admin/quickstart => ../../../go-admin/quickstart
+
+replace github.com/goliatone/go-search/adapters/goadmin => ../../adapters/goadmin
 
 replace github.com/goliatone/go-auth => ../../../go-auth
 

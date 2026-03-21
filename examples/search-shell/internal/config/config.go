@@ -51,11 +51,15 @@ type FeatureConfig struct {
 }
 
 type SearchDemoConfig struct {
-	Provider        string `json:"provider"`
-	SeedOnStart     bool   `json:"seed_on_start"`
-	IndexName       string `json:"index_name"`
-	DefaultLocale   string `json:"default_locale"`
-	CultureDataPath string `json:"culture_data_path"`
+	Provider                  string `json:"provider"`
+	SeedOnStart               bool   `json:"seed_on_start"`
+	IndexName                 string `json:"index_name"`
+	DefaultLocale             string `json:"default_locale"`
+	CultureDataPath           string `json:"culture_data_path"`
+	TypesenseServerURL        string `json:"typesense_server_url"`
+	TypesenseAPIKey           string `json:"typesense_api_key"`
+	TypesenseCollectionPrefix string `json:"typesense_collection_prefix"`
+	ReindexBatchSize          int    `json:"reindex_batch_size"`
 }
 
 func Defaults() AppConfig {
@@ -88,11 +92,13 @@ func Defaults() AppConfig {
 			Users:     false,
 		},
 		SearchDemo: SearchDemoConfig{
-			Provider:        "memory",
-			SeedOnStart:     true,
-			IndexName:       "media_transcripts",
-			DefaultLocale:   "en",
-			CultureDataPath: "",
+			Provider:                  "memory",
+			SeedOnStart:               true,
+			IndexName:                 "media_transcripts",
+			DefaultLocale:             "en",
+			CultureDataPath:           "",
+			TypesenseCollectionPrefix: "search_shell_",
+			ReindexBatchSize:          25,
 		},
 		Metadata: map[string]string{},
 	}
@@ -189,6 +195,10 @@ func applyEnv(cfg *AppConfig) {
 	cfg.SearchDemo.IndexName = envString("APP_SEARCH_DEMO__INDEX_NAME", cfg.SearchDemo.IndexName)
 	cfg.SearchDemo.DefaultLocale = envString("APP_SEARCH_DEMO__DEFAULT_LOCALE", cfg.SearchDemo.DefaultLocale)
 	cfg.SearchDemo.CultureDataPath = envString("APP_SEARCH_DEMO__CULTURE_DATA_PATH", cfg.SearchDemo.CultureDataPath)
+	cfg.SearchDemo.TypesenseServerURL = envString("APP_SEARCH_DEMO__TYPESENSE_SERVER_URL", cfg.SearchDemo.TypesenseServerURL)
+	cfg.SearchDemo.TypesenseAPIKey = envString("APP_SEARCH_DEMO__TYPESENSE_API_KEY", cfg.SearchDemo.TypesenseAPIKey)
+	cfg.SearchDemo.TypesenseCollectionPrefix = envString("APP_SEARCH_DEMO__TYPESENSE_COLLECTION_PREFIX", cfg.SearchDemo.TypesenseCollectionPrefix)
+	cfg.SearchDemo.ReindexBatchSize = envInt("APP_SEARCH_DEMO__REINDEX_BATCH_SIZE", cfg.SearchDemo.ReindexBatchSize)
 }
 
 func normalize(cfg *AppConfig) {
@@ -209,6 +219,12 @@ func normalize(cfg *AppConfig) {
 	cfg.SearchDemo.IndexName = firstNonEmpty(strings.TrimSpace(cfg.SearchDemo.IndexName), "media_transcripts")
 	cfg.SearchDemo.DefaultLocale = firstNonEmpty(strings.TrimSpace(cfg.SearchDemo.DefaultLocale), cfg.Admin.DefaultLocale)
 	cfg.SearchDemo.CultureDataPath = strings.TrimSpace(cfg.SearchDemo.CultureDataPath)
+	cfg.SearchDemo.TypesenseServerURL = strings.TrimSpace(cfg.SearchDemo.TypesenseServerURL)
+	cfg.SearchDemo.TypesenseAPIKey = strings.TrimSpace(cfg.SearchDemo.TypesenseAPIKey)
+	cfg.SearchDemo.TypesenseCollectionPrefix = firstNonEmpty(strings.TrimSpace(cfg.SearchDemo.TypesenseCollectionPrefix), "search_shell_")
+	if cfg.SearchDemo.ReindexBatchSize <= 0 {
+		cfg.SearchDemo.ReindexBatchSize = 25
+	}
 }
 
 func envString(key, fallback string) string {
@@ -225,6 +241,18 @@ func envBool(key string, fallback bool) bool {
 		return fallback
 	}
 	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func envInt(key string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
 	if err != nil {
 		return fallback
 	}

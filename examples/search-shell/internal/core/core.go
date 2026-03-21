@@ -29,15 +29,18 @@ type FeatureStatus struct {
 }
 
 type Core struct {
-	Config    *config.AppConfig   `json:"config"`
-	Logger    *slog.Logger        `json:"logger"`
-	StartedAt time.Time           `json:"started_at"`
-	Search    *searchdemo.Runtime `json:"search"`
-	Server    router.Server[*fiber.App]
-	Router    router.Router[*fiber.App]
-	Fiber     *fiber.App
+	Config      *config.AppConfig   `json:"config"`
+	Logger      *slog.Logger        `json:"logger"`
+	StartedAt   time.Time           `json:"started_at"`
+	Search      *searchdemo.Runtime `json:"search"`
+	AdminConfig admin.Config
+	Server      router.Server[*fiber.App]
+	Router      router.Router[*fiber.App]
+	Fiber       *fiber.App
 
 	Admin              *admin.Admin
+	SiteSearchProvider admin.SearchProvider
+	SearchOperations   *admin.GoSearchOperations
 	Authenticator      *admin.GoAuthAuthenticator
 	AuthCookieName     string
 	Auther             *auth.Auther
@@ -128,14 +131,41 @@ func New(ctx context.Context, cfg *config.AppConfig) (*Core, error) {
 	}
 
 	searchRuntime, err := searchdemo.New(searchdemo.Config{
-		Provider:        cfg.SearchDemo.Provider,
-		SeedOnStart:     cfg.SearchDemo.SeedOnStart,
-		IndexName:       cfg.SearchDemo.IndexName,
-		DefaultLocale:   cfg.SearchDemo.DefaultLocale,
-		CultureDataPath: cfg.SearchDemo.CultureDataPath,
+		Provider:                  cfg.SearchDemo.Provider,
+		SeedOnStart:               cfg.SearchDemo.SeedOnStart,
+		IndexName:                 cfg.SearchDemo.IndexName,
+		DefaultLocale:             cfg.SearchDemo.DefaultLocale,
+		CultureDataPath:           cfg.SearchDemo.CultureDataPath,
+		TypesenseServerURL:        cfg.SearchDemo.TypesenseServerURL,
+		TypesenseAPIKey:           cfg.SearchDemo.TypesenseAPIKey,
+		TypesenseCollectionPrefix: cfg.SearchDemo.TypesenseCollectionPrefix,
+		ReindexBatchSize:          cfg.SearchDemo.ReindexBatchSize,
+		Logger:                    logger,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("initialize search demo runtime: %w", err)
+	}
+
+	if searchService := adm.SearchService(); searchService != nil {
+		searchService.Register("go-search", admin.NewGoSearchGlobalAdapter(admin.GoSearchGlobalAdapterConfig{
+			Search:       searchRuntime.SearchQuery(),
+			Indexes:      []string{searchRuntime.IndexName()},
+			FallbackType: "media",
+		}))
+	}
+
+	siteSearchProvider := admin.NewGoSearchSiteProvider(admin.GoSearchSiteProviderConfig{
+		Search:  searchRuntime.SearchQuery(),
+		Suggest: searchRuntime.SuggestQuery(),
+		Indexes: []string{searchRuntime.IndexName()},
+	})
+
+	searchOperations := &admin.GoSearchOperations{
+		Health:      searchRuntime.HealthQuery(),
+		Stats:       searchRuntime.StatsQuery(),
+		EnsureIndex: searchRuntime.EnsureCommand(),
+		Reindex:     searchRuntime.ReindexCommand(),
+		Indexes:     []string{searchRuntime.IndexName()},
 	}
 
 	return &Core{
@@ -143,10 +173,13 @@ func New(ctx context.Context, cfg *config.AppConfig) (*Core, error) {
 		Logger:             logger,
 		StartedAt:          time.Now().UTC(),
 		Search:             searchRuntime,
+		AdminConfig:        adminCfg,
 		Server:             server,
 		Router:             r,
 		Fiber:              server.WrappedRouter(),
 		Admin:              adm,
+		SiteSearchProvider: siteSearchProvider,
+		SearchOperations:   searchOperations,
 		Authenticator:      authn,
 		AuthCookieName:     authCookieName,
 		Auther:             auther,
