@@ -3,6 +3,7 @@ package media
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/goliatone/go-search/pkg/types"
 )
@@ -106,5 +107,75 @@ ocean wind
 	}
 	if got := docs[0].Metadata["track_locale"]; got != "en-US" {
 		t.Fatalf("track locale metadata = %#v", got)
+	}
+}
+
+func TestTranscriptProjectorEmitsArchiveFacetMetadata(t *testing.T) {
+	publishedAt := time.Date(2024, time.March, 20, 0, 0, 0, 0, time.UTC)
+	record := TranscriptRecord{
+		ID: "track-archive-1",
+		Media: MediaRecord{
+			ID:              "video-archive-1",
+			Title:           "Tara Teachings",
+			Summary:         "Archive entry for Tara teachings.",
+			URL:             "https://example.org/videos/tara",
+			Thumbnail:       "https://example.org/thumbs/tara.jpg",
+			Topic:           "Tara",
+			TopicPath:       []string{"Teaching Topics", "Tara"},
+			CategoryPath:    []string{"Teaching Categories", "Commentary"},
+			People:          []string{"Jane Teacher"},
+			Subjects:        []string{"Compassion"},
+			Texts:           []string{"Praise to Tara"},
+			Deities:         []string{"Tara"},
+			Location:        "Boulder",
+			Sangha:          "Green Tara Sangha",
+			Format:          "Teaching",
+			Series:          "Tara Cycle",
+			DurationSeconds: 2700,
+			PublishedAt:     &publishedAt,
+			Badge:           "Featured",
+		},
+		Track: types.TranscriptTrack{
+			MediaID:      "video-archive-1",
+			Locale:       "en",
+			SourceFormat: "srt",
+			TrackKind:    "translation",
+		},
+		Format: "srt",
+		Content: `1
+00:00:01,000 --> 00:00:02,500
+praise to tara
+`,
+	}
+	projector := NewTranscriptProjector(TranscriptProjectorConfig{
+		Index:      "media",
+		SourceType: "transcript",
+	})
+
+	docs, err := projector.Project(context.Background(), record)
+	if err != nil {
+		t.Fatalf("project transcript: %v", err)
+	}
+	if len(docs) != 1 {
+		t.Fatalf("expected one document, got %d", len(docs))
+	}
+	doc := docs[0]
+	if got := doc.Facets[FacetFieldTopicHierarchy]; len(got) != 2 || got[1] != "Teaching Topics > Tara" {
+		t.Fatalf("topic hierarchy = %#v", got)
+	}
+	if got := doc.Facets[FacetFieldCategoryHierarchy]; len(got) != 2 || got[1] != "Teaching Categories > Commentary" {
+		t.Fatalf("category hierarchy = %#v", got)
+	}
+	if got := doc.Facets[FacetFieldDecade]; len(got) != 1 || got[0] != "2020s" {
+		t.Fatalf("decade facet = %#v", got)
+	}
+	if got := doc.Facets[FacetFieldDurationBucket]; len(got) != 1 || got[0] != "30-60 min" {
+		t.Fatalf("duration facet = %#v", got)
+	}
+	if got := doc.Numeric[FieldDurationSeconds]; got != 2700 {
+		t.Fatalf("duration numeric = %v", got)
+	}
+	if got := doc.Fields[FieldResultBadge]; got != "Featured" {
+		t.Fatalf("result badge = %#v", got)
 	}
 }

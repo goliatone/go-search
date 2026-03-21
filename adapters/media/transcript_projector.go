@@ -3,6 +3,7 @@ package media
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/goliatone/go-search/indexing/subtitle"
 	"github.com/goliatone/go-search/locale"
@@ -10,13 +11,26 @@ import (
 )
 
 type MediaRecord struct {
-	ID        string
-	Title     string
-	Summary   string
-	URL       string
-	Thumbnail string
-	Topic     string
-	Locale    string
+	ID              string
+	Title           string
+	Summary         string
+	URL             string
+	Thumbnail       string
+	Topic           string
+	TopicPath       []string
+	CategoryPath    []string
+	People          []string
+	Subjects        []string
+	Texts           []string
+	Deities         []string
+	Location        string
+	Sangha          string
+	Format          string
+	Series          string
+	DurationSeconds int
+	PublishedAt     *time.Time
+	Badge           string
+	Locale          string
 }
 
 type TranscriptRecord struct {
@@ -56,6 +70,7 @@ func NewTranscriptProjector(cfg TranscriptProjectorConfig) *TranscriptProjector 
 
 func (p *TranscriptProjector) Project(_ context.Context, record TranscriptRecord) ([]types.Document, error) {
 	trackLocale := locale.Normalize(record.Track.Locale)
+	archiveFields := BuildArchiveProjection(record.Media, trackLocale)
 	cues, err := subtitle.Parse(record.Format, record.Content)
 	if err != nil {
 		return nil, err
@@ -78,15 +93,47 @@ func (p *TranscriptProjector) Project(_ context.Context, record TranscriptRecord
 		ParentURL:       record.Media.URL,
 		ParentThumbnail: record.Media.Thumbnail,
 		ParentFacets: map[string][]string{
-			"topic":  compact(record.Media.Topic),
-			"locale": compact(trackLocale),
+			"topic":              compact(archiveFields.TopicLeaf),
+			"topic_hierarchy":    append([]string(nil), archiveFields.TopicHierarchy...),
+			"category":           compact(archiveFields.CategoryLeaf),
+			"category_hierarchy": append([]string(nil), archiveFields.CategoryHierarchy...),
+			"people":             append([]string(nil), archiveFields.People...),
+			"subject":            append([]string(nil), archiveFields.Subjects...),
+			"text":               append([]string(nil), archiveFields.Texts...),
+			"deity":              append([]string(nil), archiveFields.Deities...),
+			"locale":             compact(trackLocale),
+			"decade":             compact(archiveFields.Decade),
+			"duration_bucket":    compact(archiveFields.DurationBucket),
+			"location":           compact(archiveFields.Location),
+			"sangha":             compact(archiveFields.Sangha),
+			"format":             compact(archiveFields.Format),
+			"series":             compact(archiveFields.Series),
 		},
 		ParentFields: map[string]any{
-			"topic":            record.Media.Topic,
-			"parent_title":     record.Media.Title,
-			"parent_summary":   record.Media.Summary,
-			"parent_url":       record.Media.URL,
-			"parent_thumbnail": record.Media.Thumbnail,
+			"topic":              archiveFields.TopicLeaf,
+			"topic_hierarchy":    append([]string(nil), archiveFields.TopicHierarchy...),
+			"category":           archiveFields.CategoryLeaf,
+			"category_hierarchy": append([]string(nil), archiveFields.CategoryHierarchy...),
+			"people":             append([]string(nil), archiveFields.People...),
+			"subject":            append([]string(nil), archiveFields.Subjects...),
+			"text":               append([]string(nil), archiveFields.Texts...),
+			"deity":              append([]string(nil), archiveFields.Deities...),
+			"location":           archiveFields.Location,
+			"sangha":             archiveFields.Sangha,
+			"format":             archiveFields.Format,
+			"series":             archiveFields.Series,
+			"decade":             archiveFields.Decade,
+			"duration_bucket":    archiveFields.DurationBucket,
+			"published_year":     archiveFields.PublishedYear,
+			"result_badge":       archiveFields.Badge,
+			"parent_title":       record.Media.Title,
+			"parent_summary":     record.Media.Summary,
+			"parent_url":         record.Media.URL,
+			"parent_thumbnail":   record.Media.Thumbnail,
+		},
+		ParentNumeric: map[string]float64{
+			"published_year":   float64(archiveFields.PublishedYear),
+			"duration_seconds": float64(archiveFields.DurationSeconds),
 		},
 		Track: record.Track,
 	}), nil
