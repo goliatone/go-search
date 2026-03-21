@@ -55,13 +55,22 @@ type SearchGroup struct {
 }
 
 type SearchFacet struct {
-	Field  string             `json:"field"`
-	Values []SearchFacetValue `json:"values"`
+	Field       string             `json:"field"`
+	Kind        FacetKind          `json:"kind,omitempty"`
+	Disjunctive bool               `json:"disjunctive,omitempty"`
+	Values      []SearchFacetValue `json:"values"`
+	Metadata    map[string]any     `json:"metadata,omitempty"`
 }
 
 type SearchFacetValue struct {
-	Value string `json:"value"`
-	Count int    `json:"count"`
+	Value       string         `json:"value"`
+	Label       string         `json:"label,omitempty"`
+	Count       int            `json:"count"`
+	Path        []string       `json:"path,omitempty"`
+	Level       int            `json:"level,omitempty"`
+	ParentValue string         `json:"parent_value,omitempty"`
+	Selected    bool           `json:"selected,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
 type SuggestResult struct {

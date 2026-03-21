@@ -56,7 +56,21 @@ type Sort struct {
 	Direction SortDirection `json:"direction"`
 }
 
+type FacetKind string
+
+const (
+	FacetKindTerm         FacetKind = "term"
+	FacetKindHierarchical FacetKind = "hierarchical"
+	FacetKindNumericRange FacetKind = "numeric_range"
+	FacetKindDateRange    FacetKind = "date_range"
+)
+
 type FacetRequest struct {
-	Field string `json:"field"`
-	Limit int    `json:"limit"`
+	Field       string         `json:"field"`
+	Limit       int            `json:"limit"`
+	Kind        FacetKind      `json:"kind,omitempty"`
+	Disjunctive bool           `json:"disjunctive,omitempty"`
+	Separator   string         `json:"separator,omitempty"`
+	Path        []string       `json:"path,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
 }
