@@ -18,3 +18,7 @@ type Provider interface {
 	DeleteBySource(ctx context.Context, index string, sourceIDs []string) error
 	Health(ctx context.Context, req types.HealthRequest) (types.HealthStatus, error)
 }
+
+type SearchBatcher interface {
+	SearchBatch(ctx context.Context, requests []types.SearchRequest) ([]types.SearchResultPage, error)
+}

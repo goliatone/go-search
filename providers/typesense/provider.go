@@ -2,6 +2,7 @@ package typesense
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"sort"
@@ -166,6 +167,83 @@ func (p *Provider) Search(ctx context.Context, req types.SearchRequest) (types.S
 		return p.searchSingleIndex(ctx, req.Indexes[0], req)
 	}
 	return p.searchMultiIndex(ctx, req)
+}
+
+func (p *Provider) SearchBatch(ctx context.Context, requests []types.SearchRequest) ([]types.SearchResultPage, error) {
+	if len(requests) == 0 {
+		return nil, nil
+	}
+	pages := make([]types.SearchResultPage, len(requests))
+	type batchItem struct {
+		position int
+		runtime  managedIndex
+		req      types.SearchRequest
+		params   tsapi.MultiSearchCollectionParameters
+	}
+	batched := make([]batchItem, 0, len(requests))
+	for i, req := range requests {
+		if len(req.Indexes) != 1 {
+			page, err := p.Search(ctx, req)
+			if err != nil {
+				return nil, err
+			}
+			pages[i] = page
+			continue
+		}
+		runtime, err := p.runtimeFor(req.Indexes[0])
+		if err != nil {
+			return nil, err
+		}
+		params, err := compileSearchParams(p.cfg, runtime.def, req)
+		if err != nil {
+			return nil, err
+		}
+		multiParams, err := searchParamsToMulti(runtime.collectionName, params)
+		if err != nil {
+			return nil, err
+		}
+		batched = append(batched, batchItem{
+			position: i,
+			runtime:  runtime,
+			req:      req,
+			params:   multiParams,
+		})
+	}
+	if len(batched) == 0 {
+		return pages, nil
+	}
+	body := tsapi.MultiSearchSearchesParameter{Searches: make([]tsapi.MultiSearchCollectionParameters, 0, len(batched))}
+	for _, item := range batched {
+		body.Searches = append(body.Searches, item.params)
+	}
+	result, err := p.client.MultiSearch.Perform(ctx, nil, body)
+	if err != nil {
+		return nil, errs.Wrap(err, map[string]any{"provider": p.Name(), "mode": "batch"})
+	}
+	if len(result.Results) != len(batched) {
+		return nil, errs.Wrap(errors.New("typesense multi search result count mismatch"), map[string]any{
+			"expected": len(batched),
+			"actual":   len(result.Results),
+		})
+	}
+	for i, item := range batched {
+		page, err := p.mapMultiSearchResult(item.runtime, item.req, result.Results[i])
+		if err != nil {
+			return nil, err
+		}
+		if page.Facets, err = p.disjunctiveFacets(ctx, item.runtime, item.req, page.Facets); err != nil {
+			return nil, err
+		}
+		if item.req.GroupBy != "" {
+			total, err := p.exactGroupCount(ctx, item.runtime, item.req)
+			if err != nil {
+				return nil, err
+			}
+			page.Total = total
+		}
+		pages[item.position] = page
+	}
+	return pages, nil
 }
 
 func (p *Provider) Suggest(ctx context.Context, req types.SuggestRequest) (types.SuggestResult, error) {
@@ -440,6 +518,45 @@ func (p *Provider) disjunctiveFacets(ctx context.Context, runtime managedIndex, 
 			out = append(out, facet)
 		}
 	}
+	return out, nil
+}
+
+func (p *Provider) mapMultiSearchResult(runtime managedIndex, req types.SearchRequest, item tsapi.MultiSearchResultItem) (types.SearchResultPage, error) {
+	if item.Error != nil {
+		code := int64(0)
+		if item.Code != nil {
+			code = *item.Code
+		}
+		return types.SearchResultPage{}, errs.Wrap(errors.New(*item.Error), map[string]any{
+			"index":      runtime.def.Name,
+			"collection": runtime.collectionName,
+			"code":       code,
+		})
+	}
+	body, err := json.Marshal(item)
+	if err != nil {
+		return types.SearchResultPage{}, err
+	}
+	var result tsapi.SearchResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return types.SearchResultPage{}, err
+	}
+	return mapSearchResult(&result, runtime, req, p.cfg), nil
+}
+
+func searchParamsToMulti(collectionName string, params *tsapi.SearchCollectionParams) (tsapi.MultiSearchCollectionParameters, error) {
+	if params == nil {
+		return tsapi.MultiSearchCollectionParameters{}, nil
+	}
+	body, err := json.Marshal(params)
+	if err != nil {
+		return tsapi.MultiSearchCollectionParameters{}, err
+	}
+	var out tsapi.MultiSearchCollectionParameters
+	if err := json.Unmarshal(body, &out); err != nil {
+		return tsapi.MultiSearchCollectionParameters{}, err
+	}
+	out.Collection = &collectionName
 	return out, nil
 }
 

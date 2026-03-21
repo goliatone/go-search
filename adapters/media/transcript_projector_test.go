@@ -172,8 +172,26 @@ praise to tara
 	if got := doc.Facets[FacetFieldDurationBucket]; len(got) != 1 || got[0] != "30-60 min" {
 		t.Fatalf("duration facet = %#v", got)
 	}
+	if got := doc.Facets[FacetFieldLocation]; len(got) != 1 || got[0] != "Boulder" {
+		t.Fatalf("location facet = %#v", got)
+	}
+	if got := doc.Facets[FacetFieldSangha]; len(got) != 1 || got[0] != "Green Tara Sangha" {
+		t.Fatalf("sangha facet = %#v", got)
+	}
+	if got := doc.Facets[FacetFieldFormat]; len(got) != 1 || got[0] != "Teaching" {
+		t.Fatalf("format facet = %#v", got)
+	}
+	if got := doc.Facets[FacetFieldSeries]; len(got) != 1 || got[0] != "Tara Cycle" {
+		t.Fatalf("series facet = %#v", got)
+	}
 	if got := doc.Numeric[FieldDurationSeconds]; got != 2700 {
 		t.Fatalf("duration numeric = %v", got)
+	}
+	if got := doc.Numeric[FieldPublishedYear]; got != 2024 {
+		t.Fatalf("published year numeric = %v", got)
+	}
+	if got := doc.Fields[FieldPublishedYear]; got != 2024 {
+		t.Fatalf("published year field = %#v", got)
 	}
 	if got := doc.Fields[FieldResultBadge]; got != "Featured" {
 		t.Fatalf("result badge = %#v", got)

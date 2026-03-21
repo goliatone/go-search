@@ -72,6 +72,136 @@ func TestTypesenseProviderArchiveWorkflow(t *testing.T) {
 	}
 }
 
+func TestTypesenseProviderSupportsArchiveFacetsAndRangeFiltering(t *testing.T) {
+	provider := newIntegrationProvider(t)
+	ctx := context.Background()
+	def := media.DefaultArchiveIndexDefinition("media")
+	if err := provider.EnsureIndex(ctx, def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+
+	startA, endA := int64(1000), int64(2000)
+	startB, endB := int64(3000), int64(4000)
+	docs := []types.Document{
+		{
+			ID:         "segment-architecture-1",
+			Index:      "media",
+			Type:       types.DocumentTypeTranscriptSegment,
+			ParentID:   "video-architecture",
+			SourceType: "transcript",
+			SourceID:   "track-architecture",
+			Title:      "Architecture Walkthrough",
+			Body:       "archive architecture prayer",
+			URL:        "https://example.org/video-architecture",
+			AnchorURL:  "https://example.org/video-architecture#t=1",
+			Locale:     "en",
+			StartMS:    &startA,
+			EndMS:      &endA,
+			Fields: map[string]any{
+				"parent_title":           "Architecture Walkthrough",
+				"parent_url":             "https://example.org/video-architecture",
+				media.FieldResultBadge:   "Blueprint",
+				media.FieldPublishedYear: 2024,
+			},
+			Facets: map[string][]string{
+				media.FacetFieldTopic:          {"architecture"},
+				media.FacetFieldTopicHierarchy: {"Teaching Topics", "Teaching Topics > Architecture"},
+				media.FacetFieldDurationBucket: {"30-60 min"},
+				media.FacetFieldDecade:         {"2020s"},
+				media.FacetFieldFormat:         {"Teaching"},
+				media.FacetFieldLocale:         {"en"},
+			},
+			Numeric: map[string]float64{
+				media.FieldPublishedYear:   2024,
+				media.FieldDurationSeconds: 2400,
+			},
+		},
+		{
+			ID:         "segment-tara-1",
+			Index:      "media",
+			Type:       types.DocumentTypeTranscriptSegment,
+			ParentID:   "video-tara",
+			SourceType: "transcript",
+			SourceID:   "track-tara",
+			Title:      "Tara Teachings",
+			Body:       "archive tara prayer",
+			URL:        "https://example.org/video-tara",
+			AnchorURL:  "https://example.org/video-tara#t=3",
+			Locale:     "en",
+			StartMS:    &startB,
+			EndMS:      &endB,
+			Fields: map[string]any{
+				"parent_title":           "Tara Teachings",
+				"parent_url":             "https://example.org/video-tara",
+				media.FieldResultBadge:   "Featured",
+				media.FieldPublishedYear: 2022,
+			},
+			Facets: map[string][]string{
+				media.FacetFieldTopic:          {"tara"},
+				media.FacetFieldTopicHierarchy: {"Teaching Topics", "Teaching Topics > Tara"},
+				media.FacetFieldDurationBucket: {"15-30 min"},
+				media.FacetFieldDecade:         {"2020s"},
+				media.FacetFieldFormat:         {"Teaching"},
+				media.FacetFieldLocale:         {"en"},
+			},
+			Numeric: map[string]float64{
+				media.FieldPublishedYear:   2022,
+				media.FieldDurationSeconds: 1200,
+			},
+		},
+	}
+	if err := provider.UpsertDocuments(ctx, "media", docs); err != nil {
+		t.Fatalf("upsert docs: %v", err)
+	}
+
+	page, err := provider.Search(ctx, types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "archive",
+		Locale:  "en",
+		GroupBy: "parent_id",
+		Page:    1,
+		PerPage: 10,
+		Filters: types.AndExpr{Terms: []types.FilterExpr{
+			types.TermExpr{Field: media.FacetFieldTopicHierarchy, Op: types.FilterOpEQ, Value: "Teaching Topics > Architecture"},
+			types.RangeExpr{Field: media.FieldPublishedYear, GTE: 2024},
+			types.RangeExpr{Field: media.FieldDurationSeconds, GTE: 1800},
+		}},
+		Facets: []types.FacetRequest{
+			{Field: media.FacetFieldTopicHierarchy, Kind: types.FacetKindHierarchical, Disjunctive: true},
+			{Field: media.FacetFieldDurationBucket, Disjunctive: true},
+			{Field: media.FacetFieldDecade, Disjunctive: true},
+		},
+		Sort: []types.Sort{{Field: media.FieldPublishedYear, Direction: types.SortDesc}},
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if page.Total != 1 || len(page.Groups) != 1 {
+		t.Fatalf("expected one grouped archive result, got %+v", page)
+	}
+	if page.Groups[0].TopHit == nil || page.Groups[0].TopHit.Fields[media.FieldResultBadge] != "Blueprint" {
+		t.Fatalf("expected badge metadata on hit, got %+v", page.Groups[0].TopHit)
+	}
+	foundSelected := false
+	foundSibling := false
+	for _, facet := range page.Facets {
+		if facet.Field != media.FacetFieldTopicHierarchy {
+			continue
+		}
+		for _, value := range facet.Values {
+			if value.Value == "Teaching Topics > Architecture" && value.Selected {
+				foundSelected = true
+			}
+			if value.Value == "Teaching Topics > Tara" {
+				foundSibling = true
+			}
+		}
+	}
+	if !foundSelected || !foundSibling {
+		t.Fatalf("expected selected and sibling hierarchy values in %+v", page.Facets)
+	}
+}
+
 func TestTypesenseProviderLocaleSuggestDeleteBySourceAndStats(t *testing.T) {
 	provider := newIntegrationProvider(t)
 	ctx := context.Background()

@@ -165,6 +165,18 @@ func (p *Provider) Search(_ context.Context, req types.SearchRequest) (types.Sea
 	return page, nil
 }
 
+func (p *Provider) SearchBatch(ctx context.Context, requests []types.SearchRequest) ([]types.SearchResultPage, error) {
+	out := make([]types.SearchResultPage, 0, len(requests))
+	for _, req := range requests {
+		page, err := p.Search(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, page)
+	}
+	return out, nil
+}
+
 func (p *Provider) Suggest(_ context.Context, req types.SuggestRequest) (types.SuggestResult, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -527,39 +539,106 @@ func sortHits(hits []types.SearchHit, req types.SearchRequest) {
 		if leftExact != rightExact {
 			return leftExact
 		}
-		if len(sorts) == 0 {
-			if hits[i].FinalScore == hits[j].FinalScore {
-				return hits[i].ID < hits[j].ID
-			}
-			return hits[i].FinalScore > hits[j].FinalScore
+		if ordered, ok := compareRequestedSorts(sorts, hits[i], hits[j]); ok {
+			return ordered
 		}
-		for _, s := range sorts {
-			left := fieldValue(hits[i], s.Field)
-			right := fieldValue(hits[j], s.Field)
-			if left == right {
-				continue
-			}
-			if s.Direction == types.SortAsc {
-				return left < right
-			}
-			return left > right
+		if hits[i].FinalScore == hits[j].FinalScore {
+			return hits[i].ID < hits[j].ID
 		}
-		return hits[i].ID < hits[j].ID
+		return hits[i].FinalScore > hits[j].FinalScore
 	})
 }
 
+func compareRequestedSorts(sorts []types.Sort, left, right types.SearchHit) (bool, bool) {
+	for _, sortField := range sorts {
+		if strings.TrimSpace(sortField.Field) == "" {
+			continue
+		}
+		leftNum, rightNum, numeric := sortableNumbers(left, right, sortField.Field)
+		if numeric {
+			if leftNum == rightNum {
+				continue
+			}
+			if sortField.Direction == types.SortAsc {
+				return leftNum < rightNum, true
+			}
+			return leftNum > rightNum, true
+		}
+		leftText := fieldValue(left, sortField.Field)
+		rightText := fieldValue(right, sortField.Field)
+		if leftText == rightText {
+			continue
+		}
+		if sortField.Direction == types.SortAsc {
+			return leftText < rightText, true
+		}
+		return leftText > rightText, true
+	}
+	return false, false
+}
+
 func fieldValue(hit types.SearchHit, field string) string {
-	switch field {
+	switch strings.ToLower(strings.TrimSpace(field)) {
 	case "title":
-		return hit.Title
+		return strings.ToLower(strings.TrimSpace(hit.Title))
 	case "locale":
-		return hit.Locale
+		return strings.ToLower(strings.TrimSpace(hit.Locale))
 	default:
-		if hit.Document != nil && hit.Document.Fields != nil {
-			return toString(hit.Document.Fields[field])
+		for _, source := range []map[string]any{hit.Fields, documentFields(hit.Document)} {
+			if len(source) == 0 {
+				continue
+			}
+			if raw, ok := source[field]; ok {
+				return strings.ToLower(strings.TrimSpace(toString(raw)))
+			}
 		}
 		return ""
 	}
+}
+
+func sortableNumbers(left, right types.SearchHit, field string) (float64, float64, bool) {
+	leftValue, leftOK := sortableNumber(left, field)
+	rightValue, rightOK := sortableNumber(right, field)
+	if !leftOK && !rightOK {
+		return 0, 0, false
+	}
+	return leftValue, rightValue, true
+}
+
+func sortableNumber(hit types.SearchHit, field string) (float64, bool) {
+	switch strings.ToLower(strings.TrimSpace(field)) {
+	case "start_ms":
+		if hit.Anchor != nil {
+			return float64(hit.Anchor.StartMS), true
+		}
+	case "end_ms":
+		if hit.Anchor != nil {
+			return float64(hit.Anchor.EndMS), true
+		}
+	}
+	for _, source := range []map[string]any{hit.Fields, documentFields(hit.Document)} {
+		if len(source) == 0 {
+			continue
+		}
+		if raw, ok := source[field]; ok {
+			if value, ok := asFloat(raw); ok {
+				return value, true
+			}
+		}
+	}
+	if hit.Document != nil && hit.Document.Numeric != nil {
+		if value, ok := hit.Document.Numeric[field]; ok {
+			return value, true
+		}
+	}
+	return 0, false
+}
+
+func documentFields(doc *types.Document) map[string]any {
+	if doc == nil {
+		return nil
+	}
+	return doc.Fields
 }
 
 func toString(value any) string {

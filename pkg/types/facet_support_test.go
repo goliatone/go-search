@@ -7,6 +7,10 @@ func TestBuildFacetAddsHierarchyMetadataAndSelection(t *testing.T) {
 		Field:       "topic_hierarchy",
 		Kind:        FacetKindHierarchical,
 		Disjunctive: true,
+		Path:        []string{"Teaching Topics"},
+		Metadata: map[string]any{
+			"ui": "archive",
+		},
 	}, map[string]int{
 		"Teaching Topics":        4,
 		"Teaching Topics > Tara": 2,
@@ -14,6 +18,16 @@ func TestBuildFacetAddsHierarchyMetadataAndSelection(t *testing.T) {
 
 	if facet.Kind != FacetKindHierarchical || !facet.Disjunctive {
 		t.Fatalf("facet = %+v", facet)
+	}
+	if facet.Metadata["separator"] != DefaultFacetPathSeparator {
+		t.Fatalf("facet metadata = %+v", facet.Metadata)
+	}
+	if facet.Metadata["ui"] != "archive" {
+		t.Fatalf("facet metadata = %+v", facet.Metadata)
+	}
+	path, ok := facet.Metadata["path"].([]string)
+	if !ok || len(path) != 1 || path[0] != "Teaching Topics" {
+		t.Fatalf("facet path metadata = %+v", facet.Metadata["path"])
 	}
 	if len(facet.Values) < 2 {
 		t.Fatalf("values = %+v", facet.Values)

@@ -252,3 +252,85 @@ func TestProviderBuildsDisjunctiveHierarchicalFacets(t *testing.T) {
 		t.Fatalf("expected disjunctive hierarchy count to preserve sibling branch, got %+v", page.Facets[0].Values)
 	}
 }
+
+func TestProviderSupportsRangeFilteringWithSelectedDisjunctiveArchiveFacets(t *testing.T) {
+	provider := New(Config{})
+	ctx := context.Background()
+	if err := provider.EnsureIndex(ctx, types.IndexDefinition{Name: "media"}); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	if err := provider.UpsertDocuments(ctx, "media", []types.Document{
+		{
+			ID:    "doc-1",
+			Index: "media",
+			Title: "Architecture Walkthrough",
+			Body:  "archive prayer",
+			Facets: map[string][]string{
+				"topic_hierarchy": {"Teaching Topics", "Teaching Topics > Architecture"},
+				"format":          {"Teaching"},
+			},
+			Numeric: map[string]float64{
+				"published_year":   2024,
+				"duration_seconds": 2400,
+			},
+		},
+		{
+			ID:    "doc-2",
+			Index: "media",
+			Title: "Tara Teachings",
+			Body:  "archive prayer",
+			Facets: map[string][]string{
+				"topic_hierarchy": {"Teaching Topics", "Teaching Topics > Tara"},
+				"format":          {"Teaching"},
+			},
+			Numeric: map[string]float64{
+				"published_year":   2024,
+				"duration_seconds": 2400,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("upsert docs: %v", err)
+	}
+	page, err := provider.Search(ctx, types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "prayer",
+		Filters: types.AndExpr{Terms: []types.FilterExpr{
+			types.TermExpr{Field: "topic_hierarchy", Op: types.FilterOpEQ, Value: "Teaching Topics > Architecture"},
+			types.RangeExpr{Field: "published_year", GTE: 2024},
+			types.RangeExpr{Field: "duration_seconds", GTE: 1800},
+		}},
+		Facets: []types.FacetRequest{
+			{Field: "topic_hierarchy", Kind: types.FacetKindHierarchical, Disjunctive: true},
+			{Field: "format", Disjunctive: true},
+		},
+		Page:    1,
+		PerPage: 10,
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if page.Total != 1 {
+		t.Fatalf("expected one ranged result, got %+v", page)
+	}
+	foundArchitecture := false
+	foundTara := false
+	for _, facet := range page.Facets {
+		if facet.Field != "topic_hierarchy" {
+			continue
+		}
+		for _, value := range facet.Values {
+			if value.Value == "Teaching Topics > Architecture" && value.Selected {
+				foundArchitecture = true
+			}
+			if value.Value == "Teaching Topics > Tara" {
+				foundTara = true
+			}
+		}
+	}
+	if !foundArchitecture {
+		t.Fatalf("expected selected hierarchical value in %+v", page.Facets)
+	}
+	if !foundTara {
+		t.Fatalf("expected disjunctive sibling count to remain visible in %+v", page.Facets)
+	}
+}

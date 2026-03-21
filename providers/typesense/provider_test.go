@@ -1,8 +1,10 @@
 package typesense
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/goliatone/go-search/adapters/media"
 	"github.com/goliatone/go-search/pkg/types"
 	tsapi "github.com/typesense/typesense-go/v3/typesense/api"
 )
@@ -37,6 +39,26 @@ func TestBuildCollectionSchemaIncludesFixedTranscriptFields(t *testing.T) {
 	}
 	if field, ok := fields["topic"]; !ok || field.Type != "string[]" {
 		t.Fatalf("expected topic string[] facet field, got %+v", field)
+	}
+}
+
+func TestBuildCollectionSchemaMarksArchiveRangeFields(t *testing.T) {
+	schema, _, err := buildCollectionSchema(Config{}, media.DefaultArchiveIndexDefinition("media"))
+	if err != nil {
+		t.Fatalf("build schema: %v", err)
+	}
+	fields := map[string]tsapi.Field{}
+	for _, field := range schema.Fields {
+		fields[field.Name] = field
+	}
+	for _, name := range []string{media.FieldPublishedYear, media.FieldDurationSeconds} {
+		field, ok := fields[name]
+		if !ok || field.RangeIndex == nil || !*field.RangeIndex {
+			t.Fatalf("expected range index on %s, got %+v", name, field)
+		}
+		if field.Sort == nil || !*field.Sort {
+			t.Fatalf("expected sort on %s, got %+v", name, field)
+		}
 	}
 }
 
@@ -96,6 +118,46 @@ func TestCompileSearchParamsCompilesExistsExprToShadowField(t *testing.T) {
 	}
 	if params.FilterBy == nil || *params.FilterBy != "__exists_topic:=true" {
 		t.Fatalf("expected exists shadow filter, got %+v", params.FilterBy)
+	}
+}
+
+func TestCompileSearchParamsCompilesArchiveRangeAndHierarchyFilters(t *testing.T) {
+	params, err := compileSearchParams(Config{}, media.DefaultArchiveIndexDefinition("media"), types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "prayer",
+		Locale:  "en",
+		Page:    1,
+		PerPage: 10,
+		Filters: types.AndExpr{Terms: []types.FilterExpr{
+			types.TermExpr{Field: media.FacetFieldTopicHierarchy, Op: types.FilterOpEQ, Value: "Teaching Topics > Architecture"},
+			types.RangeExpr{Field: media.FieldPublishedYear, GTE: 2024},
+			types.RangeExpr{Field: media.FieldDurationSeconds, GTE: 1800, LTE: 3600},
+		}},
+		Facets: []types.FacetRequest{
+			{Field: media.FacetFieldTopicHierarchy, Kind: types.FacetKindHierarchical, Disjunctive: true},
+			{Field: media.FacetFieldDurationBucket, Disjunctive: true},
+		},
+		Sort: []types.Sort{{Field: media.FieldPublishedYear, Direction: types.SortDesc}},
+	})
+	if err != nil {
+		t.Fatalf("compile search params: %v", err)
+	}
+	if params.FilterBy == nil {
+		t.Fatalf("expected filter_by")
+	}
+	filter := *params.FilterBy
+	for _, fragment := range []string{
+		"topic_hierarchy:=`Teaching Topics > Architecture`",
+		"published_year:>=2024",
+		"duration_seconds:[1800..3600]",
+		"locale:=en",
+	} {
+		if !strings.Contains(filter, fragment) {
+			t.Fatalf("expected filter fragment %q in %q", fragment, filter)
+		}
+	}
+	if params.SortBy == nil || *params.SortBy != "_eval(locale:=en):desc,published_year:desc" {
+		t.Fatalf("unexpected sort_by: %+v", params.SortBy)
 	}
 }
 
@@ -188,6 +250,7 @@ func TestMapFacetsBuildsHierarchicalFacetMetadata(t *testing.T) {
 		Facets: []types.FacetRequest{
 			{Field: "topic_hierarchy", Kind: types.FacetKindHierarchical, Disjunctive: true},
 		},
+		Filters: types.TermExpr{Field: "topic_hierarchy", Op: types.FilterOpEQ, Value: "Teaching Topics > Tara"},
 	})
 	if len(facets) != 1 {
 		t.Fatalf("facets = %+v", facets)
@@ -195,8 +258,16 @@ func TestMapFacetsBuildsHierarchicalFacetMetadata(t *testing.T) {
 	if facets[0].Kind != types.FacetKindHierarchical || !facets[0].Disjunctive {
 		t.Fatalf("facet metadata = %+v", facets[0])
 	}
+	if facets[0].Metadata["separator"] != types.DefaultFacetPathSeparator {
+		t.Fatalf("facet metadata = %+v", facets[0].Metadata)
+	}
 	if len(facets[0].Values) < 2 {
 		t.Fatalf("facet values = %+v", facets[0].Values)
+	}
+	for _, value := range facets[0].Values {
+		if value.Value == "Teaching Topics > Tara" && !value.Selected {
+			t.Fatalf("expected selected value in %+v", facets[0].Values)
+		}
 	}
 }
 

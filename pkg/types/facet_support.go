@@ -177,11 +177,19 @@ func BuildFacet(request FacetRequest, counts map[string]int, selected []string) 
 		Field:       request.Field,
 		Kind:        request.NormalizedKind(),
 		Disjunctive: request.Disjunctive,
+		Metadata:    cloneFacetMetadata(request.Metadata),
+	}
+	if len(request.Path) > 0 {
+		if facet.Metadata == nil {
+			facet.Metadata = map[string]any{}
+		}
+		facet.Metadata["path"] = append([]string(nil), request.Path...)
 	}
 	if facet.Kind == FacetKindHierarchical {
-		facet.Metadata = map[string]any{
-			"separator": request.PathSeparator(),
+		if facet.Metadata == nil {
+			facet.Metadata = map[string]any{}
 		}
+		facet.Metadata["separator"] = request.PathSeparator()
 	}
 	values := make([]SearchFacetValue, 0, len(counts))
 	for value, count := range counts {
@@ -214,6 +222,17 @@ func BuildFacet(request FacetRequest, counts map[string]int, selected []string) 
 	}
 	facet.Values = values
 	return facet
+}
+
+func cloneFacetMetadata(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 func facetLabel(path []string, fallback string) string {
