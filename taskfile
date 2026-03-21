@@ -102,6 +102,16 @@ function dev:test {
     go test ./...
 }
 
+function dev:test:adapters {
+    local dir
+
+    for dir in adapters/goadmin adapters/gocms adapters/gousers; do
+        if [ -f "${dir}/go.mod" ]; then
+            (cd "${dir}" && go test ./...) || return 1
+        fi
+    done
+}
+
 function dev:cover {
     go test -coverprofile=coverage.out ./... && go tool cover -func coverage.out
 }
@@ -414,27 +424,17 @@ function version:check {
 ##
 ## -----
 ##
-## adapters:featuregate:sync
+## adapters:*:sync
 ##
-## Keep the adapters/featuregate module's go-auth requirement
-## in sync with the release tag.
+## Keep nested adapter modules in sync with the root go-search release tag.
 ##
 ## Arguments:
 ## @arg 1 {string} tag
 ## @flag --tidy Run go mod tidy (use after tag is published)
-function adapters:featuregate:sync {
-    local tag=${1}
-    shift
-
-    if [ -z "$tag" ]; then
-        exit 1
-    fi
-
-    if [ ! -f "adapters/featuregate/go.mod" ]; then
-        return 0
-    fi
-
-    (cd adapters/featuregate && go mod edit -require=github.com/goliatone/go-auth@v${tag})
+function _adapters:sync_go_search {
+    local dir=${1}
+    local tag=${2}
+    shift 2
 
     local run_tidy=0
     while [[ "$#" -gt 0 ]]; do
@@ -446,9 +446,45 @@ function adapters:featuregate:sync {
         shift
     done
 
-    if [ "$run_tidy" -eq 1 ]; then
-        (cd adapters/featuregate && go mod tidy)
+    if [ -z "${dir}" ] || [ -z "${tag}" ]; then
+        exit 1
     fi
+
+    if [ ! -f "${dir}/go.mod" ]; then
+        return 0
+    fi
+
+    (cd "${dir}" && go mod edit -require=github.com/goliatone/go-search@v${tag})
+
+    if [ "$run_tidy" -eq 1 ]; then
+        (cd "${dir}" && go mod tidy)
+    fi
+}
+
+function adapters:goadmin:sync {
+    local tag=${1}
+    shift
+    _adapters:sync_go_search "adapters/goadmin" "${tag}" "$@"
+}
+
+function adapters:gocms:sync {
+    local tag=${1}
+    shift
+    _adapters:sync_go_search "adapters/gocms" "${tag}" "$@"
+}
+
+function adapters:gousers:sync {
+    local tag=${1}
+    shift
+    _adapters:sync_go_search "adapters/gousers" "${tag}" "$@"
+}
+
+function adapters:sync {
+    local tag=${1}
+    shift
+    adapters:goadmin:sync "${tag}" "$@"
+    adapters:gocms:sync "${tag}" "$@"
+    adapters:gousers:sync "${tag}" "$@"
 }
 
 
@@ -498,22 +534,26 @@ function release {
     # Update version file
     version:set "${tag}"
 
-    # Sync adapter module to the new tag
-    adapters:featuregate:sync "${tag}"
+    # Sync adapter modules to the new tag
+    adapters:sync "${tag}"
 
     # Add updated version file to git
     git add "${VERSION_FILE}"
-    if [ -f "adapters/featuregate/go.mod" ]; then
-        git add adapters/featuregate/go.mod
-        if [ -f "adapters/featuregate/go.sum" ]; then
-            git add adapters/featuregate/go.sum
+    for dir in adapters/goadmin adapters/gocms adapters/gousers; do
+        if [ -f "${dir}/go.mod" ]; then
+            git add "${dir}/go.mod"
+            if [ -f "${dir}/go.sum" ]; then
+                git add "${dir}/go.sum"
+            fi
         fi
-    fi
+    done
     git commit -m "Bump version: v${tag}"
 
     # Create a new tag
     git tag -a "v${tag}" -m "${message}"
-    git tag -a "adapters/featuregate/v${tag}" -m "Featuregate adapter release: v${tag}"
+    git tag -a "adapters/goadmin/v${tag}" -m "go-admin adapter release: v${tag}"
+    git tag -a "adapters/gocms/v${tag}" -m "go-cms adapter release: v${tag}"
+    git tag -a "adapters/gousers/v${tag}" -m "go-users adapter release: v${tag}"
 
     # Push tags and trigger release 🚀 🥳
     git push --tags
