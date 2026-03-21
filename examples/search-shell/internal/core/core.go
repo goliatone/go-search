@@ -147,7 +147,7 @@ func New(ctx context.Context, cfg *config.AppConfig) (*Core, error) {
 	}
 
 	if searchService := adm.SearchService(); searchService != nil {
-		searchService.Register("go-search", admin.NewGoSearchGlobalAdapter(admin.GoSearchGlobalAdapterConfig{
+		searchService.SetPrimary(admin.NewGoSearchGlobalAdapter(admin.GoSearchGlobalAdapterConfig{
 			Search:       searchRuntime.SearchQuery(),
 			Indexes:      []string{searchRuntime.IndexName()},
 			FallbackType: "media",

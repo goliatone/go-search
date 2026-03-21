@@ -2,9 +2,11 @@ package apphttp
 
 import (
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/goliatone/go-search/adapters/media"
+	"github.com/goliatone/go-search/pkg/types"
 )
 
 func ptrInt(value int) *int { return &value }
@@ -26,6 +28,7 @@ func TestBuildSearchURLPreservesStateAndEscapesValues(t *testing.T) {
 	view := searchView{
 		Query:              "a&b",
 		Locale:             "en",
+		AcceptLanguage:     "fr-CA,fr;q=0.9,en;q=0.8",
 		Topics:             []string{"architecture", "ui"},
 		LandingSlug:        "architecture",
 		PublishedYearGTE:   ptrInt(2020),
@@ -48,6 +51,9 @@ func TestBuildSearchURLPreservesStateAndEscapesValues(t *testing.T) {
 	params := parsed.Query()
 	if params.Get("q") != "a&b" {
 		t.Fatalf("q = %q", params.Get("q"))
+	}
+	if params.Get("accept_language") != "fr-CA,fr;q=0.9,en;q=0.8" {
+		t.Fatalf("accept_language = %q", params.Get("accept_language"))
 	}
 	if params.Get("topics") != "architecture,ui" {
 		t.Fatalf("topics = %q", params.Get("topics"))
@@ -80,5 +86,56 @@ func TestNormalizeSortSupportsNumericArchiveFields(t *testing.T) {
 	field, dir = normalizeSort(media.FieldDurationSeconds, "asc")
 	if field != media.FieldDurationSeconds || dir != "asc" {
 		t.Fatalf("duration sort = %q/%q", field, dir)
+	}
+}
+
+func TestSnippetHTMLOnlyAllowsMarkTags(t *testing.T) {
+	got := string(snippetHTML(&types.SearchSnippet{
+		Highlighted: `before <mark>match</mark><script>alert("xss")</script><img src=x onerror=alert(1)>`,
+	}))
+	if !strings.Contains(got, "<mark>match</mark>") {
+		t.Fatalf("expected mark tags to survive sanitization, got %q", got)
+	}
+	if strings.Contains(got, "<script>") || strings.Contains(got, "<img") {
+		t.Fatalf("expected unsafe tags to be escaped, got %q", got)
+	}
+	if !strings.Contains(got, "&lt;script&gt;alert(&#34;xss&#34;)&lt;/script&gt;") {
+		t.Fatalf("expected script payload to be escaped, got %q", got)
+	}
+}
+
+func TestResolveAcceptLanguagePrefersExplicitOverride(t *testing.T) {
+	if got := resolveAcceptLanguage("es-419,es;q=0.9", "fr-CA,fr;q=0.9,en;q=0.8"); got != "es-419,es;q=0.9" {
+		t.Fatalf("override = %q", got)
+	}
+	if got := resolveAcceptLanguage("", "fr-CA,fr;q=0.9,en;q=0.8"); got != "fr-CA,fr;q=0.9,en;q=0.8" {
+		t.Fatalf("header fallback = %q", got)
+	}
+}
+
+func TestFormatTimestampUsesHumanFriendlyClockFormat(t *testing.T) {
+	cases := []struct {
+		name string
+		ms   int64
+		want string
+	}{
+		{name: "seconds", ms: 5000, want: "0:05"},
+		{name: "fractional seconds", ms: 5600, want: "0:05.6"},
+		{name: "minutes", ms: 125000, want: "2:05"},
+		{name: "hours", ms: 3723000, want: "1:02:03"},
+		{name: "negative clamped", ms: -1, want: "0:00"},
+	}
+
+	for _, tc := range cases {
+		if got := formatTimestamp(tc.ms); got != tc.want {
+			t.Fatalf("%s: formatTimestamp(%d) = %q, want %q", tc.name, tc.ms, got, tc.want)
+		}
+	}
+}
+
+func TestFormatTimestampRangeUsesFormattedBounds(t *testing.T) {
+	got := formatTimestampRange(&types.MediaAnchor{StartMS: 5600, EndMS: 128000})
+	if got != "0:05.6 - 2:08" {
+		t.Fatalf("formatTimestampRange() = %q", got)
 	}
 }

@@ -40,6 +40,7 @@ Default address is `:8484`:
 
 - The bootstrap runtime uses the `memory` provider.
 - Seed data is loaded through `go-search` commands at startup.
+- The seed catalog intentionally overlaps archive facets across topic, category, people, subject, text, deity, locale, decade, duration, location, sangha, format, and series so filter combinations are easy to verify.
 - This is the delivery harness described in `SEARCH_DEMO.md`.
 - The demo runtime loads the root [`testdata/locale_search_culture.json`](/Users/goliatone/Development/GO/src/github.com/goliatone/go-search/testdata/locale_search_culture.json) fixture by default, so the example and package tests share the same locale-policy catalog.
 - `Accept-Language` is bound through `locale.BindLocale` before planner entry, using active-only catalog policy and the configured default locale.

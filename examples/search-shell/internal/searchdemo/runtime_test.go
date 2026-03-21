@@ -25,8 +25,8 @@ func TestRuntimeBootstrapsSeededSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	if status.Documents != 16 {
-		t.Fatalf("expected 16 seeded transcript documents, got %d", status.Documents)
+	if status.Documents != 21 {
+		t.Fatalf("expected 21 seeded transcript documents, got %d", status.Documents)
 	}
 
 	result, err := runtime.Search(context.Background(), SearchRequest{
@@ -93,6 +93,44 @@ func TestRuntimeBindsAcceptLanguageAndFallsBackThroughLocalePolicy(t *testing.T)
 	}
 	if result.Hits[0].Retrieval == nil || result.Hits[0].Retrieval.Metadata["locale_origin"] != "fallback" {
 		t.Fatalf("expected fallback locale annotation, got %+v", result.Hits[0].Retrieval)
+	}
+}
+
+func TestRuntimeBindSuggestRequestUsesAcceptLanguageTransportPath(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	bound := runtime.BindSuggestRequest(SuggestRequest{
+		Query:          "search",
+		AcceptLanguage: "fr-CA,fr;q=0.9,en;q=0.8",
+		Limit:          5,
+	})
+	if bound.Locale != "en" {
+		t.Fatalf("bound locale = %q", bound.Locale)
+	}
+	if bound.LocaleSource != "accept_language" {
+		t.Fatalf("locale source = %q", bound.LocaleSource)
+	}
+	if !bound.LocaleSupported {
+		t.Fatalf("expected locale to be supported")
+	}
+
+	result, err := runtime.Suggest(context.Background(), bound)
+	if err != nil {
+		t.Fatalf("suggest: %v", err)
+	}
+	if len(result.Items) == 0 {
+		t.Fatalf("expected suggestions, got none")
+	}
+	if result.Items[0].Locale != "en" {
+		t.Fatalf("expected canonical locale suggestion, got %+v", result.Items[0])
 	}
 }
 
@@ -353,5 +391,90 @@ func TestRuntimeSearchSupportsArchiveRangeFilteringAndBadgeMetadata(t *testing.T
 	}
 	if !foundSelected {
 		t.Fatalf("expected architecture landing preset to mark the hierarchy selection in %+v", result.Facets)
+	}
+}
+
+func TestRuntimeSeedDataCoversArchiveFacetFamilies(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	result, err := runtime.Search(context.Background(), SearchRequest{
+		Locale: "en",
+		Group:  true,
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+
+	required := map[string]bool{
+		media.FacetFieldTopicHierarchy:    false,
+		media.FacetFieldCategoryHierarchy: false,
+		media.FacetFieldPeople:            false,
+		media.FacetFieldSubject:           false,
+		media.FacetFieldText:              false,
+		media.FacetFieldDeity:             false,
+		media.FacetFieldLocale:            false,
+		media.FacetFieldDecade:            false,
+		media.FacetFieldDurationBucket:    false,
+		media.FacetFieldLocation:          false,
+		media.FacetFieldSangha:            false,
+		media.FacetFieldFormat:            false,
+		media.FacetFieldSeries:            false,
+	}
+	for _, facet := range result.Facets {
+		if _, ok := required[facet.Field]; !ok {
+			continue
+		}
+		if len(facet.Values) > 0 {
+			required[facet.Field] = true
+		}
+	}
+	for field, ok := range required {
+		if !ok {
+			t.Fatalf("expected populated facet %q in %+v", field, result.Facets)
+		}
+	}
+}
+
+func TestRuntimeSearchSupportsCrossFacetCombinationNarrowing(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	result, err := runtime.Search(context.Background(), SearchRequest{
+		Locale:      "en",
+		LandingSlug: "architecture",
+		Group:       true,
+		FacetFilters: map[string][]string{
+			media.FacetFieldCategoryHierarchy: {"Teaching Categories > Workshop"},
+			media.FacetFieldPeople:            {"Archive Research Team"},
+			media.FacetFieldLocation:          {"Mexico City"},
+			media.FacetFieldFormat:            {"Workshop"},
+			media.FacetFieldSeries:            {"Search Case Studies"},
+		},
+		PublishedYearGTE:   intPtr(2025),
+		DurationSecondsGTE: intPtr(1800),
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if result.Total != 1 || len(result.Groups) != 1 {
+		t.Fatalf("expected one architecture result after cross-facet narrowing, got total=%d groups=%d", result.Total, len(result.Groups))
+	}
+	if result.Groups[0].Parent == nil || result.Groups[0].Parent.Title != "Architecture Case Studies" {
+		t.Fatalf("unexpected grouped result: %+v", result.Groups[0].Parent)
 	}
 }

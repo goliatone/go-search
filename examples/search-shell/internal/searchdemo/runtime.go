@@ -744,375 +744,194 @@ func defaultCultureDataPath() string {
 	return filepath.Join(filepath.Dir(file), "..", "..", "..", "..", "testdata", "locale_search_culture.json")
 }
 
+type seededMediaFixture struct {
+	Media       media.MediaRecord
+	TrackLocale string
+	Parts       []string
+}
+
 func seedTranscriptRecords(locale string) []media.TranscriptRecord {
 	alternateLocale := "es"
 	if strings.EqualFold(locale, alternateLocale) {
 		alternateLocale = "en"
 	}
-	return []media.TranscriptRecord{
-		// Media 1: Search Blueprint (architecture topic)
+	fixtures := []seededMediaFixture{
 		{
-			ID: "track-media-1-en-part-1",
 			Media: media.MediaRecord{
-				ID:        "media-1",
-				Title:     "Search Blueprint Walkthrough",
-				Summary:   "Comprehensive guide to building search interfaces with grouped transcript ranking.",
-				URL:       "/media/search-blueprint",
-				Thumbnail: "/static/search-blueprint.jpg",
-				Topic:     "architecture",
-				Locale:    locale,
+				ID:              "media-1",
+				Title:           "Search Blueprint Walkthrough",
+				Summary:         "A practical architecture walkthrough for grouped transcript search and archive facets.",
+				URL:             "/media/search-blueprint",
+				Thumbnail:       "/static/search-blueprint.jpg",
+				Topic:           "architecture",
+				TopicPath:       []string{"Teaching Topics", "Architecture"},
+				CategoryPath:    []string{"Teaching Categories", "Commentary", "Systems Design"},
+				People:          []string{"Maya Lin", "Jon Alvarez"},
+				Subjects:        []string{"Search Architecture", "Provider Strategy"},
+				Texts:           []string{"Search Blueprint", "Typesense Notes"},
+				Location:        "Boulder",
+				Sangha:          "Archive Engineering",
+				Format:          "Teaching",
+				Series:          "Search Foundations",
+				DurationSeconds: 1680,
+				PublishedAt:     seededPublishedAt(2024, time.June, 11),
+				Badge:           "Blueprint",
+				Locale:          locale,
 			},
-			Track: types.TranscriptTrack{
-				MediaID:      "media-1",
-				Locale:       locale,
-				SourceFormat: "vtt",
-				TrackKind:    "captions",
-				SourceLocale: locale,
+			Parts: []string{
+				"This transcript introduces the search blueprint and explains why grouped transcript search keeps parent media stable while filters remain visible.",
+				"We compare memory and Typesense behavior so provider parity and transcript ranking can be checked without changing the archive contract.",
+				"The walkthrough closes by mapping topic, people, series, and duration filters onto a realistic archive search screen.",
 			},
-			Format: "vtt",
-			Content: strings.TrimSpace(`
-WEBVTT
-
-00:00:00.000 --> 00:00:25.000
-This transcript explains how grouped transcript search keeps the parent media result stable while highlighting matching evidence windows.
-`),
 		},
 		{
-			ID: "track-media-1-en-part-2",
 			Media: media.MediaRecord{
-				ID:        "media-1",
-				Title:     "Search Blueprint Walkthrough",
-				Summary:   "Memory and Typesense provider parity in the search shell.",
-				URL:       "/media/search-blueprint",
-				Thumbnail: "/static/search-blueprint.jpg",
-				Topic:     "architecture",
-				Locale:    locale,
+				ID:              "media-2",
+				Title:           "Locale Planning Deep Dive",
+				Summary:         "Locale policy, active catalogs, and fallback chains for multilingual search.",
+				URL:             "/media/locale-planning",
+				Thumbnail:       "/static/locale-planning.jpg",
+				Topic:           "localization",
+				TopicPath:       []string{"Teaching Topics", "Localization"},
+				CategoryPath:    []string{"Teaching Categories", "Commentary", "Internationalization"},
+				People:          []string{"Elena Ruiz", "Martin Cole"},
+				Subjects:        []string{"Locale Planning", "Accept Language"},
+				Texts:           []string{"Locale Search Matrix", "Culture Catalog"},
+				Location:        "Madrid",
+				Sangha:          "Translation Sangha",
+				Format:          "Teaching",
+				Series:          "Locale Planning Lab",
+				DurationSeconds: 2520,
+				PublishedAt:     seededPublishedAt(2023, time.March, 19),
+				Badge:           "Locale",
+				Locale:          locale,
 			},
-			Track: types.TranscriptTrack{
-				MediaID:      "media-1",
-				Locale:       locale,
-				SourceFormat: "vtt",
-				TrackKind:    "captions",
-				SourceLocale: locale,
+			Parts: []string{
+				"Locale planning should prefer the exact locale before broader fallback matches so multilingual search behavior stays deterministic and inspectable.",
+				"Accept-Language headers, scoped catalogs, and fallback chains need to resolve before query planning so providers only see normalized locale filters.",
 			},
-			Format: "vtt",
-			Content: strings.TrimSpace(`
-WEBVTT
-
-00:00:25.000 --> 00:00:50.000
-Typesense is the first production realism check, but the shell keeps the memory provider path available so ranking behavior remains deterministic during local development.
-`),
 		},
 		{
-			ID: "track-media-1-en-part-3",
 			Media: media.MediaRecord{
-				ID:        "media-1",
-				Title:     "Search Blueprint Walkthrough",
-				Summary:   "Faceted navigation and filter expressions.",
-				URL:       "/media/search-blueprint",
-				Thumbnail: "/static/search-blueprint.jpg",
-				Topic:     "architecture",
-				Locale:    locale,
+				ID:              "media-3",
+				Title:           "Editorial Ranking Rules",
+				Summary:         "Operational ranking controls for pinning, boosting, burying, and hiding results.",
+				URL:             "/media/editorial-rules",
+				Thumbnail:       "/static/editorial-rules.jpg",
+				Topic:           "ranking",
+				TopicPath:       []string{"Teaching Topics", "Ranking"},
+				CategoryPath:    []string{"Teaching Categories", "Operations", "Editorial Strategy"},
+				People:          []string{"Priya Nair", "Jonah Lee"},
+				Subjects:        []string{"Editorial Ranking", "Search Curation"},
+				Texts:           []string{"Ranking Playbook"},
+				Location:        "New York",
+				Sangha:          "Editorial Sangha",
+				Format:          "Workshop",
+				Series:          "Search Operations",
+				DurationSeconds: 3360,
+				PublishedAt:     seededPublishedAt(2022, time.October, 5),
+				Badge:           "Editorial",
+				Locale:          locale,
 			},
-			Track: types.TranscriptTrack{
-				MediaID:      "media-1",
-				Locale:       locale,
-				SourceFormat: "vtt",
-				TrackKind:    "captions",
-				SourceLocale: locale,
+			Parts: []string{
+				"Editorial rules allow curators to pin or hide results while keeping the canonical ranking model explicit and testable.",
+				"Rule scope can combine query text, locale, topic, and time windows so promotions stay targeted instead of leaking across the entire archive.",
 			},
-			Format: "vtt",
-			Content: strings.TrimSpace(`
-WEBVTT
-
-00:00:50.000 --> 00:01:15.000
-Faceted navigation allows users to refine search results by selecting filter values. The system supports AND, OR, and NOT expressions for complex filtering scenarios.
-`),
-		},
-
-		// Media 2: Locale Planning (localization topic)
-		{
-			ID: "track-media-2-en-part-1",
-			Media: media.MediaRecord{
-				ID:        "media-2",
-				Title:     "Locale Planning Deep Dive",
-				Summary:   "Understanding locale matching strategies for multilingual search.",
-				URL:       "/media/locale-planning",
-				Thumbnail: "/static/locale-planning.jpg",
-				Topic:     "localization",
-				Locale:    locale,
-			},
-			Track: types.TranscriptTrack{
-				MediaID:      "media-2",
-				Locale:       locale,
-				SourceFormat: "vtt",
-				TrackKind:    "captions",
-				SourceLocale: locale,
-			},
-			Format: "vtt",
-			Content: strings.TrimSpace(`
-WEBVTT
-
-00:00:00.000 --> 00:00:30.000
-Locale planning should prefer the exact locale before broader fallback matches so multilingual search behavior remains deterministic and inspectable.
-`),
 		},
 		{
-			ID: "track-media-2-en-part-2",
 			Media: media.MediaRecord{
-				ID:        "media-2",
-				Title:     "Locale Planning Deep Dive",
-				Summary:   "Culture data and internationalization runtime configuration.",
-				URL:       "/media/locale-planning",
-				Thumbnail: "/static/locale-planning.jpg",
-				Topic:     "localization",
-				Locale:    locale,
+				ID:              "media-4",
+				Title:           "Building the Indexing Pipeline",
+				Summary:         "Projectors, document lineage, and reliable reindex flows for search ingestion.",
+				URL:             "/media/indexing-pipeline",
+				Thumbnail:       "/static/indexing-pipeline.jpg",
+				Topic:           "indexing",
+				TopicPath:       []string{"Teaching Topics", "Indexing"},
+				CategoryPath:    []string{"Teaching Categories", "Commentary", "Pipeline Design"},
+				People:          []string{"Sarah Chen", "Omar Patel"},
+				Subjects:        []string{"Document Projection", "Reindex Strategy"},
+				Texts:           []string{"Indexer Registry", "Generation Ledger"},
+				Location:        "Portland",
+				Sangha:          "Systems Sangha",
+				Format:          "Seminar",
+				Series:          "Search Foundations",
+				DurationSeconds: 2760,
+				PublishedAt:     seededPublishedAt(2021, time.April, 22),
+				Badge:           "Indexing",
+				Locale:          locale,
 			},
-			Track: types.TranscriptTrack{
-				MediaID:      "media-2",
-				Locale:       locale,
-				SourceFormat: "vtt",
-				TrackKind:    "captions",
-				SourceLocale: locale,
+			Parts: []string{
+				"The indexing pipeline transforms transcript source records into searchable documents with stable parent metadata and facet fields.",
+				"Generation tracking and replay-safe IDs keep incremental reindex operations predictable even when source records arrive out of order.",
 			},
-			Format: "vtt",
-			Content: strings.TrimSpace(`
-WEBVTT
-
-00:00:30.000 --> 00:01:00.000
-Culture data defines active locales, fallback chains, and display names. The I18N runtime loads this configuration to power locale-aware search queries.
-`),
-		},
-
-		// Media 3: Editorial Rules (ranking topic)
-		{
-			ID: "track-media-3-en-part-1",
-			Media: media.MediaRecord{
-				ID:        "media-3",
-				Title:     "Editorial Ranking Rules",
-				Summary:   "How to boost, bury, pin, and hide search results using editorial rules.",
-				URL:       "/media/editorial-rules",
-				Thumbnail: "/static/editorial-rules.jpg",
-				Topic:     "ranking",
-				Locale:    locale,
-			},
-			Track: types.TranscriptTrack{
-				MediaID:      "media-3",
-				Locale:       locale,
-				SourceFormat: "vtt",
-				TrackKind:    "captions",
-				SourceLocale: locale,
-			},
-			Format: "vtt",
-			Content: strings.TrimSpace(`
-WEBVTT
-
-00:00:00.000 --> 00:00:25.000
-Editorial rules allow content curators to manually influence search rankings. You can boost important results, bury less relevant ones, pin items to specific positions, or hide them entirely.
-`),
 		},
 		{
-			ID: "track-media-3-en-part-2",
 			Media: media.MediaRecord{
-				ID:        "media-3",
-				Title:     "Editorial Ranking Rules",
-				Summary:   "Scoping rules by query, locale, and time window.",
-				URL:       "/media/editorial-rules",
-				Thumbnail: "/static/editorial-rules.jpg",
-				Topic:     "ranking",
-				Locale:    locale,
+				ID:              "media-5",
+				Title:           "Implementing Autocomplete",
+				Summary:         "Typeahead behavior, suggestion ranking, and search-box UX decisions.",
+				URL:             "/media/autocomplete",
+				Thumbnail:       "/static/autocomplete.jpg",
+				Topic:           "ui",
+				TopicPath:       []string{"Teaching Topics", "UI"},
+				CategoryPath:    []string{"Teaching Categories", "Tools", "Interface Patterns"},
+				People:          []string{"Lia Park", "Felix Turner"},
+				Subjects:        []string{"Autocomplete", "Query Suggestions"},
+				Texts:           []string{"Suggest API Guide"},
+				Location:        "Online",
+				Sangha:          "Product Sangha",
+				Format:          "Demo",
+				Series:          "Search UX",
+				DurationSeconds: 780,
+				PublishedAt:     seededPublishedAt(2019, time.August, 14),
+				Badge:           "UX",
+				Locale:          locale,
 			},
-			Track: types.TranscriptTrack{
-				MediaID:      "media-3",
-				Locale:       locale,
-				SourceFormat: "vtt",
-				TrackKind:    "captions",
-				SourceLocale: locale,
+			Parts: []string{
+				"Autocomplete suggestions help users discover search content as they type while keeping locale-aware suggestion scoring fast.",
+				"Debouncing, keyboard navigation, and suggestion selection all shape whether the search box feels trustworthy under real traffic.",
 			},
-			Format: "vtt",
-			Content: strings.TrimSpace(`
-WEBVTT
-
-00:00:25.000 --> 00:00:50.000
-Rules can be scoped by query terms, locale, topic filters, and even time windows. This allows seasonal promotions or locale-specific curations without affecting global search behavior.
-`),
-		},
-
-		// Media 4: Indexing Pipeline (indexing topic)
-		{
-			ID: "track-media-4-en-part-1",
-			Media: media.MediaRecord{
-				ID:        "media-4",
-				Title:     "Building the Indexing Pipeline",
-				Summary:   "Source projectors and document transformation for search indexing.",
-				URL:       "/media/indexing-pipeline",
-				Thumbnail: "/static/indexing-pipeline.jpg",
-				Topic:     "indexing",
-				Locale:    locale,
-			},
-			Track: types.TranscriptTrack{
-				MediaID:      "media-4",
-				Locale:       locale,
-				SourceFormat: "vtt",
-				TrackKind:    "captions",
-				SourceLocale: locale,
-			},
-			Format: "vtt",
-			Content: strings.TrimSpace(`
-WEBVTT
-
-00:00:00.000 --> 00:00:30.000
-The indexing pipeline transforms source records into searchable documents. Projectors map your domain models to the document schema, handling field extraction, facet generation, and metadata enrichment.
-`),
 		},
 		{
-			ID: "track-media-4-en-part-2",
 			Media: media.MediaRecord{
-				ID:        "media-4",
-				Title:     "Building the Indexing Pipeline",
-				Summary:   "Batch processing and incremental reindexing strategies.",
-				URL:       "/media/indexing-pipeline",
-				Thumbnail: "/static/indexing-pipeline.jpg",
-				Topic:     "indexing",
-				Locale:    locale,
+				ID:              "media-6",
+				Title:           "Introduction to Semantic Search",
+				Summary:         "Vector retrieval, embeddings, and hybrid ranking for broader recall.",
+				URL:             "/media/semantic-search",
+				Thumbnail:       "/static/semantic-search.jpg",
+				Topic:           "semantic",
+				TopicPath:       []string{"Teaching Topics", "Semantic"},
+				CategoryPath:    []string{"Teaching Categories", "Commentary", "Retrieval Design"},
+				People:          []string{"Nia Brooks", "Dev Shah"},
+				Subjects:        []string{"Semantic Search", "Hybrid Retrieval"},
+				Texts:           []string{"Embedding Primer", "Search Foundations"},
+				Location:        "San Francisco",
+				Sangha:          "ML Sangha",
+				Format:          "Seminar",
+				Series:          "Search Foundations",
+				DurationSeconds: 4140,
+				PublishedAt:     seededPublishedAt(2024, time.January, 9),
+				Badge:           "Semantic",
+				Locale:          locale,
 			},
-			Track: types.TranscriptTrack{
-				MediaID:      "media-4",
-				Locale:       locale,
-				SourceFormat: "vtt",
-				TrackKind:    "captions",
-				SourceLocale: locale,
+			Parts: []string{
+				"Semantic search uses vector embeddings to find conceptually related material even when the literal search terms do not overlap.",
+				"Hybrid retrieval mixes lexical evidence with semantic similarity so archive search can trade precision and recall in a controlled way.",
 			},
-			Format: "vtt",
-			Content: strings.TrimSpace(`
-WEBVTT
-
-00:00:30.000 --> 00:01:00.000
-Batch processing improves throughput for full reindex operations. Incremental updates use generation tracking to efficiently sync changes without rebuilding the entire index.
-`),
-		},
-
-		// Media 5: Autocomplete (ui topic)
-		{
-			ID: "track-media-5-en-part-1",
-			Media: media.MediaRecord{
-				ID:        "media-5",
-				Title:     "Implementing Autocomplete",
-				Summary:   "Real-time search suggestions and typeahead functionality.",
-				URL:       "/media/autocomplete",
-				Thumbnail: "/static/autocomplete.jpg",
-				Topic:     "ui",
-				Locale:    locale,
-			},
-			Track: types.TranscriptTrack{
-				MediaID:      "media-5",
-				Locale:       locale,
-				SourceFormat: "vtt",
-				TrackKind:    "captions",
-				SourceLocale: locale,
-			},
-			Format: "vtt",
-			Content: strings.TrimSpace(`
-WEBVTT
-
-00:00:00.000 --> 00:00:25.000
-Autocomplete suggestions help users discover content as they type. The suggest API returns matching titles with locale-aware filtering and relevance scoring.
-`),
 		},
 		{
-			ID: "track-media-5-en-part-2",
-			Media: media.MediaRecord{
-				ID:        "media-5",
-				Title:     "Implementing Autocomplete",
-				Summary:   "Debouncing requests and handling suggestion selection.",
-				URL:       "/media/autocomplete",
-				Thumbnail: "/static/autocomplete.jpg",
-				Topic:     "ui",
-				Locale:    locale,
-			},
-			Track: types.TranscriptTrack{
-				MediaID:      "media-5",
-				Locale:       locale,
-				SourceFormat: "vtt",
-				TrackKind:    "captions",
-				SourceLocale: locale,
-			},
-			Format: "vtt",
-			Content: strings.TrimSpace(`
-WEBVTT
-
-00:00:25.000 --> 00:00:50.000
-Debouncing prevents excessive API calls while users type. When a suggestion is selected, the search form submits with the full title for precise matching.
-`),
-		},
-
-		// Media 6: Semantic Search (semantic topic)
-		{
-			ID: "track-media-6-en-part-1",
-			Media: media.MediaRecord{
-				ID:        "media-6",
-				Title:     "Introduction to Semantic Search",
-				Summary:   "Beyond keyword matching with vector embeddings.",
-				URL:       "/media/semantic-search",
-				Thumbnail: "/static/semantic-search.jpg",
-				Topic:     "semantic",
-				Locale:    locale,
-			},
-			Track: types.TranscriptTrack{
-				MediaID:      "media-6",
-				Locale:       locale,
-				SourceFormat: "vtt",
-				TrackKind:    "captions",
-				SourceLocale: locale,
-			},
-			Format: "vtt",
-			Content: strings.TrimSpace(`
-WEBVTT
-
-00:00:00.000 --> 00:00:30.000
-Semantic search uses vector embeddings to find conceptually similar content, even when exact keywords don't match. This enables more natural language queries and improved recall.
-`),
-		},
-		{
-			ID: "track-media-6-en-part-2",
-			Media: media.MediaRecord{
-				ID:        "media-6",
-				Title:     "Introduction to Semantic Search",
-				Summary:   "Hybrid search combining lexical and semantic signals.",
-				URL:       "/media/semantic-search",
-				Thumbnail: "/static/semantic-search.jpg",
-				Topic:     "semantic",
-				Locale:    locale,
-			},
-			Track: types.TranscriptTrack{
-				MediaID:      "media-6",
-				Locale:       locale,
-				SourceFormat: "vtt",
-				TrackKind:    "captions",
-				SourceLocale: locale,
-			},
-			Format: "vtt",
-			Content: strings.TrimSpace(`
-WEBVTT
-
-00:00:30.000 --> 00:01:00.000
-Hybrid search combines the precision of lexical matching with the understanding of semantic similarity. This gives users the best of both worlds for finding relevant content.
-`),
-		},
-
-		// Media 7: Architecture Case Studies (architecture topic, different archive facets)
-		{
-			ID: "track-media-7-en-part-1",
 			Media: media.MediaRecord{
 				ID:              "media-7",
 				Title:           "Architecture Case Studies",
-				Summary:         "Applying grouped search architecture to real archive workflows.",
+				Summary:         "Applying grouped search architecture to a realistic archive workflow.",
 				URL:             "/media/architecture-case-studies",
 				Thumbnail:       "/static/architecture-case-studies.jpg",
 				Topic:           "architecture",
-				People:          []string{"Archive Research Team"},
-				Subjects:        []string{"Architecture Review"},
-				Texts:           []string{"Field Notes"},
+				TopicPath:       []string{"Teaching Topics", "Architecture"},
+				CategoryPath:    []string{"Teaching Categories", "Workshop", "Case Studies"},
+				People:          []string{"Maya Lin", "Archive Research Team"},
+				Subjects:        []string{"Architecture Review", "Archive Workflow"},
+				Texts:           []string{"Field Notes", "Retrieval Worksheet"},
 				Location:        "Mexico City",
 				Sangha:          "Field Research Sangha",
 				Format:          "Workshop",
@@ -1122,68 +941,101 @@ Hybrid search combines the precision of lexical matching with the understanding 
 				Badge:           "Case Study",
 				Locale:          locale,
 			},
-			Track: types.TranscriptTrack{
-				MediaID:      "media-7",
-				Locale:       locale,
-				SourceFormat: "vtt",
-				TrackKind:    "captions",
-				SourceLocale: locale,
+			Parts: []string{
+				"Architecture reviews compare grouped search flows across archive surfaces so teams can see how series, format, and location filters narrow parent results.",
+				"This case study keeps the architecture topic but changes the archive metadata, making cross-field filter combinations easy to verify in grouped results.",
 			},
-			Format: "vtt",
-			Content: strings.TrimSpace(`
-WEBVTT
-
-00:00:00.000 --> 00:00:24.000
-Architecture reviews compare grouped search flows across archive surfaces so teams can verify that series, format, and location filters narrow parent results in visible ways.
-`),
 		},
 		{
-			ID: "track-media-7-en-part-2",
 			Media: media.MediaRecord{
-				ID:              "media-7",
-				Title:           "Architecture Case Studies",
-				Summary:         "Testing grouped result filters against realistic archive metadata.",
-				URL:             "/media/architecture-case-studies",
-				Thumbnail:       "/static/architecture-case-studies.jpg",
-				Topic:           "architecture",
-				People:          []string{"Archive Research Team"},
-				Subjects:        []string{"Architecture Review"},
-				Texts:           []string{"Field Notes"},
-				Location:        "Mexico City",
-				Sangha:          "Field Research Sangha",
-				Format:          "Workshop",
-				Series:          "Search Case Studies",
-				DurationSeconds: 2100,
-				PublishedAt:     seededPublishedAt(2025, time.February, 14),
-				Badge:           "Case Study",
+				ID:              "media-9",
+				Title:           "Tara Practice for Search Teams",
+				Summary:         "A practice-oriented archive item that exercises deity, topic, and retreat-style filters.",
+				URL:             "/media/tara-practice-search-teams",
+				Thumbnail:       "/static/tara-practice-search-teams.jpg",
+				Topic:           "tara",
+				TopicPath:       []string{"Teaching Topics", "Tara"},
+				CategoryPath:    []string{"Teaching Categories", "Practice", "Guided Session"},
+				People:          []string{"Tenzin Rocha", "Maya Lin"},
+				Subjects:        []string{"Tara Practice", "Team Grounding"},
+				Texts:           []string{"Praise to the 21 Taras", "Practice Notes"},
+				Deities:         []string{"Tara"},
+				Location:        "Santa Fe",
+				Sangha:          "Practice Sangha",
+				Format:          "Retreat Talk",
+				Series:          "Bodhisattva Cycle",
+				DurationSeconds: 5400,
+				PublishedAt:     seededPublishedAt(2018, time.November, 2),
+				Badge:           "Practice",
 				Locale:          locale,
 			},
-			Track: types.TranscriptTrack{
-				MediaID:      "media-7",
-				Locale:       locale,
-				SourceFormat: "vtt",
-				TrackKind:    "captions",
-				SourceLocale: locale,
+			Parts: []string{
+				"The Tara session opens with a short grounding practice so search teams can reset before working through difficult catalog decisions.",
+				"Because this item carries Tara deity metadata, practice category labels, and a long retreat duration, it gives the archive filters something realistic to narrow.",
 			},
-			Format: "vtt",
-			Content: strings.TrimSpace(`
-WEBVTT
-
-00:00:24.000 --> 00:00:48.000
-This case study keeps the architecture topic but changes the archive facets, making it easier to prove that grouped search filters affect some parent results without affecting all of them.
-`),
 		},
-
-		// Media 8: Arquitectura de Busqueda (architecture topic, alternate locale)
 		{
-			ID: "track-media-8-alt-part-1",
+			Media: media.MediaRecord{
+				ID:              "media-10",
+				Title:           "Catalog Cleanup Clinic",
+				Summary:         "A short operational item for metadata maintenance and zero-drift indexing hygiene.",
+				URL:             "/media/catalog-cleanup-clinic",
+				Thumbnail:       "/static/catalog-cleanup-clinic.jpg",
+				Topic:           "indexing",
+				TopicPath:       []string{"Teaching Topics", "Indexing"},
+				CategoryPath:    []string{"Teaching Categories", "Operations", "Maintenance"},
+				People:          []string{"Omar Patel"},
+				Subjects:        []string{"Metadata Maintenance"},
+				Texts:           []string{"Catalog Checklist"},
+				Location:        "Chicago",
+				Sangha:          "Archive Engineering",
+				Format:          "Office Hour",
+				Series:          "Search Operations",
+				DurationSeconds: 240,
+				PublishedAt:     seededPublishedAt(2016, time.February, 1),
+				Badge:           "Clinic",
+				Locale:          locale,
+			},
+			Parts: []string{
+				"This clinic is intentionally short so duration bucket filters can separate quick maintenance sessions from deeper archive search trainings.",
+			},
+		},
+		{
+			Media: media.MediaRecord{
+				ID:              "media-11",
+				Title:           "Archive Search Office Hours",
+				Summary:         "Practical Q&A on triaging search regressions and filter confusion.",
+				URL:             "/media/archive-search-office-hours",
+				Thumbnail:       "/static/archive-search-office-hours.jpg",
+				Topic:           "ui",
+				TopicPath:       []string{"Teaching Topics", "UI"},
+				CategoryPath:    []string{"Teaching Categories", "Workshop", "Q&A"},
+				People:          []string{"Maya Lin", "Felix Turner"},
+				Subjects:        []string{"Search Triage"},
+				Texts:           []string{"Operator Handbook"},
+				Location:        "Boulder",
+				Sangha:          "Product Sangha",
+				Format:          "Workshop",
+				Series:          "Search Operations",
+				DurationSeconds: 1320,
+				PublishedAt:     seededPublishedAt(2017, time.July, 7),
+				Badge:           "Q&A",
+				Locale:          locale,
+			},
+			Parts: []string{
+				"Office hours collect search questions from operators who need to debug ranking, pagination, and archive filter combinations without reading code first.",
+			},
+		},
+		{
 			Media: media.MediaRecord{
 				ID:              "media-8",
 				Title:           "Arquitectura de Busqueda",
-				Summary:         "Version localizada del recorrido de arquitectura de busqueda.",
+				Summary:         "Version localizada del recorrido de arquitectura de busqueda para el catalogo.",
 				URL:             "/media/arquitectura-busqueda",
 				Thumbnail:       "/static/arquitectura-busqueda.jpg",
 				Topic:           "architecture",
+				TopicPath:       []string{"Teaching Topics", "Architecture"},
+				CategoryPath:    []string{"Teaching Categories", "Commentary", "Systems Design"},
 				People:          []string{"Equipo de Arquitectura"},
 				Subjects:        []string{"Arquitectura de Busqueda"},
 				Texts:           []string{"Plano de Busqueda"},
@@ -1196,22 +1048,88 @@ This case study keeps the architecture topic but changes the archive facets, mak
 				Badge:           "Espanol",
 				Locale:          alternateLocale,
 			},
-			Track: types.TranscriptTrack{
-				MediaID:      "media-8",
-				Locale:       alternateLocale,
-				SourceFormat: "vtt",
-				TrackKind:    "captions",
-				SourceLocale: alternateLocale,
+			TrackLocale: alternateLocale,
+			Parts: []string{
+				"La arquitectura de busqueda agrupa segmentos por recurso padre para que los filtros de locale, formato y serie sigan siendo faciles de inspeccionar.",
 			},
-			Format: "vtt",
-			Content: strings.TrimSpace(`
-WEBVTT
-
-00:00:00.000 --> 00:00:26.000
-La arquitectura de busqueda agrupa segmentos por recurso padre para que los filtros de locale, formato y serie sigan siendo faciles de inspeccionar.
-`),
+		},
+		{
+			Media: media.MediaRecord{
+				ID:              "media-12",
+				Title:           "Planificacion de Locale",
+				Summary:         "Resumen localizado de catalogos activos y cadenas de fallback para busqueda.",
+				URL:             "/media/planificacion-locale",
+				Thumbnail:       "/static/planificacion-locale.jpg",
+				Topic:           "localization",
+				TopicPath:       []string{"Teaching Topics", "Localization"},
+				CategoryPath:    []string{"Teaching Categories", "Commentary", "Internationalization"},
+				People:          []string{"Elena Ruiz"},
+				Subjects:        []string{"Politica de Locale"},
+				Texts:           []string{"Matriz de Idiomas"},
+				Location:        "Mexico City",
+				Sangha:          "Sangha de Traduccion",
+				Format:          "Teaching",
+				Series:          "Busqueda Global",
+				DurationSeconds: 2280,
+				PublishedAt:     seededPublishedAt(2022, time.May, 16),
+				Badge:           "Espanol",
+				Locale:          alternateLocale,
+			},
+			TrackLocale: alternateLocale,
+			Parts: []string{
+				"Los catalogos activos, los encabezados Accept-Language y las cadenas de fallback deben resolverse antes del planificador para mantener filtros de locale consistentes.",
+			},
 		},
 	}
+	return buildSeedTranscriptRecords(fixtures)
+}
+
+func buildSeedTranscriptRecords(fixtures []seededMediaFixture) []media.TranscriptRecord {
+	total := 0
+	for _, fixture := range fixtures {
+		total += len(fixture.Parts)
+	}
+	out := make([]media.TranscriptRecord, 0, total)
+	for _, fixture := range fixtures {
+		trackLocale := firstNonEmpty(strings.TrimSpace(fixture.TrackLocale), strings.TrimSpace(fixture.Media.Locale))
+		for idx, body := range fixture.Parts {
+			out = append(out, media.TranscriptRecord{
+				ID:    seedTranscriptRecordID(fixture.Media.ID, trackLocale, idx+1),
+				Media: fixture.Media,
+				Track: types.TranscriptTrack{
+					MediaID:      fixture.Media.ID,
+					Locale:       trackLocale,
+					SourceFormat: "vtt",
+					TrackKind:    "captions",
+					SourceLocale: trackLocale,
+				},
+				Format:  "vtt",
+				Content: seedTranscriptContent(idx*28, idx*28+24, body),
+			})
+		}
+	}
+	return out
+}
+
+func seedTranscriptRecordID(mediaID, trackLocale string, part int) string {
+	trackLocale = strings.NewReplacer("-", "_", " ", "_").Replace(strings.ToLower(strings.TrimSpace(trackLocale)))
+	return fmt.Sprintf("track-%s-%s-part-%d", mediaID, trackLocale, part)
+}
+
+func seedTranscriptContent(startSeconds, endSeconds int, body string) string {
+	return strings.TrimSpace(fmt.Sprintf(`
+WEBVTT
+
+%s --> %s
+%s
+`, seedTimestamp(startSeconds), seedTimestamp(endSeconds), strings.TrimSpace(body)))
+}
+
+func seedTimestamp(seconds int) string {
+	hours := seconds / 3600
+	minutes := (seconds % 3600) / 60
+	secs := seconds % 60
+	return fmt.Sprintf("%02d:%02d:%02d.000", hours, minutes, secs)
 }
 
 func seededPublishedAt(year int, month time.Month, day int) *time.Time {

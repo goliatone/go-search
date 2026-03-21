@@ -49,15 +49,9 @@ var templateFuncs = template.FuncMap{
 		}
 		return strconv.Itoa(*value)
 	},
-	"snippetHTML": func(snippet *types.SearchSnippet) template.HTML {
-		if snippet == nil {
-			return ""
-		}
-		if strings.TrimSpace(snippet.Highlighted) != "" {
-			return template.HTML(snippet.Highlighted)
-		}
-		return template.HTML(template.HTMLEscapeString(snippet.Text))
-	},
+	"formatTimestamp":      formatTimestamp,
+	"formatTimestampRange": formatTimestampRange,
+	"snippetHTML":          snippetHTML,
 	"facetTitle": func(field string) string {
 		switch strings.TrimSpace(field) {
 		case media.FacetFieldTopicHierarchy:
@@ -90,6 +84,23 @@ var templateFuncs = template.FuncMap{
 			return strings.ReplaceAll(strings.TrimSpace(field), "_", " ")
 		}
 	},
+}
+
+func snippetHTML(snippet *types.SearchSnippet) template.HTML {
+	if snippet == nil {
+		return ""
+	}
+	if strings.TrimSpace(snippet.Highlighted) != "" {
+		return sanitizeHighlightedSnippet(snippet.Highlighted)
+	}
+	return template.HTML(template.HTMLEscapeString(snippet.Text))
+}
+
+func sanitizeHighlightedSnippet(raw string) template.HTML {
+	escaped := template.HTMLEscapeString(raw)
+	escaped = strings.ReplaceAll(escaped, "&lt;mark&gt;", "<mark>")
+	escaped = strings.ReplaceAll(escaped, "&lt;/mark&gt;", "</mark>")
+	return template.HTML(escaped)
 }
 
 var homeTemplate = template.Must(template.New("home").Funcs(templateFuncs).Parse(`<!doctype html>
@@ -307,6 +318,7 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
       <div class="suggestions" id="suggestions"></div>
       <!-- Preserve other params -->
       <input type="hidden" name="locale" value="{{.Locale}}" />
+      <input type="hidden" name="accept_language" value="{{.AcceptLanguage}}" />
       <input type="hidden" name="group" value="{{if .Group}}true{{else}}false{{end}}" />
       {{if .LandingSlug}}<input type="hidden" name="landing_slug" value="{{.LandingSlug}}" />{{end}}
       {{if .Topics}}<input type="hidden" name="topics" value="{{join .Topics ","}}" />{{end}}
@@ -341,12 +353,6 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
           Filters
           <button type="button" onclick="clearFilters()">Clear all</button>
         </div>
-        {{if .Group}}
-        <div class="filter-group">
-          <span class="filter-label">Facet counts</span>
-          <span>Grouped mode counts unique parent results, not individual transcript segments.</span>
-        </div>
-        {{end}}
 
         <!-- Facets from results -->
         {{range .Result.Facets}}
@@ -370,6 +376,17 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
         <div class="filter-group">
           <label class="filter-label" for="filterLocale">Locale</label>
           <input type="text" class="filter-input" id="filterLocale" value="{{.Locale}}" placeholder="en" />
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label" for="filterAcceptLanguage">Accept-Language override</label>
+          <input type="text" class="filter-input" id="filterAcceptLanguage" value="{{.AcceptLanguage}}" placeholder="fr-CA,fr;q=0.9,en;q=0.8" />
+        </div>
+
+        <div class="filter-group">
+          <span class="filter-label">Locale binding</span>
+          <span>Source: <strong>{{if .LocaleSource}}{{.LocaleSource}}{{else}}empty{{end}}</strong></span><br />
+          <span>Supported: <strong>{{if .LocaleSupported}}yes{{else}}no{{end}}</strong></span>
         </div>
 
         <div class="filter-group">
@@ -462,7 +479,7 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
             </div>
             {{if .Snippet}}<p class="result-snippet">{{snippetHTML .Snippet}}</p>{{end}}
             <div class="result-meta">
-              {{if .Anchor}}<span>Timestamp: {{.Anchor.StartMS}}ms - {{.Anchor.EndMS}}ms</span>{{end}}
+              {{if .Anchor}}<span>Timestamp: {{formatTimestampRange .Anchor}}</span>{{end}}
               {{if .Anchor}}<a href="{{.Anchor.URL}}">Jump to segment</a>{{end}}
             </div>
           </div>
@@ -486,7 +503,7 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
         {{if .Snippet}}<p class="result-snippet">{{snippetHTML .Snippet}}</p>{{end}}
         <div class="result-meta">
           {{if .Parent}}<span>Parent: {{.Parent.Title}}</span>{{end}}
-          {{if .Anchor}}<span>{{.Anchor.StartMS}}ms - {{.Anchor.EndMS}}ms</span>{{end}}
+          {{if .Anchor}}<span>{{formatTimestampRange .Anchor}}</span>{{end}}
           {{if .Anchor}}<a href="{{.Anchor.URL}}">View</a>{{end}}
         </div>
       </div>
@@ -563,7 +580,8 @@ searchInput.addEventListener('blur', () => {
 async function fetchSuggestions(query) {
   try {
     const locale = document.getElementById('filterLocale')?.value || '';
-    const resp = await fetch('{{.SuggestPath}}?q=' + encodeURIComponent(query) + '&locale=' + encodeURIComponent(locale) + '&limit=5');
+    const acceptLanguage = document.getElementById('filterAcceptLanguage')?.value || '';
+    const resp = await fetch('{{.SuggestPath}}?q=' + encodeURIComponent(query) + '&locale=' + encodeURIComponent(locale) + '&accept_language=' + encodeURIComponent(acceptLanguage) + '&limit=5');
     const data = await resp.json();
     if (data.result && data.result.items && data.result.items.length > 0) {
       suggestions.innerHTML = data.result.items.map(item =>
@@ -602,6 +620,10 @@ function applyFilters() {
   if (locale) params.set('locale', locale);
   else params.delete('locale');
 
+  const acceptLanguage = document.getElementById('filterAcceptLanguage').value.trim();
+  if (acceptLanguage) params.set('accept_language', acceptLanguage);
+  else params.delete('accept_language');
+
   const topics = document.getElementById('filterTopic').value
     .split(',')
     .map(item => item.trim())
@@ -625,6 +647,7 @@ function clearFilters() {
   const params = new URLSearchParams(window.location.search);
   params.set('q', searchInput.value || '');
   params.delete('locale');
+  params.delete('accept_language');
   params.delete('topic');
   params.delete('topics');
   params.delete('published_year_gte');
@@ -822,6 +845,9 @@ type searchView struct {
 	CurrentAPIURL      string
 	Query              string
 	Locale             string
+	AcceptLanguage     string
+	LocaleSource       string
+	LocaleSupported    bool
 	TopicFilter        string
 	Topics             []string
 	FacetFilters       map[string][]string
@@ -896,12 +922,13 @@ func Register(appCore *core.Core) error {
 			BasePath:      "/site",
 			DefaultLocale: appCore.Config.Admin.DefaultLocale,
 			Search: quicksite.SiteSearchConfig{
-				Route:       "/search",
-				Endpoint:    "/api/v1/site/search",
-				Collections: []string{appCore.Search.IndexName()},
+				Route:    "/search",
+				Endpoint: "/api/v1/site/search",
+				Indexes:  []string{appCore.Search.IndexName()},
 			},
 		},
 		quicksite.WithSearchProvider(appCore.SiteSearchProvider),
+		quicksite.WithSearchOperations(appCore.SearchOperations),
 		quicksite.WithSearchHandlers(searchPageHandler(appCore, "Site Search", "/site/search", "/api/v1/site/search", "/api/v1/site/search/suggest"), nil),
 		quicksite.WithContentHandler(func(c router.Context) error {
 			return c.JSON(404, map[string]any{
@@ -1032,6 +1059,9 @@ func renderSearchPage(c router.Context, appCore *core.Core, title, actionPath, a
 		SuggestPath:        suggestPath,
 		Query:              request.Query,
 		Locale:             request.Locale,
+		AcceptLanguage:     request.AcceptLanguage,
+		LocaleSource:       request.LocaleSource,
+		LocaleSupported:    request.LocaleSupported,
 		TopicFilter:        strings.Join(topics, ", "),
 		Topics:             topics,
 		FacetFilters:       cloneFacetFilterMap(request.FacetFilters),
@@ -1132,7 +1162,7 @@ func suggestAPIHandler(appCore *core.Core) router.HandlerFunc {
 		request := appCore.Search.BindSuggestRequest(searchdemo.SuggestRequest{
 			Query:          strings.TrimSpace(c.Query("q")),
 			Locale:         strings.TrimSpace(c.Query("locale")),
-			AcceptLanguage: strings.TrimSpace(c.Header("Accept-Language")),
+			AcceptLanguage: resolveAcceptLanguage(c.Query("accept_language"), c.Header("Accept-Language")),
 			Limit:          atoiDefault(c.Query("limit"), 5),
 		})
 		result, err := appCore.Search.Suggest(c.Context(), request)
@@ -1278,7 +1308,7 @@ func parseSearchRequest(c router.Context) searchdemo.SearchRequest {
 	return searchdemo.SearchRequest{
 		Query:              strings.TrimSpace(c.Query("q")),
 		Locale:             strings.TrimSpace(c.Query("locale")),
-		AcceptLanguage:     strings.TrimSpace(c.Header("Accept-Language")),
+		AcceptLanguage:     resolveAcceptLanguage(c.Query("accept_language"), c.Header("Accept-Language")),
 		Topic:              legacyTopic,
 		Topics:             topics,
 		FacetFilters:       facetFilters,
@@ -1302,6 +1332,9 @@ func buildSearchURL(basePath string, state searchView, page int) string {
 	}
 	if locale := strings.TrimSpace(state.Locale); locale != "" {
 		params.Set("locale", locale)
+	}
+	if acceptLanguage := strings.TrimSpace(state.AcceptLanguage); acceptLanguage != "" {
+		params.Set("accept_language", acceptLanguage)
 	}
 	if len(state.Topics) > 0 {
 		params.Set("topics", strings.Join(state.Topics, ","))
@@ -1379,6 +1412,13 @@ func cloneFacetFilterMap(in map[string][]string) map[string][]string {
 	return out
 }
 
+func resolveAcceptLanguage(queryValue, headerValue string) string {
+	if value := strings.TrimSpace(queryValue); value != "" {
+		return value
+	}
+	return strings.TrimSpace(headerValue)
+}
+
 func normalizeSort(field, dir string) (string, string) {
 	switch strings.ToLower(strings.TrimSpace(field)) {
 	case "title", media.FieldPublishedYear, media.FieldDurationSeconds:
@@ -1407,6 +1447,35 @@ func prettyJSON(value any) string {
 		return "{}"
 	}
 	return string(data)
+}
+
+func formatTimestampRange(anchor *types.MediaAnchor) string {
+	if anchor == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s - %s", formatTimestamp(anchor.StartMS), formatTimestamp(anchor.EndMS))
+}
+
+func formatTimestamp(ms int64) string {
+	if ms < 0 {
+		ms = 0
+	}
+
+	hours := ms / (60 * 60 * 1000)
+	minutes := (ms % (60 * 60 * 1000)) / (60 * 1000)
+	seconds := (ms % (60 * 1000)) / 1000
+	tenths := (ms % 1000) / 100
+
+	if hours > 0 {
+		if tenths > 0 {
+			return fmt.Sprintf("%d:%02d:%02d.%d", hours, minutes, seconds, tenths)
+		}
+		return fmt.Sprintf("%d:%02d:%02d", hours, minutes, seconds)
+	}
+	if tenths > 0 {
+		return fmt.Sprintf("%d:%02d.%d", minutes, seconds, tenths)
+	}
+	return fmt.Sprintf("%d:%02d", minutes, seconds)
 }
 
 func optionalBool(raw string) (bool, bool) {
