@@ -23,6 +23,7 @@ type DocumentOptions struct {
 	ParentThumbnail string
 	ParentFields    map[string]any
 	ParentFacets    map[string][]string
+	ParentNumeric   map[string]float64
 	Track           types.TranscriptTrack
 }
 
@@ -65,6 +66,7 @@ func BuildSegmentDocuments(cues []Cue, opts DocumentOptions) []types.Document {
 			doc.Fields["parent_thumbnail"] = opts.ParentThumbnail
 		}
 		maps.Copy(doc.Fields, opts.ParentFields)
+		maps.Copy(doc.Numeric, opts.ParentNumeric)
 		doc.Metadata = clone(opts.ParentFields)
 		if doc.Metadata == nil {
 			doc.Metadata = map[string]any{}
