@@ -238,6 +238,21 @@ func (p *Planner) ValidateSearchCapabilities(ctx context.Context, req types.Sear
 	if len(req.Facets) > 0 && !caps.Facets {
 		return errs.UnsupportedCapability("facets", map[string]any{"count": len(req.Facets)})
 	}
+	for _, facet := range req.Facets {
+		switch facet.NormalizedKind() {
+		case types.FacetKindHierarchical:
+			if !caps.HierarchicalFacets {
+				return errs.UnsupportedCapability("hierarchical_facets", map[string]any{"field": facet.Field})
+			}
+		case types.FacetKindNumericRange, types.FacetKindDateRange:
+			if !caps.RangeFacets {
+				return errs.UnsupportedCapability("range_facets", map[string]any{"field": facet.Field, "kind": facet.Kind})
+			}
+		}
+		if facet.Disjunctive && !caps.DisjunctiveFacets {
+			return errs.UnsupportedCapability("disjunctive_facets", map[string]any{"field": facet.Field})
+		}
+	}
 	if len(req.Highlight) > 0 && !caps.Highlighting {
 		return errs.UnsupportedCapability("highlighting", map[string]any{"fields": req.Highlight})
 	}
