@@ -5,6 +5,7 @@ import (
 
 	"github.com/goliatone/go-search/pkg/types"
 	"github.com/goliatone/go-search/planner"
+	"github.com/goliatone/go-search/ranking"
 )
 
 func filterSearchPage(ctx context.Context, req types.SearchRequest, page types.SearchResultPage, guard types.ScopeGuard) types.SearchResultPage {
@@ -93,6 +94,30 @@ func buildFacets(requests []types.FacetRequest, filters types.FilterExpr, hits [
 		out = append(out, types.BuildFacet(facetReq, counts, types.SelectedFacetValues(filters, facetReq.Field)))
 	}
 	return out
+}
+
+func buildGroupedFacet(request types.FacetRequest, filters types.FilterExpr, hits []types.SearchHit) types.SearchFacet {
+	return types.BuildFacet(request, groupedFacetCounts(request.Field, hits), types.SelectedFacetValues(filters, request.Field))
+}
+
+func groupedFacetCounts(field string, hits []types.SearchHit) map[string]int {
+	counts := map[string]int{}
+	for _, group := range ranking.GroupHits(hits) {
+		seen := map[string]struct{}{}
+		for _, hit := range group.Hits {
+			if hit.Document == nil {
+				continue
+			}
+			for _, value := range hit.Document.Facets[field] {
+				if _, ok := seen[value]; ok {
+					continue
+				}
+				seen[value] = struct{}{}
+				counts[value]++
+			}
+		}
+	}
+	return counts
 }
 
 func flattenGroupHits(groups []types.SearchGroup) []types.SearchHit {

@@ -87,6 +87,9 @@ func (q *Search) Query(ctx context.Context, req types.SearchRequest) (types.Sear
 		providerReq.Page = 1
 		providerReq.PerPage = 0
 		providerReq.GroupBy = ""
+		if plan.Request.GroupBy != "" {
+			providerReq.Facets = nil
+		}
 	}
 	page, err := q.provider.Search(ctx, providerReq)
 	if err != nil {
@@ -104,10 +107,22 @@ func (q *Search) Query(ctx context.Context, req types.SearchRequest) (types.Sear
 	}
 	page.Page = plan.Request.Page
 	page.PerPage = plan.Request.PerPage
-	page, err = q.rankingPolicy.Apply(plan.Request, page, rules, q.clock.Now())
+	rankedAt := q.clock.Now()
+	var groupedFacets []types.SearchFacet
+	if plan.Request.GroupBy != "" && len(plan.Request.Facets) > 0 {
+		groupedFacets, err = q.buildGroupedDisjunctiveFacets(ctx, plan, rules, rankedAt)
+		if err != nil {
+			observe.Count(ctx, q.metrics, q.logger, "search.query.error.count", 1, labels)
+			return types.SearchResultPage{}, err
+		}
+	}
+	page, err = q.rankingPolicy.Apply(plan.Request, page, rules, rankedAt)
 	if err != nil {
 		observe.Count(ctx, q.metrics, q.logger, "search.query.error.count", 1, labels)
 		return types.SearchResultPage{}, errs.RankingFailure(err, map[string]any{"indexes": req.Indexes})
+	}
+	if len(groupedFacets) > 0 {
+		page.Facets = groupedFacets
 	}
 	if page.DurationMS <= 0 {
 		page.DurationMS = q.clock.Now().Sub(startedAt).Milliseconds()
@@ -118,6 +133,62 @@ func (q *Search) Query(ctx context.Context, req types.SearchRequest) (types.Sear
 
 func requiresPostProcessing(req types.SearchRequest, rules []types.EditorialRankRule, guard types.ScopeGuard) bool {
 	return req.GroupBy != "" || len(rules) > 0 || guard != nil
+}
+
+func (q *Search) buildGroupedDisjunctiveFacets(ctx context.Context, plan planner.SearchPlan, rules []types.EditorialRankRule, now time.Time) ([]types.SearchFacet, error) {
+	if len(plan.Request.Facets) == 0 {
+		return nil, nil
+	}
+	baseProviderReq := plan.ProviderRequest()
+	baseProviderReq.Page = 1
+	baseProviderReq.PerPage = 0
+	baseProviderReq.GroupBy = ""
+	baseProviderReq.Facets = nil
+
+	out := make([]types.SearchFacet, 0, len(plan.Request.Facets))
+	countRequests := make([]types.SearchRequest, 0, len(plan.Request.Facets))
+	providerRequests := make([]types.SearchRequest, 0, len(plan.Request.Facets))
+	for _, facetReq := range plan.Request.Facets {
+		countRequest := plan.Request
+		if facetReq.Disjunctive {
+			countRequest.Filters = types.RemoveFacetFilter(plan.Request.Filters, facetReq.Field)
+		}
+		providerReq := baseProviderReq
+		providerReq.Filters = countRequest.Filters
+		countRequests = append(countRequests, countRequest)
+		providerRequests = append(providerRequests, providerReq)
+	}
+	pages, err := searchPages(ctx, q.provider, providerRequests)
+	if err != nil {
+		return nil, err
+	}
+	for i, facetReq := range plan.Request.Facets {
+		page := pages[i]
+		countRequest := countRequests[i]
+		page = annotateSearchPageLocales(page, plan.Locale)
+		hits := filterAuthorizedHits(ctx, countRequest.Actor, page.Hits, q.planner.ScopeGuard())
+		hits = ranking.ApplyRulesToHits(countRequest, hits, rules, now)
+		out = append(out, buildGroupedFacet(facetReq, plan.Request.Filters, hits))
+	}
+	return out, nil
+}
+
+func searchPages(ctx context.Context, provider providers.Provider, requests []types.SearchRequest) ([]types.SearchResultPage, error) {
+	if len(requests) == 0 {
+		return nil, nil
+	}
+	if batcher, ok := provider.(providers.SearchBatcher); ok {
+		return batcher.SearchBatch(ctx, requests)
+	}
+	out := make([]types.SearchResultPage, 0, len(requests))
+	for _, req := range requests {
+		page, err := provider.Search(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, page)
+	}
+	return out, nil
 }
 
 func finalizeSearchObservation(ctx context.Context, metrics []types.MetricsHook, logger types.Logger, startedAt time.Time, page types.SearchResultPage, ruleCount int) {

@@ -194,12 +194,12 @@ func contains(needles []string, haystack []string) bool {
 }
 
 type hitEvaluation struct {
-	applied        []types.AppliedEditorialSignal
-	hidden         bool
+	applied             []types.AppliedEditorialSignal
+	hidden              bool
 	matchedParentTarget string
-	score          float64
-	pin            *types.EditorialRankRule
-	pinSpecificity int
+	score               float64
+	pin                 *types.EditorialRankRule
+	pinSpecificity      int
 }
 
 func evaluateHit(req types.SearchRequest, hit types.SearchHit, rules []types.EditorialRankRule, now time.Time) hitEvaluation {
@@ -286,18 +286,138 @@ func compareHits(req types.SearchRequest, left, right types.SearchHit) bool {
 			return leftSpecificity > rightSpecificity
 		}
 	}
+	leftLocaleRank := localeRank(req, left)
+	rightLocaleRank := localeRank(req, right)
+	if len(req.Sort) > 0 {
+		if leftLocaleRank != rightLocaleRank {
+			return leftLocaleRank < rightLocaleRank
+		}
+		if ordered, ok := compareRequestedSorts(req.Sort, left, right); ok {
+			return ordered
+		}
+	}
 	if left.FinalScore != right.FinalScore {
 		return left.FinalScore > right.FinalScore
 	}
-	leftLocaleRank := localeRank(req, left)
-	rightLocaleRank := localeRank(req, right)
-	if leftLocaleRank != rightLocaleRank {
+	if len(req.Sort) == 0 && leftLocaleRank != rightLocaleRank {
 		return leftLocaleRank < rightLocaleRank
 	}
 	if left.Parent != nil && right.Parent != nil && left.Parent.Title != right.Parent.Title {
 		return left.Parent.Title < right.Parent.Title
 	}
 	return left.ID < right.ID
+}
+
+func compareRequestedSorts(sorts []types.Sort, left, right types.SearchHit) (bool, bool) {
+	for _, sortField := range sorts {
+		if strings.TrimSpace(sortField.Field) == "" {
+			continue
+		}
+		leftNum, rightNum, numeric := sortableNumbers(left, right, sortField.Field)
+		if numeric {
+			if leftNum == rightNum {
+				continue
+			}
+			if sortField.Direction == types.SortAsc {
+				return leftNum < rightNum, true
+			}
+			return leftNum > rightNum, true
+		}
+		leftText := sortableText(left, sortField.Field)
+		rightText := sortableText(right, sortField.Field)
+		if leftText == rightText {
+			continue
+		}
+		if sortField.Direction == types.SortAsc {
+			return leftText < rightText, true
+		}
+		return leftText > rightText, true
+	}
+	return false, false
+}
+
+func sortableNumbers(left, right types.SearchHit, field string) (float64, float64, bool) {
+	leftValue, leftOK := sortableNumber(left, field)
+	rightValue, rightOK := sortableNumber(right, field)
+	if !leftOK && !rightOK {
+		return 0, 0, false
+	}
+	return leftValue, rightValue, true
+}
+
+func sortableNumber(hit types.SearchHit, field string) (float64, bool) {
+	switch strings.ToLower(strings.TrimSpace(field)) {
+	case "start_ms":
+		if hit.Anchor != nil {
+			return float64(hit.Anchor.StartMS), true
+		}
+	case "end_ms":
+		if hit.Anchor != nil {
+			return float64(hit.Anchor.EndMS), true
+		}
+	}
+	for _, source := range []map[string]any{hit.Fields, documentFields(hit.Document)} {
+		if len(source) == 0 {
+			continue
+		}
+		if raw, ok := source[field]; ok {
+			if value, ok := anyFloat(raw); ok {
+				return value, true
+			}
+		}
+	}
+	if hit.Document != nil && hit.Document.Numeric != nil {
+		if value, ok := hit.Document.Numeric[field]; ok {
+			return value, true
+		}
+	}
+	return 0, false
+}
+
+func sortableText(hit types.SearchHit, field string) string {
+	switch strings.ToLower(strings.TrimSpace(field)) {
+	case "title":
+		return normalizeSortableText(hit.Title)
+	case "locale":
+		return normalizeSortableText(hit.Locale)
+	}
+	for _, source := range []map[string]any{hit.Fields, documentFields(hit.Document)} {
+		if len(source) == 0 {
+			continue
+		}
+		if raw, ok := source[field]; ok {
+			return normalizeSortableText(fmt.Sprint(raw))
+		}
+	}
+	return ""
+}
+
+func documentFields(doc *types.Document) map[string]any {
+	if doc == nil {
+		return nil
+	}
+	return doc.Fields
+}
+
+func anyFloat(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case int:
+		return float64(typed), true
+	case int32:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case float32:
+		return float64(typed), true
+	case float64:
+		return typed, true
+	default:
+		return 0, false
+	}
+}
+
+func normalizeSortableText(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func localeRank(req types.SearchRequest, hit types.SearchHit) int {

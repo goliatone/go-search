@@ -15,6 +15,13 @@ type staticEditorialStore struct {
 	rules []types.EditorialRankRule
 }
 
+type countingBatchProvider struct {
+	*memory.Provider
+	searchCalls int
+	batchCalls  int
+	batchSize   int
+}
+
 func (s staticEditorialStore) ListApplicable(context.Context, types.SearchRequest) ([]types.EditorialRankRule, error) {
 	return append([]types.EditorialRankRule(nil), s.rules...), nil
 }
@@ -25,6 +32,25 @@ func (s staticEditorialStore) Upsert(context.Context, types.EditorialRankRule) e
 
 func (s staticEditorialStore) Delete(context.Context, string) error {
 	return nil
+}
+
+func (p *countingBatchProvider) Search(ctx context.Context, req types.SearchRequest) (types.SearchResultPage, error) {
+	p.searchCalls++
+	return p.Provider.Search(ctx, req)
+}
+
+func (p *countingBatchProvider) SearchBatch(ctx context.Context, requests []types.SearchRequest) ([]types.SearchResultPage, error) {
+	p.batchCalls++
+	p.batchSize = len(requests)
+	out := make([]types.SearchResultPage, 0, len(requests))
+	for _, req := range requests {
+		page, err := p.Provider.Search(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, page)
+	}
+	return out, nil
 }
 
 func TestSearchGroupsAfterEditorialRanking(t *testing.T) {
@@ -231,6 +257,255 @@ func TestSearchParentTargetDoesNotMatchUnrelatedHit(t *testing.T) {
 			t.Fatalf("unexpected unrelated boost on hit %#v", hit)
 		}
 	}
+}
+
+func TestSearchGroupedDisjunctiveFacetsCountUniqueGroups(t *testing.T) {
+	registry := indexing.NewRegistry()
+	def := types.IndexDefinition{Name: "media", GroupByDefault: "parent_id"}
+	if err := registry.Register(def, nil); err != nil {
+		t.Fatalf("register index: %v", err)
+	}
+	provider := memory.New(memory.Config{})
+	if err := provider.EnsureIndex(context.Background(), def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	if err := provider.UpsertDocuments(context.Background(), "media", []types.Document{
+		{
+			ID:       "segment-1",
+			Index:    "media",
+			Type:     types.DocumentTypeTranscriptSegment,
+			ParentID: "video-1",
+			Title:    "Architecture One",
+			Body:     "prayer architecture",
+			Locale:   "en",
+			Fields: map[string]any{
+				"parent_title": "Architecture One",
+				"parent_url":   "https://example.org/video-1",
+			},
+			Facets: map[string][]string{
+				"topic":  {"architecture"},
+				"format": {"Teaching"},
+			},
+		},
+		{
+			ID:       "segment-2",
+			Index:    "media",
+			Type:     types.DocumentTypeTranscriptSegment,
+			ParentID: "video-1",
+			Title:    "Architecture One",
+			Body:     "prayer architecture",
+			Locale:   "en",
+			Fields: map[string]any{
+				"parent_title": "Architecture One",
+				"parent_url":   "https://example.org/video-1",
+			},
+			Facets: map[string][]string{
+				"topic":  {"architecture"},
+				"format": {"Teaching"},
+			},
+		},
+		{
+			ID:       "segment-3",
+			Index:    "media",
+			Type:     types.DocumentTypeTranscriptSegment,
+			ParentID: "video-2",
+			Title:    "Architecture Two",
+			Body:     "prayer architecture",
+			Locale:   "en",
+			Fields: map[string]any{
+				"parent_title": "Architecture Two",
+				"parent_url":   "https://example.org/video-2",
+			},
+			Facets: map[string][]string{
+				"topic":  {"architecture"},
+				"format": {"Workshop"},
+			},
+		},
+		{
+			ID:       "segment-4",
+			Index:    "media",
+			Type:     types.DocumentTypeTranscriptSegment,
+			ParentID: "video-3",
+			Title:    "UI One",
+			Body:     "prayer architecture",
+			Locale:   "en",
+			Fields: map[string]any{
+				"parent_title": "UI One",
+				"parent_url":   "https://example.org/video-3",
+			},
+			Facets: map[string][]string{
+				"topic":  {"ui"},
+				"format": {"Teaching"},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("upsert docs: %v", err)
+	}
+	p, err := planner.New(planner.Config{Registry: registry})
+	if err != nil {
+		t.Fatalf("new planner: %v", err)
+	}
+	search, err := NewSearch(SearchConfig{
+		Planner:  p,
+		Provider: provider,
+	})
+	if err != nil {
+		t.Fatalf("new search query: %v", err)
+	}
+	page, err := search.Query(context.Background(), types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "prayer",
+		Locale:  "en",
+		Page:    1,
+		PerPage: 10,
+		GroupBy: "parent_id",
+		Filters: types.AndExpr{Terms: []types.FilterExpr{
+			types.TermExpr{Field: "topic", Op: types.FilterOpEQ, Value: "architecture"},
+			types.TermExpr{Field: "format", Op: types.FilterOpEQ, Value: "Teaching"},
+		}},
+		Facets: []types.FacetRequest{
+			{Field: "format", Disjunctive: true},
+			{Field: "topic", Disjunctive: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if len(page.Groups) != 1 || page.Groups[0].Key != "video-1" {
+		t.Fatalf("expected only teaching architecture group in results, got %+v", page.Groups)
+	}
+	formatFacet := facetByField(page.Facets, "format")
+	if formatFacet == nil {
+		t.Fatalf("missing format facet: %+v", page.Facets)
+	}
+	formatCounts := facetCounts(*formatFacet)
+	if formatCounts["Teaching"] != 1 || formatCounts["Workshop"] != 1 {
+		t.Fatalf("unexpected format counts: %+v", formatCounts)
+	}
+	if !facetSelected(*formatFacet, "Teaching") {
+		t.Fatalf("expected selected teaching value: %+v", formatFacet.Values)
+	}
+	topicFacet := facetByField(page.Facets, "topic")
+	if topicFacet == nil {
+		t.Fatalf("missing topic facet: %+v", page.Facets)
+	}
+	topicCounts := facetCounts(*topicFacet)
+	if topicCounts["architecture"] != 1 || topicCounts["ui"] != 1 {
+		t.Fatalf("unexpected topic counts: %+v", topicCounts)
+	}
+	if !facetSelected(*topicFacet, "architecture") {
+		t.Fatalf("expected selected architecture value: %+v", topicFacet.Values)
+	}
+}
+
+func TestSearchGroupedDisjunctiveFacetsUseBatchProviderWhenAvailable(t *testing.T) {
+	registry := indexing.NewRegistry()
+	def := types.IndexDefinition{Name: "media", GroupByDefault: "parent_id"}
+	if err := registry.Register(def, nil); err != nil {
+		t.Fatalf("register index: %v", err)
+	}
+	baseProvider := memory.New(memory.Config{})
+	provider := &countingBatchProvider{Provider: baseProvider}
+	if err := provider.EnsureIndex(context.Background(), def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	if err := provider.UpsertDocuments(context.Background(), "media", []types.Document{
+		{
+			ID:       "segment-1",
+			Index:    "media",
+			Type:     types.DocumentTypeTranscriptSegment,
+			ParentID: "video-1",
+			Title:    "Architecture One",
+			Body:     "prayer architecture",
+			Locale:   "en",
+			Fields: map[string]any{
+				"parent_title": "Architecture One",
+				"parent_url":   "https://example.org/video-1",
+			},
+			Facets: map[string][]string{
+				"topic":  {"architecture"},
+				"format": {"Teaching"},
+			},
+		},
+		{
+			ID:       "segment-2",
+			Index:    "media",
+			Type:     types.DocumentTypeTranscriptSegment,
+			ParentID: "video-2",
+			Title:    "Architecture Two",
+			Body:     "prayer architecture",
+			Locale:   "en",
+			Fields: map[string]any{
+				"parent_title": "Architecture Two",
+				"parent_url":   "https://example.org/video-2",
+			},
+			Facets: map[string][]string{
+				"topic":  {"architecture"},
+				"format": {"Workshop"},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("upsert docs: %v", err)
+	}
+	p, err := planner.New(planner.Config{Registry: registry})
+	if err != nil {
+		t.Fatalf("new planner: %v", err)
+	}
+	search, err := NewSearch(SearchConfig{
+		Planner:  p,
+		Provider: provider,
+	})
+	if err != nil {
+		t.Fatalf("new search query: %v", err)
+	}
+	_, err = search.Query(context.Background(), types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "prayer",
+		Locale:  "en",
+		Page:    1,
+		PerPage: 10,
+		GroupBy: "parent_id",
+		Filters: types.TermExpr{Field: "topic", Op: types.FilterOpEQ, Value: "architecture"},
+		Facets: []types.FacetRequest{
+			{Field: "format", Disjunctive: true},
+			{Field: "topic", Disjunctive: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if provider.searchCalls != 1 {
+		t.Fatalf("expected one primary search call, got %d", provider.searchCalls)
+	}
+	if provider.batchCalls != 1 || provider.batchSize != 2 {
+		t.Fatalf("expected one batch call for two facets, got batchCalls=%d batchSize=%d", provider.batchCalls, provider.batchSize)
+	}
+}
+
+func facetByField(facets []types.SearchFacet, field string) *types.SearchFacet {
+	for i := range facets {
+		if facets[i].Field == field {
+			return &facets[i]
+		}
+	}
+	return nil
+}
+
+func facetCounts(facet types.SearchFacet) map[string]int {
+	out := make(map[string]int, len(facet.Values))
+	for _, value := range facet.Values {
+		out[value.Value] = value.Count
+	}
+	return out
+}
+
+func facetSelected(facet types.SearchFacet, needle string) bool {
+	for _, value := range facet.Values {
+		if value.Value == needle {
+			return value.Selected
+		}
+	}
+	return false
 }
 
 func TestSearchRejectsUnsupportedSemanticMode(t *testing.T) {
