@@ -41,11 +41,19 @@ func (p *Provider) Name() string { return "memory" }
 func (p *Provider) Capabilities(context.Context) (types.CapabilitySet, error) {
 	return types.CapabilitySet{
 		Facets:               true,
+		HierarchicalFacets:   true,
+		DisjunctiveFacets:    true,
 		Grouping:             true,
 		Highlighting:         true,
 		Snippets:             true,
 		PrefixSearch:         true,
 		SupportedSearchModes: []types.SearchMode{types.SearchModeLexical},
+		Limitations: []types.CapabilityLimitation{
+			{
+				Capability: "range_facets",
+				Message:    "memory provider supports range filtering but does not compute dedicated numeric/date range facet buckets",
+			},
+		},
 	}, nil
 }
 
@@ -143,7 +151,7 @@ func (p *Provider) Search(_ context.Context, req types.SearchRequest) (types.Sea
 	sortHits(hits, req)
 	page := types.SearchResultPage{
 		Hits:       paginateHits(hits, req.Page, req.PerPage),
-		Facets:     buildFacets(req, hits),
+		Facets:     buildFacets(req, p.docs),
 		Page:       req.Page,
 		PerPage:    req.PerPage,
 		Total:      len(hits),
@@ -450,35 +458,31 @@ func toHit(doc types.Document, score float64, req types.SearchRequest) types.Sea
 	return hit
 }
 
-func buildFacets(req types.SearchRequest, hits []types.SearchHit) []types.SearchFacet {
+func buildFacets(req types.SearchRequest, docs map[string]map[string]types.Document) []types.SearchFacet {
 	if len(req.Facets) == 0 {
 		return nil
 	}
 	out := make([]types.SearchFacet, 0, len(req.Facets))
 	for _, facetReq := range req.Facets {
+		filterExpr := req.Filters
+		if facetReq.Disjunctive {
+			filterExpr = types.RemoveFacetFilter(filterExpr, facetReq.Field)
+		}
 		counts := map[string]int{}
-		for _, hit := range hits {
-			if hit.Document == nil {
-				continue
-			}
-			for _, value := range hit.Document.Facets[facetReq.Field] {
-				counts[value]++
+		for _, index := range req.Indexes {
+			for _, doc := range docs[index] {
+				if !matchesScope(req.Scope, doc) || !matchesLocale(req, doc) || !matchesFilter(filterExpr, doc) {
+					continue
+				}
+				if _, ok := scoreDocument(req.Query, doc); !ok {
+					continue
+				}
+				for _, value := range doc.Facets[facetReq.Field] {
+					counts[value]++
+				}
 			}
 		}
-		values := make([]types.SearchFacetValue, 0, len(counts))
-		for value, count := range counts {
-			values = append(values, types.SearchFacetValue{Value: value, Count: count})
-		}
-		sort.SliceStable(values, func(i, j int) bool {
-			if values[i].Count == values[j].Count {
-				return values[i].Value < values[j].Value
-			}
-			return values[i].Count > values[j].Count
-		})
-		if facetReq.Limit > 0 && len(values) > facetReq.Limit {
-			values = values[:facetReq.Limit]
-		}
-		out = append(out, types.SearchFacet{Field: facetReq.Field, Values: values})
+		out = append(out, types.BuildFacet(facetReq, counts, types.SelectedFacetValues(req.Filters, facetReq.Field)))
 	}
 	return out
 }

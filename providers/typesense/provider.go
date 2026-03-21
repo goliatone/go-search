@@ -97,11 +97,19 @@ func (p *Provider) Name() string { return "typesense" }
 func (p *Provider) Capabilities(context.Context) (types.CapabilitySet, error) {
 	return types.CapabilitySet{
 		Facets:               true,
+		HierarchicalFacets:   true,
+		DisjunctiveFacets:    true,
 		Grouping:             true,
 		Highlighting:         true,
 		Snippets:             true,
 		PrefixSearch:         true,
 		SupportedSearchModes: []types.SearchMode{types.SearchModeLexical},
+		Limitations: []types.CapabilityLimitation{
+			{
+				Capability: "range_facets",
+				Message:    "typesense provider supports range filtering but does not compute dedicated numeric/date range facet buckets in the canonical response yet",
+			},
+		},
 		Metadata: map[string]any{
 			"grouped_evidence_limit": p.cfg.GroupedEvidenceLimit,
 		},
@@ -318,6 +326,9 @@ func (p *Provider) searchSingleIndex(ctx context.Context, index string, req type
 		return types.SearchResultPage{}, errs.Wrap(err, map[string]any{"index": index, "collection": runtime.collectionName})
 	}
 	page := mapSearchResult(result, runtime, req, p.cfg)
+	if page.Facets, err = p.disjunctiveFacets(ctx, runtime, req, page.Facets); err != nil {
+		return types.SearchResultPage{}, err
+	}
 	if req.GroupBy != "" {
 		total, err := p.exactGroupCount(ctx, runtime, req)
 		if err != nil {
@@ -381,8 +392,55 @@ func (p *Provider) searchMultiIndex(ctx context.Context, req types.SearchRequest
 		aggregate.Hits = ranking.PaginateHits(allHits, req.Page, req.PerPage)
 	}
 	aggregate.DurationMS = duration
-	aggregate.Facets = flattenFacetMap(facets)
+	aggregate.Facets = flattenFacetMap(req, facets)
 	return aggregate, nil
+}
+
+func (p *Provider) disjunctiveFacets(ctx context.Context, runtime managedIndex, req types.SearchRequest, current []types.SearchFacet) ([]types.SearchFacet, error) {
+	needsRefresh := false
+	byField := map[string]types.SearchFacet{}
+	for _, facet := range current {
+		byField[facet.Field] = facet
+	}
+	for _, facetReq := range req.Facets {
+		if !facetReq.Disjunctive {
+			continue
+		}
+		needsRefresh = true
+		countReq := req
+		countReq.Page = 1
+		countReq.PerPage = 1
+		countReq.GroupBy = ""
+		countReq.Highlight = nil
+		countReq.Filters = types.RemoveFacetFilter(req.Filters, facetReq.Field)
+		countReq.Facets = []types.FacetRequest{facetReq}
+		params, err := compileSearchParams(p.cfg, runtime.def, countReq)
+		if err != nil {
+			return nil, err
+		}
+		result, err := p.client.Collection(runtime.collectionName).Documents().Search(ctx, params)
+		if err != nil {
+			return nil, errs.Wrap(err, map[string]any{
+				"index":      runtime.def.Name,
+				"collection": runtime.collectionName,
+				"facet":      facetReq.Field,
+			})
+		}
+		refreshed := mapFacets(result, countReq)
+		if len(refreshed) > 0 {
+			byField[facetReq.Field] = refreshed[0]
+		}
+	}
+	if !needsRefresh {
+		return current, nil
+	}
+	out := make([]types.SearchFacet, 0, len(req.Facets))
+	for _, facetReq := range req.Facets {
+		if facet, ok := byField[facetReq.Field]; ok {
+			out = append(out, facet)
+		}
+	}
+	return out, nil
 }
 
 func (p *Provider) exactGroupCount(ctx context.Context, runtime managedIndex, req types.SearchRequest) (int, error) {
@@ -485,25 +543,26 @@ func mergeFacets(dst map[string]map[string]int, input []types.SearchFacet) {
 	}
 }
 
-func flattenFacetMap(in map[string]map[string]int) []types.SearchFacet {
+func flattenFacetMap(req types.SearchRequest, in map[string]map[string]int) []types.SearchFacet {
 	out := make([]types.SearchFacet, 0, len(in))
-	fields := make([]string, 0, len(in))
-	for field := range in {
-		fields = append(fields, field)
+	requests := map[string]types.FacetRequest{}
+	fields := make([]string, 0, len(req.Facets))
+	for _, request := range req.Facets {
+		requests[request.Field] = request
+		if _, ok := in[request.Field]; ok {
+			fields = append(fields, request.Field)
+		}
+	}
+	if len(fields) == 0 {
+		for field := range in {
+			fields = append(fields, field)
+		}
 	}
 	sort.Strings(fields)
 	for _, field := range fields {
-		values := make([]types.SearchFacetValue, 0, len(in[field]))
-		for value, count := range in[field] {
-			values = append(values, types.SearchFacetValue{Value: value, Count: count})
-		}
-		sort.SliceStable(values, func(i, j int) bool {
-			if values[i].Count == values[j].Count {
-				return values[i].Value < values[j].Value
-			}
-			return values[i].Count > values[j].Count
-		})
-		out = append(out, types.SearchFacet{Field: field, Values: values})
+		request := requests[field]
+		request.Field = field
+		out = append(out, types.BuildFacet(request, in[field], types.SelectedFacetValues(req.Filters, field)))
 	}
 	return out
 }

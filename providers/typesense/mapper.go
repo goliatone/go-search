@@ -22,7 +22,7 @@ func mapSearchResult(result *tsapi.SearchResult, runtime managedIndex, req types
 			"grouped_evidence_limit": cfg.GroupedEvidenceLimit,
 		},
 	}
-	page.Facets = mapFacets(result)
+	page.Facets = mapFacets(result, req)
 
 	if req.GroupBy != "" && result != nil && result.GroupedHits != nil {
 		page.Groups = make([]types.SearchGroup, 0, len(*result.GroupedHits))
@@ -40,9 +40,13 @@ func mapSearchResult(result *tsapi.SearchResult, runtime managedIndex, req types
 	return page
 }
 
-func mapFacets(result *tsapi.SearchResult) []types.SearchFacet {
+func mapFacets(result *tsapi.SearchResult, req types.SearchRequest) []types.SearchFacet {
 	if result == nil || result.FacetCounts == nil {
 		return nil
+	}
+	requestByField := map[string]types.FacetRequest{}
+	for _, facet := range req.Facets {
+		requestByField[facet.Field] = facet
 	}
 	out := make([]types.SearchFacet, 0, len(*result.FacetCounts))
 	for _, facet := range *result.FacetCounts {
@@ -50,8 +54,10 @@ func mapFacets(result *tsapi.SearchResult) []types.SearchFacet {
 		if facet.FieldName != nil {
 			item.Field = *facet.FieldName
 		}
+		request := requestByField[item.Field]
+		request.Field = item.Field
+		counts := map[string]int{}
 		if facet.Counts != nil {
-			item.Values = make([]types.SearchFacetValue, 0, len(*facet.Counts))
 			for _, value := range *facet.Counts {
 				if value.Value == nil {
 					continue
@@ -60,10 +66,10 @@ func mapFacets(result *tsapi.SearchResult) []types.SearchFacet {
 				if value.Count != nil {
 					count = *value.Count
 				}
-				item.Values = append(item.Values, types.SearchFacetValue{Value: *value.Value, Count: count})
+				counts[*value.Value] = count
 			}
 		}
-		out = append(out, item)
+		out = append(out, types.BuildFacet(request, counts, types.SelectedFacetValues(req.Filters, item.Field)))
 	}
 	return out
 }
@@ -199,7 +205,22 @@ func mapDocument(raw *map[string]any) types.Document {
 		doc.Numeric = ensureNumeric(doc.Numeric)
 		doc.Numeric["end_ms"] = float64(value)
 	}
+	reserved := map[string]struct{}{}
 	for _, field := range []string{
+		"id",
+		"index",
+		"type",
+		"parent_id",
+		"source_type",
+		"source_id",
+		"title",
+		"summary",
+		"body",
+		"url",
+		"anchor_url",
+		"locale",
+		"start_ms",
+		"end_ms",
 		"parent_title",
 		"parent_summary",
 		"parent_url",
@@ -207,6 +228,7 @@ func mapDocument(raw *map[string]any) types.Document {
 		"track_kind",
 		"source_format",
 	} {
+		reserved[field] = struct{}{}
 		if value, ok := (*raw)[field]; ok {
 			doc.Fields[field] = value
 			doc.Metadata[field] = value
@@ -214,6 +236,51 @@ func mapDocument(raw *map[string]any) types.Document {
 	}
 	if value, ok := stringSliceFieldValue(*raw, "topic"); ok {
 		doc.Facets = map[string][]string{"topic": value}
+		reserved["topic"] = struct{}{}
+	}
+	for field, value := range *raw {
+		if _, ok := reserved[field]; ok {
+			continue
+		}
+		switch typed := value.(type) {
+		case []string:
+			if doc.Facets == nil {
+				doc.Facets = map[string][]string{}
+			}
+			doc.Facets[field] = append([]string(nil), typed...)
+			doc.Fields[field] = append([]string(nil), typed...)
+			doc.Metadata[field] = append([]string(nil), typed...)
+		case []any:
+			values := make([]string, 0, len(typed))
+			allStrings := true
+			for _, item := range typed {
+				text, ok := item.(string)
+				if !ok {
+					allStrings = false
+					break
+				}
+				values = append(values, text)
+			}
+			if allStrings {
+				if doc.Facets == nil {
+					doc.Facets = map[string][]string{}
+				}
+				doc.Facets[field] = append([]string(nil), values...)
+				doc.Fields[field] = append([]string(nil), values...)
+				doc.Metadata[field] = append([]string(nil), values...)
+				continue
+			}
+			doc.Fields[field] = value
+			doc.Metadata[field] = value
+		case int, int32, int64, float32, float64:
+			doc.Numeric = ensureNumeric(doc.Numeric)
+			doc.Numeric[field] = asFloat64(typed)
+			doc.Fields[field] = value
+			doc.Metadata[field] = value
+		default:
+			doc.Fields[field] = value
+			doc.Metadata[field] = value
+		}
 	}
 	return doc
 }
@@ -443,6 +510,23 @@ func ensureNumeric(in map[string]float64) map[string]float64 {
 		return map[string]float64{}
 	}
 	return in
+}
+
+func asFloat64(value any) float64 {
+	switch v := value.(type) {
+	case int:
+		return float64(v)
+	case int32:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case float32:
+		return float64(v)
+	case float64:
+		return v
+	default:
+		return 0
+	}
 }
 
 //go:fix inline

@@ -188,3 +188,67 @@ func TestProviderSuggestUsesExactPrimaryLocaleOnly(t *testing.T) {
 		t.Fatalf("expected exact locale suggestion only, got %+v", result.Items)
 	}
 }
+
+func TestProviderBuildsDisjunctiveHierarchicalFacets(t *testing.T) {
+	provider := New(Config{})
+	ctx := context.Background()
+	if err := provider.EnsureIndex(ctx, types.IndexDefinition{Name: "media"}); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	if err := provider.UpsertDocuments(ctx, "media", []types.Document{
+		{
+			ID:    "doc-1",
+			Index: "media",
+			Title: "Ocean Wind",
+			Body:  "prayer",
+			Facets: map[string][]string{
+				"topic_hierarchy": {"Teaching Topics", "Teaching Topics > Tara"},
+				"format":          {"Teaching"},
+			},
+		},
+		{
+			ID:    "doc-2",
+			Index: "media",
+			Title: "Mountain Wind",
+			Body:  "prayer",
+			Facets: map[string][]string{
+				"topic_hierarchy": {"Teaching Topics", "Teaching Topics > Architecture"},
+				"format":          {"Teaching"},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("upsert docs: %v", err)
+	}
+	page, err := provider.Search(ctx, types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "prayer",
+		Filters: types.AndExpr{Terms: []types.FilterExpr{
+			types.TermExpr{Field: "format", Op: types.FilterOpEQ, Value: "Teaching"},
+			types.TermExpr{Field: "topic_hierarchy", Op: types.FilterOpEQ, Value: "Teaching Topics > Tara"},
+		}},
+		Facets: []types.FacetRequest{
+			{Field: "topic_hierarchy", Kind: types.FacetKindHierarchical, Disjunctive: true},
+			{Field: "format", Disjunctive: true},
+		},
+		Page:    1,
+		PerPage: 10,
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(page.Facets) != 2 {
+		t.Fatalf("facets = %+v", page.Facets)
+	}
+	if page.Facets[0].Kind != types.FacetKindHierarchical {
+		t.Fatalf("hierarchical facet metadata = %+v", page.Facets[0])
+	}
+	foundArchitecture := false
+	for _, value := range page.Facets[0].Values {
+		if value.Value == "Teaching Topics > Architecture" {
+			foundArchitecture = true
+		}
+	}
+	if !foundArchitecture {
+		t.Fatalf("expected disjunctive hierarchy count to preserve sibling branch, got %+v", page.Facets[0].Values)
+	}
+}

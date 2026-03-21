@@ -167,5 +167,38 @@ func TestMapSuggestHitsPreferParentDeduplicates(t *testing.T) {
 	}
 }
 
+func TestMapFacetsBuildsHierarchicalFacetMetadata(t *testing.T) {
+	result := &tsapi.SearchResult{
+		FacetCounts: &[]tsapi.FacetCounts{
+			{
+				FieldName: stringPtr("topic_hierarchy"),
+				Counts: &[]struct {
+					Count       *int                    `json:"count,omitempty"`
+					Highlighted *string                 `json:"highlighted,omitempty"`
+					Parent      *map[string]interface{} `json:"parent,omitempty"`
+					Value       *string                 `json:"value,omitempty"`
+				}{
+					{Value: stringPtr("Teaching Topics"), Count: intPtr(3)},
+					{Value: stringPtr("Teaching Topics > Tara"), Count: intPtr(2)},
+				},
+			},
+		},
+	}
+	facets := mapFacets(result, types.SearchRequest{
+		Facets: []types.FacetRequest{
+			{Field: "topic_hierarchy", Kind: types.FacetKindHierarchical, Disjunctive: true},
+		},
+	})
+	if len(facets) != 1 {
+		t.Fatalf("facets = %+v", facets)
+	}
+	if facets[0].Kind != types.FacetKindHierarchical || !facets[0].Disjunctive {
+		t.Fatalf("facet metadata = %+v", facets[0])
+	}
+	if len(facets[0].Values) < 2 {
+		t.Fatalf("facet values = %+v", facets[0].Values)
+	}
+}
+
 //go:fix inline
 func int64Ptr(value int64) *int64 { return new(value) }

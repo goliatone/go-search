@@ -34,6 +34,7 @@ func buildCollectionSchema(cfg Config, def types.IndexDefinition) (*tsapi.Collec
 	}
 
 	fields := fixedFieldSpecs()
+	applyDefinitionFieldFlags(fields, def)
 	declared := declaredFields(def)
 	for field := range declared {
 		if _, ok := fields[field]; ok {
@@ -126,6 +127,24 @@ func fixedFieldSpecs() map[string]schemaFieldSpec {
 		"track_kind":       {Type: "string", Facet: true, Optional: true},
 		"source_format":    {Type: "string", Facet: true, Optional: true},
 		"topic":            {Type: "string[]", Facet: true, Optional: true},
+	}
+}
+
+func applyDefinitionFieldFlags(fields map[string]schemaFieldSpec, def types.IndexDefinition) {
+	for name, spec := range fields {
+		if contains(def.FacetFields, name) || contains(def.FilterableFields, name) || def.GroupByDefault == name {
+			spec.Facet = true
+		}
+		if contains(def.SortableFields, name) {
+			spec.Sort = true
+		}
+		if contains(def.SearchableFields, name) || contains(def.DefaultQueryFields, name) || contains(def.HighlightFields, name) {
+			spec.Index = true
+		}
+		if contains(def.FilterableFields, name) && isNumericType(spec.Type) {
+			spec.RangeIndex = true
+		}
+		fields[name] = spec
 	}
 }
 
