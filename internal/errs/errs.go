@@ -16,6 +16,13 @@ func UnknownIndex(index string, metadata map[string]any) error {
 		WithMetadata(merge(metadata, map[string]any{"index": index}))
 }
 
+func InvalidInput(message string, metadata map[string]any) error {
+	return goerrors.New(message, goerrors.CategoryValidation).
+		WithCode(http.StatusBadRequest).
+		WithTextCode(types.TextCodeInvalidInput).
+		WithMetadata(metadata)
+}
+
 func UnsupportedCapability(capability string, metadata map[string]any) error {
 	return goerrors.New("unsupported search capability", goerrors.CategoryBadInput).
 		WithCode(http.StatusBadRequest).
