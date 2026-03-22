@@ -27,7 +27,7 @@ func NewDeleteRecord(cfg DeleteRecordConfig) (*DeleteRecord, error) {
 }
 
 func (c *DeleteRecord) Execute(ctx context.Context, msg types.DeleteRecordInput) error {
-	if err := c.indexer.DeleteRecord(ctx, msg.Index, msg.RecordID); err != nil {
+	if err := c.indexer.DeleteRecord(ctx, msg.Index, msg.RegistrationKey, msg.RecordID); err != nil {
 		return err
 	}
 	return nil
