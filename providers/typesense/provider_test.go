@@ -199,7 +199,7 @@ func TestMapSuggestHitsPreferParentDeduplicates(t *testing.T) {
 					"parent_title": "Ocean Wind",
 					"parent_url":   "https://example.org/video-1",
 				},
-				TextMatch: int64Ptr(100),
+				TextMatch: new(int64(100)),
 			},
 			{
 				Document: &map[string]any{
@@ -212,7 +212,7 @@ func TestMapSuggestHitsPreferParentDeduplicates(t *testing.T) {
 					"parent_title": "Ocean Wind",
 					"parent_url":   "https://example.org/video-1",
 				},
-				TextMatch: int64Ptr(90),
+				TextMatch: new(int64(90)),
 			},
 		},
 	}
@@ -233,15 +233,15 @@ func TestMapFacetsBuildsHierarchicalFacetMetadata(t *testing.T) {
 	result := &tsapi.SearchResult{
 		FacetCounts: &[]tsapi.FacetCounts{
 			{
-				FieldName: stringPtr("topic_hierarchy"),
+				FieldName: new("topic_hierarchy"),
 				Counts: &[]struct {
-					Count       *int                    `json:"count,omitempty"`
-					Highlighted *string                 `json:"highlighted,omitempty"`
-					Parent      *map[string]interface{} `json:"parent,omitempty"`
-					Value       *string                 `json:"value,omitempty"`
+					Count       *int            `json:"count,omitempty"`
+					Highlighted *string         `json:"highlighted,omitempty"`
+					Parent      *map[string]any `json:"parent,omitempty"`
+					Value       *string         `json:"value,omitempty"`
 				}{
-					{Value: stringPtr("Teaching Topics"), Count: intPtr(3)},
-					{Value: stringPtr("Teaching Topics > Tara"), Count: intPtr(2)},
+					{Value: new("Teaching Topics"), Count: new(3)},
+					{Value: new("Teaching Topics > Tara"), Count: new(2)},
 				},
 			},
 		},

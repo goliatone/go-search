@@ -6,10 +6,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/goliatone/go-search/adapters/content"
 	"github.com/goliatone/go-search/adapters/media"
 	"github.com/goliatone/go-search/indexing"
 	"github.com/goliatone/go-search/internal/testkit"
 	"github.com/goliatone/go-search/pkg/types"
+	"github.com/goliatone/go-search/planner"
 	"github.com/goliatone/go-search/providers"
 	"github.com/goliatone/go-search/query"
 )
@@ -134,7 +136,7 @@ func TestTypesenseProviderSupportsArchiveFacetsAndRangeFiltering(t *testing.T) {
 				"parent_title":           "Tara Teachings",
 				"parent_url":             "https://example.org/video-tara",
 				media.FieldResultBadge:   "Featured",
-				media.FieldPublishedYear: 2022,
+				media.FieldPublishedYear: 2024,
 			},
 			Facets: map[string][]string{
 				media.FacetFieldTopic:          {"tara"},
@@ -145,8 +147,8 @@ func TestTypesenseProviderSupportsArchiveFacetsAndRangeFiltering(t *testing.T) {
 				media.FacetFieldLocale:         {"en"},
 			},
 			Numeric: map[string]float64{
-				media.FieldPublishedYear:   2022,
-				media.FieldDurationSeconds: 1200,
+				media.FieldPublishedYear:   2024,
+				media.FieldDurationSeconds: 2400,
 			},
 		},
 	}
@@ -199,6 +201,471 @@ func TestTypesenseProviderSupportsArchiveFacetsAndRangeFiltering(t *testing.T) {
 	}
 	if !foundSelected || !foundSibling {
 		t.Fatalf("expected selected and sibling hierarchy values in %+v", page.Facets)
+	}
+}
+
+func TestTypesenseProviderSupportsFlatHeterogeneousSearchAcrossSeparateIndexes(t *testing.T) {
+	provider := newIntegrationProvider(t)
+	ctx := context.Background()
+	defs := []types.IndexDefinition{
+		content.DefaultIndexDefinition("videos"),
+		content.DefaultIndexDefinition("documents"),
+		content.DefaultIndexDefinition("blog_articles"),
+	}
+	for _, def := range defs {
+		if err := provider.EnsureIndex(ctx, def); err != nil {
+			t.Fatalf("ensure index %s: %v", def.Name, err)
+		}
+	}
+	videoDoc := content.NewProjector(content.ProjectorConfig{Index: "videos", SourceType: "video"})
+	documentDoc := content.NewProjector(content.ProjectorConfig{Index: "documents", SourceType: "document"})
+	blogDoc := content.NewProjector(content.ProjectorConfig{Index: "blog_articles", SourceType: "blog_article"})
+	videoDocs, _ := videoDoc.Project(ctx, content.Record{ID: "video-1", Type: types.DocumentTypeVideo, Title: "Search Architecture Walkthrough", Body: "search architecture video", URL: "/videos/1", Locale: "en"})
+	documentDocs, _ := documentDoc.Project(ctx, content.Record{ID: "document-1", Type: types.DocumentTypeDocument, Title: "Search Rollout Workbook", Body: "search rollout document", URL: "/documents/1", Locale: "en"})
+	blogDocs, _ := blogDoc.Project(ctx, content.Record{ID: "blog-1", Type: types.DocumentTypeBlogArticle, Title: "Search Notes", Body: "search notes article", URL: "/blog/1", Locale: "en"})
+	for _, item := range []struct {
+		index string
+		docs  []types.Document
+	}{
+		{index: "videos", docs: videoDocs},
+		{index: "documents", docs: documentDocs},
+		{index: "blog_articles", docs: blogDocs},
+	} {
+		if err := provider.UpsertDocuments(ctx, item.index, item.docs); err != nil {
+			t.Fatalf("upsert %s docs: %v", item.index, err)
+		}
+	}
+	page, err := provider.Search(ctx, types.SearchRequest{
+		Indexes: []string{"videos", "documents", "blog_articles"},
+		Query:   "search",
+		Page:    1,
+		PerPage: 10,
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	found := map[string]bool{}
+	for _, hit := range page.Hits {
+		found[hit.Type] = true
+	}
+	for _, typ := range []string{types.DocumentTypeVideo, types.DocumentTypeDocument, types.DocumentTypeBlogArticle} {
+		if !found[typ] {
+			t.Fatalf("expected hit type %q in %+v", typ, page.Hits)
+		}
+	}
+}
+
+func TestTypesenseProviderSupportsSharedIndexMultiRegistrationReindex(t *testing.T) {
+	provider := newIntegrationProvider(t)
+	ctx := context.Background()
+	def := content.DefaultIndexDefinition("content_shared")
+	registry := indexing.NewRegistry()
+	if err := registry.Register(def, indexing.NewRegistrationWithKey(
+		def.Name,
+		def,
+		"video",
+		"video",
+		content.NewSource([]content.Record{{ID: "video-1", Type: types.DocumentTypeVideo, Title: "Search Architecture Walkthrough", Body: "search architecture video", URL: "/videos/1", Locale: "en"}}),
+		content.NewProjector(content.ProjectorConfig{Index: def.Name, SourceType: "video"}),
+		func(record content.Record) string { return record.ID },
+	)); err != nil {
+		t.Fatalf("register video: %v", err)
+	}
+	if err := registry.Register(def, indexing.NewRegistrationWithKey(
+		def.Name,
+		def,
+		"document",
+		"document",
+		content.NewSource([]content.Record{{ID: "document-1", Type: types.DocumentTypeDocument, Title: "Search Rollout Workbook", Body: "search rollout document", URL: "/documents/1", Locale: "en"}}),
+		content.NewProjector(content.ProjectorConfig{Index: def.Name, SourceType: "document"}),
+		func(record content.Record) string { return record.ID },
+	)); err != nil {
+		t.Fatalf("register document: %v", err)
+	}
+	if err := registry.Register(def, indexing.NewRegistrationWithKey(
+		def.Name,
+		def,
+		"blog_article",
+		"blog_article",
+		content.NewSource([]content.Record{{ID: "blog-1", Type: types.DocumentTypeBlogArticle, Title: "Search Notes", Body: "search notes article", URL: "/blog/1", Locale: "en"}}),
+		content.NewProjector(content.ProjectorConfig{Index: def.Name, SourceType: "blog_article"}),
+		func(record content.Record) string { return record.ID },
+	)); err != nil {
+		t.Fatalf("register blog: %v", err)
+	}
+	if err := provider.EnsureIndex(ctx, def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	indexer, err := indexing.NewIndexer(indexing.IndexerConfig{Registry: registry, Provider: provider})
+	if err != nil {
+		t.Fatalf("new indexer: %v", err)
+	}
+	if err := indexer.ReindexIndex(ctx, def.Name, "", 10); err != nil {
+		t.Fatalf("reindex shared index: %v", err)
+	}
+	page, err := provider.Search(ctx, types.SearchRequest{
+		Indexes: []string{def.Name},
+		Query:   "search",
+		Page:    1,
+		PerPage: 10,
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	found := map[string]bool{}
+	for _, hit := range page.Hits {
+		found[hit.Type] = true
+	}
+	for _, typ := range []string{types.DocumentTypeVideo, types.DocumentTypeDocument, types.DocumentTypeBlogArticle} {
+		if !found[typ] {
+			t.Fatalf("expected hit type %q in %+v", typ, page.Hits)
+		}
+	}
+}
+
+func TestTypesenseProviderRejectsGroupedMixedIndexRequestsBeforeExecution(t *testing.T) {
+	provider := newIntegrationProvider(t)
+	ctx := context.Background()
+	mediaDef := integrationIndexDefinition("media")
+	documentDef := content.DefaultIndexDefinition("documents")
+	for _, def := range []types.IndexDefinition{mediaDef, documentDef} {
+		if err := provider.EnsureIndex(ctx, def); err != nil {
+			t.Fatalf("ensure index %s: %v", def.Name, err)
+		}
+	}
+	registry := indexing.NewRegistry()
+	if err := registry.Register(mediaDef, nil); err != nil {
+		t.Fatalf("register media: %v", err)
+	}
+	if err := registry.Register(documentDef, nil); err != nil {
+		t.Fatalf("register docs: %v", err)
+	}
+	pln, err := planner.New(planner.Config{Registry: registry})
+	if err != nil {
+		t.Fatalf("new planner: %v", err)
+	}
+	searchQuery, err := query.NewSearch(query.SearchConfig{Planner: pln, Provider: provider})
+	if err != nil {
+		t.Fatalf("new search query: %v", err)
+	}
+	if _, err := searchQuery.Query(ctx, types.SearchRequest{
+		Indexes: []string{"media", "documents"},
+		Query:   "search",
+		GroupBy: "parent_id",
+	}); err == nil {
+		t.Fatalf("expected grouped mixed-index request to fail")
+	}
+}
+
+func TestTypesenseProviderHonorsProjectedParentType(t *testing.T) {
+	provider := newIntegrationProvider(t)
+	ctx := context.Background()
+	def := integrationIndexDefinition("notes")
+	if err := provider.EnsureIndex(ctx, def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	start, end := int64(1000), int64(2000)
+	if err := provider.UpsertDocuments(ctx, def.Name, []types.Document{{
+		ID:        "segment-1",
+		Index:     def.Name,
+		Type:      types.DocumentTypeTranscriptSegment,
+		ParentID:  "document-42",
+		Title:     "Reference Note",
+		Body:      "reference note content",
+		URL:       "/documents/42",
+		AnchorURL: "/documents/42#t=1",
+		Locale:    "en",
+		StartMS:   &start,
+		EndMS:     &end,
+		Fields: map[string]any{
+			"parent_title": "Reference Note",
+			"parent_url":   "/documents/42",
+			"parent_type":  types.DocumentTypeDocument,
+		},
+	}}); err != nil {
+		t.Fatalf("upsert note doc: %v", err)
+	}
+	page, err := provider.Search(ctx, types.SearchRequest{
+		Indexes: []string{def.Name},
+		Query:   "reference",
+		Page:    1,
+		PerPage: 10,
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(page.Hits) != 1 {
+		t.Fatalf("expected one hit, got %+v", page)
+	}
+	if page.Hits[0].Parent == nil || page.Hits[0].Parent.Type != types.DocumentTypeDocument {
+		t.Fatalf("expected mapped document parent type, got %+v", page.Hits[0].Parent)
+	}
+	if page.Hits[0].Anchor == nil || page.Hits[0].Anchor.ParentType != types.DocumentTypeDocument {
+		t.Fatalf("expected mapped document anchor parent type, got %+v", page.Hits[0].Anchor)
+	}
+}
+
+func TestTypesenseProviderSupportsArchiveMultiSelectFacetRefinement(t *testing.T) {
+	provider := newIntegrationProvider(t)
+	ctx := context.Background()
+	def := media.DefaultArchiveIndexDefinition("media")
+	if err := provider.EnsureIndex(ctx, def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+
+	startA, endA := int64(1000), int64(2000)
+	startB, endB := int64(3000), int64(4000)
+	startC, endC := int64(5000), int64(6000)
+	docs := []types.Document{
+		{
+			ID:         "segment-architecture-1",
+			Index:      "media",
+			Type:       types.DocumentTypeTranscriptSegment,
+			ParentID:   "video-architecture",
+			SourceType: "transcript",
+			SourceID:   "track-architecture",
+			Title:      "Architecture Walkthrough",
+			Body:       "archive architecture prayer",
+			URL:        "https://example.org/video-architecture",
+			AnchorURL:  "https://example.org/video-architecture#t=1",
+			Locale:     "en",
+			StartMS:    &startA,
+			EndMS:      &endA,
+			Fields: map[string]any{
+				"parent_title":         "Architecture Walkthrough",
+				"parent_url":           "https://example.org/video-architecture",
+				media.FieldResultBadge: "Blueprint",
+			},
+			Facets: map[string][]string{
+				media.FacetFieldTopicHierarchy: {"Teaching Topics", "Teaching Topics > Architecture"},
+				media.FacetFieldFormat:         {"Teaching"},
+				media.FacetFieldLocale:         {"en"},
+			},
+			Numeric: map[string]float64{
+				media.FieldPublishedYear: 2024,
+			},
+		},
+		{
+			ID:         "segment-tara-1",
+			Index:      "media",
+			Type:       types.DocumentTypeTranscriptSegment,
+			ParentID:   "video-tara",
+			SourceType: "transcript",
+			SourceID:   "track-tara",
+			Title:      "Tara Teachings",
+			Body:       "archive tara prayer",
+			URL:        "https://example.org/video-tara",
+			AnchorURL:  "https://example.org/video-tara#t=3",
+			Locale:     "en",
+			StartMS:    &startB,
+			EndMS:      &endB,
+			Fields: map[string]any{
+				"parent_title":         "Tara Teachings",
+				"parent_url":           "https://example.org/video-tara",
+				media.FieldResultBadge: "Featured",
+			},
+			Facets: map[string][]string{
+				media.FacetFieldTopicHierarchy: {"Teaching Topics", "Teaching Topics > Tara"},
+				media.FacetFieldFormat:         {"Teaching"},
+				media.FacetFieldLocale:         {"en"},
+			},
+			Numeric: map[string]float64{
+				media.FieldPublishedYear: 2024,
+			},
+		},
+		{
+			ID:         "segment-ranking-1",
+			Index:      "media",
+			Type:       types.DocumentTypeTranscriptSegment,
+			ParentID:   "video-ranking",
+			SourceType: "transcript",
+			SourceID:   "track-ranking",
+			Title:      "Ranking Workshop",
+			Body:       "archive ranking prayer",
+			URL:        "https://example.org/video-ranking",
+			AnchorURL:  "https://example.org/video-ranking#t=5",
+			Locale:     "en",
+			StartMS:    &startC,
+			EndMS:      &endC,
+			Fields: map[string]any{
+				"parent_title": "Ranking Workshop",
+				"parent_url":   "https://example.org/video-ranking",
+			},
+			Facets: map[string][]string{
+				media.FacetFieldTopicHierarchy: {"Teaching Topics", "Teaching Topics > Ranking"},
+				media.FacetFieldFormat:         {"Workshop"},
+				media.FacetFieldLocale:         {"en"},
+			},
+			Numeric: map[string]float64{
+				media.FieldPublishedYear: 2022,
+			},
+		},
+	}
+	if err := provider.UpsertDocuments(ctx, "media", docs); err != nil {
+		t.Fatalf("upsert docs: %v", err)
+	}
+
+	page, err := provider.Search(ctx, types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "archive",
+		Locale:  "en",
+		GroupBy: "parent_id",
+		Page:    1,
+		PerPage: 10,
+		Filters: types.AndExpr{Terms: []types.FilterExpr{
+			types.TermExpr{Field: media.FacetFieldTopicHierarchy, Op: types.FilterOpIn, Value: []string{
+				"Teaching Topics > Architecture",
+				"Teaching Topics > Tara",
+			}},
+			types.TermExpr{Field: media.FacetFieldFormat, Op: types.FilterOpEQ, Value: "Teaching"},
+		}},
+		Facets: []types.FacetRequest{
+			{Field: media.FacetFieldTopicHierarchy, Kind: types.FacetKindHierarchical, Disjunctive: true},
+			{Field: media.FacetFieldFormat, Disjunctive: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if page.Total != 2 || len(page.Groups) != 2 {
+		t.Fatalf("expected two grouped archive results, got %+v", page)
+	}
+
+	selectedTopics := map[string]bool{}
+	foundSibling := false
+	for _, facet := range page.Facets {
+		if facet.Field != media.FacetFieldTopicHierarchy {
+			continue
+		}
+		for _, value := range facet.Values {
+			if value.Selected {
+				selectedTopics[value.Value] = true
+			}
+			if value.Value == "Teaching Topics > Ranking" {
+				foundSibling = true
+			}
+		}
+	}
+	if !selectedTopics["Teaching Topics > Architecture"] || !selectedTopics["Teaching Topics > Tara"] {
+		t.Fatalf("expected selected multi-value hierarchy facet state in %+v", page.Facets)
+	}
+	if !foundSibling {
+		t.Fatalf("expected disjunctive sibling topic facet in %+v", page.Facets)
+	}
+}
+
+func TestTypesenseProviderSupportsArchiveTopicLandingPreset(t *testing.T) {
+	provider := newIntegrationProvider(t)
+	ctx := context.Background()
+	def := media.DefaultArchiveIndexDefinition("media")
+	if err := provider.EnsureIndex(ctx, def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+
+	startA, endA := int64(1000), int64(2000)
+	startB, endB := int64(3000), int64(4000)
+	docs := []types.Document{
+		{
+			ID:         "segment-architecture-1",
+			Index:      "media",
+			Type:       types.DocumentTypeTranscriptSegment,
+			ParentID:   "video-architecture",
+			SourceType: "transcript",
+			SourceID:   "track-architecture",
+			Title:      "Architecture Walkthrough",
+			Body:       "archive architecture prayer",
+			URL:        "https://example.org/video-architecture",
+			AnchorURL:  "https://example.org/video-architecture#t=1",
+			Locale:     "en",
+			StartMS:    &startA,
+			EndMS:      &endA,
+			Fields: map[string]any{
+				"parent_title": "Architecture Walkthrough",
+				"parent_url":   "https://example.org/video-architecture",
+			},
+			Facets: map[string][]string{
+				media.FacetFieldTopicHierarchy: {"Teaching Topics", "Teaching Topics > Architecture"},
+				media.FacetFieldLocale:         {"en"},
+			},
+		},
+		{
+			ID:         "segment-tara-1",
+			Index:      "media",
+			Type:       types.DocumentTypeTranscriptSegment,
+			ParentID:   "video-tara",
+			SourceType: "transcript",
+			SourceID:   "track-tara",
+			Title:      "Tara Teachings",
+			Body:       "archive tara prayer",
+			URL:        "https://example.org/video-tara",
+			AnchorURL:  "https://example.org/video-tara#t=3",
+			Locale:     "en",
+			StartMS:    &startB,
+			EndMS:      &endB,
+			Fields: map[string]any{
+				"parent_title": "Tara Teachings",
+				"parent_url":   "https://example.org/video-tara",
+			},
+			Facets: map[string][]string{
+				media.FacetFieldTopicHierarchy: {"Teaching Topics", "Teaching Topics > Tara"},
+				media.FacetFieldLocale:         {"en"},
+			},
+		},
+	}
+	if err := provider.UpsertDocuments(ctx, "media", docs); err != nil {
+		t.Fatalf("upsert docs: %v", err)
+	}
+
+	preset, ok := media.TopicLandingPreset("architecture")
+	if !ok {
+		t.Fatalf("expected architecture landing preset")
+	}
+	terms := make([]types.FilterExpr, 0, len(preset.FacetFilter))
+	for field, values := range preset.FacetFilter {
+		switch len(values) {
+		case 0:
+			continue
+		case 1:
+			terms = append(terms, types.TermExpr{Field: field, Op: types.FilterOpEQ, Value: values[0]})
+		default:
+			terms = append(terms, types.TermExpr{Field: field, Op: types.FilterOpIn, Value: values})
+		}
+	}
+
+	page, err := provider.Search(ctx, types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "archive",
+		Locale:  "en",
+		GroupBy: "parent_id",
+		Page:    1,
+		PerPage: 10,
+		Filters: types.AndExpr{Terms: terms},
+		Facets: []types.FacetRequest{
+			{Field: media.FacetFieldTopicHierarchy, Kind: types.FacetKindHierarchical, Disjunctive: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if page.Total != 1 || len(page.Groups) != 1 {
+		t.Fatalf("expected one landing preset result, got %+v", page)
+	}
+	if page.Groups[0].Parent == nil || page.Groups[0].Parent.ID != "video-architecture" {
+		t.Fatalf("expected architecture parent result, got %+v", page.Groups[0])
+	}
+	foundSelected := false
+	for _, facet := range page.Facets {
+		if facet.Field != media.FacetFieldTopicHierarchy {
+			continue
+		}
+		for _, value := range facet.Values {
+			if value.Value == "Teaching Topics > Architecture" && value.Selected {
+				foundSelected = true
+			}
+		}
+	}
+	if !foundSelected {
+		t.Fatalf("expected landing preset hierarchy selection in %+v", page.Facets)
 	}
 }
 

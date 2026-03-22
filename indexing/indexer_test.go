@@ -62,7 +62,7 @@ func TestIndexerIndexDeleteAndReindex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new indexer: %v", err)
 	}
-	if _, err := indexer.IndexRecord(context.Background(), "media", record.ID); err != nil {
+	if _, err := indexer.IndexRecord(context.Background(), "media", "", record.ID); err != nil {
 		t.Fatalf("index record: %v", err)
 	}
 	page, err := provider.Search(context.Background(), types.SearchRequest{
@@ -78,7 +78,7 @@ func TestIndexerIndexDeleteAndReindex(t *testing.T) {
 	if page.Total == 0 {
 		t.Fatalf("expected indexed results")
 	}
-	if err := indexer.DeleteRecord(context.Background(), "media", record.ID); err != nil {
+	if err := indexer.DeleteRecord(context.Background(), "media", "", record.ID); err != nil {
 		t.Fatalf("delete record: %v", err)
 	}
 	page, err = provider.Search(context.Background(), types.SearchRequest{
@@ -100,7 +100,7 @@ func TestIndexerIndexDeleteAndReindex(t *testing.T) {
 	if len(health.Indexes) != 1 || health.Indexes[0].Documents != 0 {
 		t.Fatalf("expected delete-by-source to remove all derived documents, got %+v", health.Indexes)
 	}
-	if err := indexer.ReindexIndex(context.Background(), "media", 10); err != nil {
+	if err := indexer.ReindexIndex(context.Background(), "media", "", 10); err != nil {
 		t.Fatalf("reindex index: %v", err)
 	}
 }
@@ -129,7 +129,7 @@ func TestIndexerReplacesDerivedDocumentsForRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new indexer: %v", err)
 	}
-	if _, err := indexer.IndexRecord(context.Background(), "media", record.ID); err != nil {
+	if _, err := indexer.IndexRecord(context.Background(), "media", "", record.ID); err != nil {
 		t.Fatalf("first index: %v", err)
 	}
 	source.record.Content = `1
@@ -140,7 +140,7 @@ ocean wind
 00:00:10,000 --> 00:00:11,500
 harbor bells
 `
-	if _, err := indexer.IndexRecord(context.Background(), "media", record.ID); err != nil {
+	if _, err := indexer.IndexRecord(context.Background(), "media", "", record.ID); err != nil {
 		t.Fatalf("second index: %v", err)
 	}
 	page, err := provider.Search(context.Background(), types.SearchRequest{
@@ -189,7 +189,40 @@ func TestIndexerReturnsGenerationBumpFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new indexer: %v", err)
 	}
-	if _, err := indexer.IndexRecord(context.Background(), "media", record.ID); err == nil {
+	if _, err := indexer.IndexRecord(context.Background(), "media", "", record.ID); err == nil {
 		t.Fatalf("expected generation bump failure to surface")
+	}
+}
+
+func TestIndexerRequiresRegistrationKeyWhenIndexHasMultipleRegistrations(t *testing.T) {
+	record := testkit.SampleTranscriptRecord()
+	source := media.NewTranscriptSource([]media.TranscriptRecord{record})
+	projector := media.NewTranscriptProjector(media.TranscriptProjectorConfig{
+		Index:      "content",
+		SourceType: "video",
+	})
+	registry := NewRegistry()
+	def := types.IndexDefinition{Name: "content"}
+	videoReg := NewRegistrationWithKey("content", def, "video", "video", source, projector, func(r media.TranscriptRecord) string { return r.ID })
+	blogReg := NewRegistrationWithKey("content", def, "blog_article", "blog_article", source, projector, func(r media.TranscriptRecord) string { return r.ID })
+	if err := registry.Register(def, videoReg); err != nil {
+		t.Fatalf("register video: %v", err)
+	}
+	if err := registry.Register(def, blogReg); err != nil {
+		t.Fatalf("register blog: %v", err)
+	}
+	provider := memory.New(memory.Config{})
+	if err := provider.EnsureIndex(context.Background(), def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	indexer, err := NewIndexer(IndexerConfig{Registry: registry, Provider: provider})
+	if err != nil {
+		t.Fatalf("new indexer: %v", err)
+	}
+	if _, err := indexer.IndexRecord(context.Background(), "content", "", record.ID); err == nil {
+		t.Fatalf("expected registration selection error")
+	}
+	if _, err := indexer.IndexRecord(context.Background(), "content", "video", record.ID); err != nil {
+		t.Fatalf("index record with registration key: %v", err)
 	}
 }

@@ -170,6 +170,39 @@ func TestBindSuggestRequestPrefersExplicitLocaleAndPreservesLimit(t *testing.T) 
 	}
 }
 
+func TestBindLocaleKeepsCanonicalExplicitLocaleWhenUnsupported(t *testing.T) {
+	runtime := mustBuildRuntime(t)
+
+	bound := BindLocale(runtime, "pt_br", "", "en", MatchOptions{Scope: ScopeActiveOnly})
+	if bound.CanonicalLocale != "pt-BR" {
+		t.Fatalf("canonical locale = %q", bound.CanonicalLocale)
+	}
+	if bound.Locale != "pt-BR" {
+		t.Fatalf("bound locale = %q", bound.Locale)
+	}
+	if bound.Supported {
+		t.Fatalf("expected unsupported explicit locale")
+	}
+	if bound.Source != "explicit" {
+		t.Fatalf("binding source = %q", bound.Source)
+	}
+}
+
+func TestBindLocaleUsesAcceptLanguageHeaderBeforeDefault(t *testing.T) {
+	runtime := mustBuildRuntime(t)
+
+	bound := BindLocale(runtime, "", "fr-CA,fr;q=0.9,en;q=0.8", "en", MatchOptions{Scope: ScopeActiveOnly})
+	if bound.Locale != "en" {
+		t.Fatalf("bound locale = %q", bound.Locale)
+	}
+	if bound.Source != "accept_language" {
+		t.Fatalf("binding source = %q", bound.Source)
+	}
+	if !bound.Supported {
+		t.Fatalf("expected supported header match")
+	}
+}
+
 func TestLocaleConsumerFixture_MetadataDecode(t *testing.T) {
 	runtime := mustBuildRuntime(t)
 	fixture := loadConsumerFixture(t)

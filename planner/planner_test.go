@@ -265,6 +265,43 @@ func TestPlannerUsesConfiguredDefaults(t *testing.T) {
 	}
 }
 
+func TestPlannerLeavesMixedIndexesFlatByDefault(t *testing.T) {
+	registry := indexing.NewRegistry()
+	_ = registry.Register(types.IndexDefinition{Name: "media", GroupByDefault: "parent_id"}, nil)
+	_ = registry.Register(types.IndexDefinition{Name: "documents"}, nil)
+	p, err := New(Config{Registry: registry})
+	if err != nil {
+		t.Fatalf("new planner: %v", err)
+	}
+	plan, err := p.BuildSearchPlan(context.Background(), types.SearchRequest{
+		Indexes: []string{"media", "documents"},
+		Query:   "architecture",
+	})
+	if err != nil {
+		t.Fatalf("build search plan: %v", err)
+	}
+	if plan.Request.GroupBy != "" {
+		t.Fatalf("expected mixed-index request to stay flat, got %q", plan.Request.GroupBy)
+	}
+}
+
+func TestPlannerRejectsGroupedSearchAcrossIncompatibleIndexes(t *testing.T) {
+	registry := indexing.NewRegistry()
+	_ = registry.Register(types.IndexDefinition{Name: "media", GroupByDefault: "parent_id"}, nil)
+	_ = registry.Register(types.IndexDefinition{Name: "documents"}, nil)
+	p, err := New(Config{Registry: registry})
+	if err != nil {
+		t.Fatalf("new planner: %v", err)
+	}
+	if _, err := p.BuildSearchPlan(context.Background(), types.SearchRequest{
+		Indexes: []string{"media", "documents"},
+		Query:   "architecture",
+		GroupBy: "parent_id",
+	}); err == nil {
+		t.Fatalf("expected grouped mixed-index request to fail")
+	}
+}
+
 func TestPlannerProducesCanonicalLocalesForProvidersAndCacheKeys(t *testing.T) {
 	registry := indexing.NewRegistry()
 	_ = registry.Register(types.IndexDefinition{Name: "media"}, nil)
