@@ -27,7 +27,7 @@ func NewIndexRecord(cfg IndexRecordConfig) (*IndexRecord, error) {
 }
 
 func (c *IndexRecord) Execute(ctx context.Context, msg types.IndexRecordInput) error {
-	if _, err := c.indexer.IndexRecord(ctx, msg.Index, msg.RecordID); err != nil {
+	if _, err := c.indexer.IndexRecord(ctx, msg.Index, msg.RegistrationKey, msg.RecordID); err != nil {
 		return err
 	}
 	return nil
