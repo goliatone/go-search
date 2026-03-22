@@ -27,7 +27,7 @@ func NewReindexIndex(cfg ReindexIndexConfig) (*ReindexIndex, error) {
 }
 
 func (c *ReindexIndex) Execute(ctx context.Context, msg types.ReindexIndexInput) error {
-	if err := c.indexer.ReindexIndex(ctx, msg.Index, msg.BatchSize); err != nil {
+	if err := c.indexer.ReindexIndex(ctx, msg.Index, msg.RegistrationKey, msg.BatchSize); err != nil {
 		return err
 	}
 	return nil
