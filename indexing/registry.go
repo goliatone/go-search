@@ -2,6 +2,8 @@ package indexing
 
 import (
 	"context"
+	"sort"
+	"strings"
 	"sync"
 
 	"github.com/goliatone/go-search/internal/errs"
@@ -17,16 +19,28 @@ type RecordIndexer interface {
 	ListRecordIDs(ctx context.Context, limit int, cursor string) ([]string, string, error)
 }
 
+type registrationKeyer interface {
+	RegistrationKey() string
+}
+
+type RegisteredSource struct {
+	Index           string
+	RegistrationKey string
+	SourceType      string
+	Definition      types.IndexDefinition
+	Indexer         RecordIndexer
+}
+
 type Registry struct {
-	mu      sync.RWMutex
-	indexes map[string]types.IndexDefinition
-	records map[string]RecordIndexer
+	mu            sync.RWMutex
+	indexes       map[string]types.IndexDefinition
+	registrations map[string][]RegisteredSource
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
-		indexes: map[string]types.IndexDefinition{},
-		records: map[string]RecordIndexer{},
+		indexes:       map[string]types.IndexDefinition{},
+		registrations: map[string][]RegisteredSource{},
 	}
 }
 
@@ -34,9 +48,39 @@ func (r *Registry) Register(def types.IndexDefinition, indexer RecordIndexer) er
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.indexes[def.Name] = def
-	if indexer != nil {
-		r.records[def.Name] = indexer
+	if indexer == nil {
+		return nil
 	}
+	registration := RegisteredSource{
+		Index:           def.Name,
+		RegistrationKey: registrationKeyFor(indexer),
+		SourceType:      strings.TrimSpace(indexer.SourceType()),
+		Definition:      def,
+		Indexer:         indexer,
+	}
+	if registration.RegistrationKey == "" {
+		return errs.InvalidInput("registration key is required", map[string]any{"index": def.Name})
+	}
+	items := append([]RegisteredSource(nil), r.registrations[def.Name]...)
+	replaced := false
+	for i := range items {
+		if items[i].RegistrationKey != registration.RegistrationKey {
+			continue
+		}
+		items[i] = registration
+		replaced = true
+		break
+	}
+	if !replaced {
+		items = append(items, registration)
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].RegistrationKey == items[j].RegistrationKey {
+			return items[i].SourceType < items[j].SourceType
+		}
+		return items[i].RegistrationKey < items[j].RegistrationKey
+	})
+	r.registrations[def.Name] = items
 	return nil
 }
 
@@ -47,14 +91,49 @@ func (r *Registry) GetIndex(name string) (types.IndexDefinition, bool) {
 	return def, ok
 }
 
-func (r *Registry) MustIndexer(name string) (RecordIndexer, error) {
+func (r *Registry) MustIndexer(name string, registrationKey string) (RecordIndexer, error) {
+	registration, err := r.ResolveRegistration(name, registrationKey)
+	if err != nil {
+		return nil, err
+	}
+	return registration.Indexer, nil
+}
+
+func (r *Registry) ResolveRegistration(index string, registrationKey string) (RegisteredSource, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	indexer, ok := r.records[name]
-	if !ok {
-		return nil, errs.IndexingSourceMissing(name, nil)
+	items := r.registrations[index]
+	if len(items) == 0 {
+		return RegisteredSource{}, errs.IndexingSourceMissing(index, nil)
 	}
-	return indexer, nil
+	key := strings.TrimSpace(registrationKey)
+	if key == "" {
+		if len(items) == 1 {
+			return items[0], nil
+		}
+		return RegisteredSource{}, errs.InvalidInput("registration key is required when an index has multiple registrations", map[string]any{
+			"index":              index,
+			"registration_count": len(items),
+		})
+	}
+	for _, item := range items {
+		if item.RegistrationKey == key {
+			return item, nil
+		}
+	}
+	return RegisteredSource{}, errs.IndexingSourceMissing(index, map[string]any{"registration_key": key})
+}
+
+func (r *Registry) ListRegistrations(index string) []RegisteredSource {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	items := r.registrations[index]
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]RegisteredSource, len(items))
+	copy(out, items)
+	return out
 }
 
 func (r *Registry) ListIndexes() []types.IndexDefinition {
@@ -64,5 +143,15 @@ func (r *Registry) ListIndexes() []types.IndexDefinition {
 	for _, def := range r.indexes {
 		out = append(out, def)
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
+	})
 	return out
+}
+
+func registrationKeyFor(indexer RecordIndexer) string {
+	if keyer, ok := indexer.(registrationKeyer); ok {
+		return strings.TrimSpace(keyer.RegistrationKey())
+	}
+	return strings.TrimSpace(indexer.SourceType())
 }

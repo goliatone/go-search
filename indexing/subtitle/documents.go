@@ -55,6 +55,7 @@ func BuildSegmentDocuments(cues []Cue, opts DocumentOptions) []types.Document {
 				"source_format": opts.Track.SourceFormat,
 				"parent_title":  opts.ParentTitle,
 				"parent_url":    opts.ParentURL,
+				"parent_type":   types.DocumentTypeVideo,
 			},
 			Facets:  cloneFacets(opts.ParentFacets),
 			Numeric: map[string]float64{"start_ms": float64(cue.Start), "end_ms": float64(cue.End)},

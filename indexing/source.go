@@ -18,22 +18,28 @@ type Projector[T any] interface {
 }
 
 type Registration[T any] struct {
-	indexName  string
-	definition types.IndexDefinition
-	sourceType string
-	source     Source[T]
-	projector  Projector[T]
-	idGetter   func(T) string
+	indexName       string
+	definition      types.IndexDefinition
+	registrationKey string
+	sourceType      string
+	source          Source[T]
+	projector       Projector[T]
+	idGetter        func(T) string
 }
 
 func NewRegistration[T any](indexName string, definition types.IndexDefinition, sourceType string, source Source[T], projector Projector[T], idGetter func(T) string) *Registration[T] {
+	return NewRegistrationWithKey(indexName, definition, sourceType, sourceType, source, projector, idGetter)
+}
+
+func NewRegistrationWithKey[T any](indexName string, definition types.IndexDefinition, registrationKey string, sourceType string, source Source[T], projector Projector[T], idGetter func(T) string) *Registration[T] {
 	return &Registration[T]{
-		indexName:  indexName,
-		definition: definition,
-		sourceType: sourceType,
-		source:     source,
-		projector:  projector,
-		idGetter:   idGetter,
+		indexName:       indexName,
+		definition:      definition,
+		registrationKey: registrationKey,
+		sourceType:      sourceType,
+		source:          source,
+		projector:       projector,
+		idGetter:        idGetter,
 	}
 }
 
@@ -43,6 +49,10 @@ func (r *Registration[T]) IndexName() string {
 
 func (r *Registration[T]) Definition() types.IndexDefinition {
 	return r.definition
+}
+
+func (r *Registration[T]) RegistrationKey() string {
+	return r.registrationKey
 }
 
 func (r *Registration[T]) SourceType() string {

@@ -59,64 +59,81 @@ func NewIndexer(cfg IndexerConfig) (*Indexer, error) {
 	}, nil
 }
 
-func (i *Indexer) IndexRecord(ctx context.Context, index, recordID string) ([]types.Document, error) {
-	return i.indexRecord(ctx, index, recordID, true, true)
+func (i *Indexer) IndexRecord(ctx context.Context, index, registrationKey, recordID string) ([]types.Document, error) {
+	return i.indexRecord(ctx, index, registrationKey, recordID, true, true)
 }
 
-func (i *Indexer) DeleteRecord(ctx context.Context, index, recordID string) error {
-	return i.deleteRecord(ctx, index, recordID, true, true)
+func (i *Indexer) DeleteRecord(ctx context.Context, index, registrationKey, recordID string) error {
+	return i.deleteRecord(ctx, index, registrationKey, recordID, true, true)
 }
 
-func (i *Indexer) ReindexIndex(ctx context.Context, index string, batchSize int) error {
+func (i *Indexer) ReindexIndex(ctx context.Context, index, registrationKey string, batchSize int) error {
 	startedAt := i.clock.Now()
 	if batchSize <= 0 {
 		batchSize = i.defaultBatchSize
 	}
-	indexer, err := i.registry.MustIndexer(index)
-	if err != nil {
-		return err
+	registrations := i.registry.ListRegistrations(index)
+	if len(registrations) == 0 {
+		return errs.IndexingSourceMissing(index, nil)
 	}
-	cursor := ""
-	total := 0
-	for {
-		ids, next, err := indexer.ListRecordIDs(ctx, batchSize, cursor)
+	if registrationKey != "" {
+		registration, err := i.registry.ResolveRegistration(index, registrationKey)
 		if err != nil {
 			return err
 		}
-		for _, id := range ids {
-			if _, err := i.indexRecord(ctx, index, id, false, false); err != nil {
+		registrations = []RegisteredSource{registration}
+	}
+	total := 0
+	for _, registration := range registrations {
+		cursor := ""
+		for {
+			ids, next, err := registration.Indexer.ListRecordIDs(ctx, batchSize, cursor)
+			if err != nil {
 				return err
 			}
-			total++
-			if i.progress != nil {
-				i.progress.Report(ctx, types.ProgressUpdate{Index: index, Completed: total, Message: "reindexed"})
+			for _, id := range ids {
+				if _, err := i.indexRecord(ctx, index, registration.RegistrationKey, id, false, false); err != nil {
+					return err
+				}
+				total++
+				if i.progress != nil {
+					i.progress.Report(ctx, types.ProgressUpdate{Index: index, Completed: total, Message: "reindexed"})
+				}
 			}
+			if next == "" || len(ids) == 0 {
+				break
+			}
+			cursor = next
 		}
-		if next == "" || len(ids) == 0 {
-			break
-		}
-		cursor = next
 	}
 	if err := i.bumpGeneration(ctx, index); err != nil {
 		observe.Count(ctx, i.metrics, i.logger, "search.reindex.error.count", 1, map[string]string{"index": index})
 		return err
 	}
-	i.emitActivity(ctx, "reindexed", indexer.SourceType(), index, map[string]any{"index": index, "documents": total})
+	objectType := "index"
+	if len(registrations) == 1 {
+		objectType = registrations[0].SourceType
+	}
+	metadata := map[string]any{"index": index, "documents": total}
+	if registrationKey != "" {
+		metadata["registration_key"] = registrationKey
+	}
+	i.emitActivity(ctx, "reindexed", objectType, index, metadata)
 	observe.Count(ctx, i.metrics, i.logger, "search.reindex.count", int64(total), map[string]string{"index": index})
 	observe.ObserveDuration(ctx, i.metrics, i.logger, "search.reindex.duration_ms", startedAt, map[string]string{"index": index})
 	return nil
 }
 
-func (i *Indexer) indexRecord(ctx context.Context, index, recordID string, emitActivity bool, bumpGeneration bool) ([]types.Document, error) {
-	indexer, err := i.registry.MustIndexer(index)
+func (i *Indexer) indexRecord(ctx context.Context, index, registrationKey, recordID string, emitActivity bool, bumpGeneration bool) ([]types.Document, error) {
+	registration, err := i.registry.ResolveRegistration(index, registrationKey)
 	if err != nil {
 		return nil, err
 	}
-	docs, err := indexer.IndexRecord(ctx, recordID)
+	docs, err := registration.Indexer.IndexRecord(ctx, recordID)
 	if err != nil {
 		return nil, errs.ProjectorFailure(err, map[string]any{"index": index, "record_id": recordID})
 	}
-	sourceIDs, err := indexer.DeleteSourceIDs(ctx, recordID)
+	sourceIDs, err := registration.Indexer.DeleteSourceIDs(ctx, recordID)
 	if err != nil {
 		return nil, err
 	}
@@ -130,18 +147,22 @@ func (i *Indexer) indexRecord(ctx context.Context, index, recordID string, emitA
 		}
 	}
 	if emitActivity {
-		i.emitActivity(ctx, "indexed", indexer.SourceType(), recordID, map[string]any{"documents": len(docs), "index": index})
+		metadata := map[string]any{"documents": len(docs), "index": index}
+		if registration.RegistrationKey != "" {
+			metadata["registration_key"] = registration.RegistrationKey
+		}
+		i.emitActivity(ctx, "indexed", registration.Indexer.SourceType(), recordID, metadata)
 	}
 	observe.Count(ctx, i.metrics, i.logger, "search.index_record.count", int64(len(docs)), map[string]string{"index": index})
 	return docs, nil
 }
 
-func (i *Indexer) deleteRecord(ctx context.Context, index, recordID string, emitActivity bool, bumpGeneration bool) error {
-	indexer, err := i.registry.MustIndexer(index)
+func (i *Indexer) deleteRecord(ctx context.Context, index, registrationKey, recordID string, emitActivity bool, bumpGeneration bool) error {
+	registration, err := i.registry.ResolveRegistration(index, registrationKey)
 	if err != nil {
 		return err
 	}
-	sourceIDs, err := indexer.DeleteSourceIDs(ctx, recordID)
+	sourceIDs, err := registration.Indexer.DeleteSourceIDs(ctx, recordID)
 	if err != nil {
 		return err
 	}
@@ -155,7 +176,11 @@ func (i *Indexer) deleteRecord(ctx context.Context, index, recordID string, emit
 		}
 	}
 	if emitActivity {
-		i.emitActivity(ctx, "deleted", indexer.SourceType(), recordID, map[string]any{"index": index})
+		metadata := map[string]any{"index": index}
+		if registration.RegistrationKey != "" {
+			metadata["registration_key"] = registration.RegistrationKey
+		}
+		i.emitActivity(ctx, "deleted", registration.Indexer.SourceType(), recordID, metadata)
 	}
 	observe.Count(ctx, i.metrics, i.logger, "search.delete_record.count", 1, map[string]string{"index": index})
 	return nil
