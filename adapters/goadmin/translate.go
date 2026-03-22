@@ -24,9 +24,16 @@ type SiteSearchRequest struct {
 	PerPage  int                 `json:"per_page,omitempty"`
 	Sort     string              `json:"sort,omitempty"`
 	Filters  map[string][]string `json:"filters,omitempty"`
+	Ranges   []SiteSearchRange   `json:"ranges,omitempty"`
 	Actor    any                 `json:"actor,omitempty"`
 	Request  any                 `json:"request,omitempty"`
 	Metadata map[string]any      `json:"metadata,omitempty"`
+}
+
+type SiteSearchRange struct {
+	Field string `json:"field"`
+	GTE   any    `json:"gte,omitempty"`
+	LTE   any    `json:"lte,omitempty"`
 }
 
 type SiteSearchResultPage struct {
@@ -39,26 +46,42 @@ type SiteSearchResultPage struct {
 }
 
 type SiteSearchHit struct {
-	ID       string         `json:"id"`
-	Type     string         `json:"type,omitempty"`
-	Title    string         `json:"title,omitempty"`
-	Summary  string         `json:"summary,omitempty"`
-	URL      string         `json:"url,omitempty"`
-	Locale   string         `json:"locale,omitempty"`
-	Score    float64        `json:"score,omitempty"`
-	Fields   map[string]any `json:"fields,omitempty"`
-	Snippet  string         `json:"snippet,omitempty"`
-	ParentID string         `json:"parent_id,omitempty"`
+	ID              string         `json:"id"`
+	Type            string         `json:"type,omitempty"`
+	Title           string         `json:"title,omitempty"`
+	Summary         string         `json:"summary,omitempty"`
+	URL             string         `json:"url,omitempty"`
+	Locale          string         `json:"locale,omitempty"`
+	Score           float64        `json:"score,omitempty"`
+	Fields          map[string]any `json:"fields,omitempty"`
+	Snippet         string         `json:"snippet,omitempty"`
+	Highlighted     string         `json:"highlighted,omitempty"`
+	ParentID        string         `json:"parent_id,omitempty"`
+	ParentTitle     string         `json:"parent_title,omitempty"`
+	ParentURL       string         `json:"parent_url,omitempty"`
+	ParentThumbnail string         `json:"parent_thumbnail,omitempty"`
+	ParentSummary   string         `json:"parent_summary,omitempty"`
+	Anchor          any            `json:"anchor,omitempty"`
+	Metadata        map[string]any `json:"metadata,omitempty"`
 }
 
 type SiteSearchFacet struct {
-	Name    string                `json:"name"`
-	Buckets []SiteSearchFacetTerm `json:"buckets,omitempty"`
+	Name        string                `json:"name"`
+	Kind        string                `json:"kind,omitempty"`
+	Disjunctive bool                  `json:"disjunctive,omitempty"`
+	Buckets     []SiteSearchFacetTerm `json:"buckets,omitempty"`
+	Metadata    map[string]any        `json:"metadata,omitempty"`
 }
 
 type SiteSearchFacetTerm struct {
-	Value string `json:"value"`
-	Count int    `json:"count"`
+	Value       string         `json:"value"`
+	Label       string         `json:"label,omitempty"`
+	Count       int            `json:"count"`
+	Selected    bool           `json:"selected,omitempty"`
+	Path        []string       `json:"path,omitempty"`
+	Level       int            `json:"level,omitempty"`
+	ParentValue string         `json:"parent_value,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
 type SiteSuggestRequest struct {
@@ -78,15 +101,15 @@ type SiteSuggestResult struct {
 
 func ToSearchRequest(indexes []string, req SiteSearchRequest) types.SearchRequest {
 	return types.SearchRequest{
-		Indexes: indexesFromMetadata(indexes, req.Metadata),
-		Query:   strings.TrimSpace(req.Query),
-		Locale:  strings.TrimSpace(req.Locale),
-		Page:    positiveOr(req.Page, 1),
-		PerPage: positiveOr(req.PerPage, 10),
-		Sort:    parseSort(req.Sort),
-		Filters: filterExprFromMap(req.Filters),
+		Indexes:  indexesFromMetadata(indexes, req.Metadata),
+		Query:    strings.TrimSpace(req.Query),
+		Locale:   strings.TrimSpace(req.Locale),
+		Page:     positiveOr(req.Page, 1),
+		PerPage:  positiveOr(req.PerPage, 10),
+		Sort:     parseSort(req.Sort),
+		Filters:  combineFilterExprs(filterExprFromMap(req.Filters), filterExprFromRanges(req.Ranges)),
 		Metadata: cloneMetadata(req.Metadata),
-		Request: req.Request,
+		Request:  req.Request,
 	}
 }
 
@@ -143,24 +166,59 @@ func SiteResultFromPage(page types.SearchResultPage) SiteSearchResultPage {
 		Metadata: cloneMetadata(page.Metadata),
 	}
 	for _, facet := range page.Facets {
-		item := SiteSearchFacet{Name: facet.Field, Buckets: make([]SiteSearchFacetTerm, 0, len(facet.Values))}
+		item := SiteSearchFacet{
+			Name:        facet.Field,
+			Kind:        string(facet.Kind),
+			Disjunctive: facet.Disjunctive,
+			Buckets:     make([]SiteSearchFacetTerm, 0, len(facet.Values)),
+			Metadata:    cloneMetadata(facet.Metadata),
+		}
 		for _, value := range facet.Values {
-			item.Buckets = append(item.Buckets, SiteSearchFacetTerm{Value: value.Value, Count: value.Count})
+			item.Buckets = append(item.Buckets, SiteSearchFacetTerm{
+				Value:       value.Value,
+				Label:       value.Label,
+				Count:       value.Count,
+				Selected:    value.Selected,
+				Path:        append([]string(nil), value.Path...),
+				Level:       value.Level,
+				ParentValue: value.ParentValue,
+				Metadata:    cloneMetadata(value.Metadata),
+			})
 		}
 		out.Facets = append(out.Facets, item)
 	}
 	for _, hit := range page.Hits {
+		metadata := map[string]any{}
+		if hit.Ranking != nil {
+			metadata["ranking"] = hit.Ranking
+		}
+		if hit.Retrieval != nil {
+			metadata["retrieval"] = hit.Retrieval
+		}
+		if hit.Document != nil {
+			metadata["document"] = hit.Document
+		}
+		if len(metadata) == 0 {
+			metadata = nil
+		}
 		item := SiteSearchHit{
-			ID:       hit.ID,
-			Type:     hit.Type,
-			Title:    firstNonEmpty(hit.Title, parentTitle(hit)),
-			Summary:  hit.Summary,
-			URL:      firstNonEmpty(hit.URL, parentURL(hit)),
-			Locale:   hit.Locale,
-			Score:    hit.Score,
-			Fields:   cloneMetadata(hit.Fields),
-			Snippet:  snippetText(hit),
-			ParentID: parentID(hit),
+			ID:              hit.ID,
+			Type:            hit.Type,
+			Title:           firstNonEmpty(hit.Title, parentTitle(hit)),
+			Summary:         hit.Summary,
+			URL:             firstNonEmpty(hit.URL, parentURL(hit)),
+			Locale:          hit.Locale,
+			Score:           hit.Score,
+			Fields:          cloneMetadata(hit.Fields),
+			Snippet:         snippetText(hit),
+			Highlighted:     highlightedSnippet(hit),
+			ParentID:        parentID(hit),
+			ParentTitle:     parentTitle(hit),
+			ParentURL:       parentURL(hit),
+			ParentThumbnail: parentThumbnail(hit),
+			ParentSummary:   strings.TrimSpace(asString(hit.Fields["parent_summary"])),
+			Anchor:          hit.Anchor,
+			Metadata:        metadata,
 		}
 		if item.Fields == nil {
 			item.Fields = map[string]any{}
@@ -168,8 +226,20 @@ func SiteResultFromPage(page types.SearchResultPage) SiteSearchResultPage {
 		if hit.Anchor != nil {
 			item.Fields["anchor"] = hit.Anchor
 		}
-		if hit.Ranking != nil {
-			item.Fields["ranking"] = hit.Ranking
+		if item.ParentTitle != "" {
+			item.Fields["parent_title"] = item.ParentTitle
+		}
+		if item.ParentURL != "" {
+			item.Fields["parent_url"] = item.ParentURL
+		}
+		if item.ParentThumbnail != "" {
+			item.Fields["parent_thumbnail"] = item.ParentThumbnail
+		}
+		if item.ParentSummary != "" {
+			item.Fields["parent_summary"] = item.ParentSummary
+		}
+		if item.Highlighted != "" {
+			item.Fields["highlighted"] = item.Highlighted
 		}
 		out.Hits = append(out.Hits, item)
 	}
@@ -219,6 +289,43 @@ func filterExprFromMap(filters map[string][]string) types.FilterExpr {
 	}
 }
 
+func filterExprFromRanges(ranges []SiteSearchRange) types.FilterExpr {
+	if len(ranges) == 0 {
+		return nil
+	}
+	terms := make([]types.FilterExpr, 0, len(ranges))
+	for _, item := range ranges {
+		field := strings.TrimSpace(item.Field)
+		if field == "" || (item.GTE == nil && item.LTE == nil) {
+			continue
+		}
+		terms = append(terms, types.RangeExpr{
+			Field: field,
+			GTE:   item.GTE,
+			LTE:   item.LTE,
+		})
+	}
+	return combineFilterExprs(terms...)
+}
+
+func combineFilterExprs(exprs ...types.FilterExpr) types.FilterExpr {
+	terms := make([]types.FilterExpr, 0, len(exprs))
+	for _, expr := range exprs {
+		if expr == nil {
+			continue
+		}
+		terms = append(terms, expr)
+	}
+	switch len(terms) {
+	case 0:
+		return nil
+	case 1:
+		return terms[0]
+	default:
+		return types.AndExpr{Terms: terms}
+	}
+}
+
 func parseSort(raw string) []types.Sort {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -242,7 +349,10 @@ func indexesFromMetadata(indexes []string, metadata map[string]any) []string {
 	if len(metadata) == 0 {
 		return nil
 	}
-	raw, ok := metadata["collections"]
+	raw, ok := metadata["indexes"]
+	if !ok {
+		raw, ok = metadata["collections"]
+	}
 	if !ok {
 		return nil
 	}
@@ -305,6 +415,13 @@ func snippetText(hit types.SearchHit) string {
 	return ""
 }
 
+func highlightedSnippet(hit types.SearchHit) string {
+	if hit.Snippet != nil && strings.TrimSpace(hit.Snippet.Highlighted) != "" {
+		return hit.Snippet.Highlighted
+	}
+	return ""
+}
+
 func parentURL(hit types.SearchHit) string {
 	if hit.Parent == nil {
 		return ""
@@ -324,6 +441,13 @@ func parentID(hit types.SearchHit) string {
 		return ""
 	}
 	return hit.Parent.ID
+}
+
+func parentThumbnail(hit types.SearchHit) string {
+	if hit.Parent == nil {
+		return ""
+	}
+	return hit.Parent.Thumbnail
 }
 
 func asString(value any) string {
