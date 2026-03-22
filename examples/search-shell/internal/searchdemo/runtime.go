@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/goliatone/go-search/adapters/content"
 	"github.com/goliatone/go-search/adapters/media"
 	"github.com/goliatone/go-search/command"
 	"github.com/goliatone/go-search/indexing"
@@ -81,7 +82,11 @@ type Runtime struct {
 	upsertRule       *command.UpsertEditorialRule
 	deleteRule       *command.DeleteEditorialRule
 	setRuleEnabled   *command.SetEditorialRuleEnabled
-	index            types.IndexDefinition
+	mediaIndex       types.IndexDefinition
+	contentShared    types.IndexDefinition
+	contentVideo     types.IndexDefinition
+	contentDocument  types.IndexDefinition
+	contentBlog      types.IndexDefinition
 	cultureDataPath  string
 	defaultLocale    string
 	reindexBatchSize int
@@ -105,6 +110,7 @@ type Status struct {
 
 type SearchRequest struct {
 	Query              string              `json:"query"`
+	Surface            string              `json:"surface,omitempty"`
 	Locale             string              `json:"locale"`
 	AcceptLanguage     string              `json:"accept_language,omitempty"`
 	LocaleSource       string              `json:"locale_source,omitempty"`
@@ -126,12 +132,19 @@ type SearchRequest struct {
 
 type SuggestRequest struct {
 	Query           string `json:"query"`
+	Surface         string `json:"surface,omitempty"`
 	Locale          string `json:"locale"`
 	AcceptLanguage  string `json:"accept_language,omitempty"`
 	LocaleSource    string `json:"locale_source,omitempty"`
 	LocaleSupported bool   `json:"locale_supported,omitempty"`
 	Limit           int    `json:"limit"`
 }
+
+const (
+	SurfaceMediaGrouped  = "media_grouped"
+	SurfaceContentShared = "content_shared"
+	SurfaceContentSplit  = "content_split"
+)
 
 func New(cfg Config) (*Runtime, error) {
 	cfg = normalizeConfig(cfg)
@@ -153,21 +166,97 @@ func New(cfg Config) (*Runtime, error) {
 	editorialStore := newMemoryEditorialStore()
 	registry := indexing.NewRegistry()
 
-	index := media.DefaultArchiveIndexDefinition(cfg.IndexName)
-	source := media.NewTranscriptSource(seedTranscriptRecords(cfg.DefaultLocale))
+	mediaIndex := media.DefaultArchiveIndexDefinition(cfg.IndexName)
+	sharedContentIndex := content.DefaultIndexDefinition(contentSharedIndexName(cfg.IndexName))
+	videoContentIndex := content.DefaultIndexDefinition(contentVideoIndexName(cfg.IndexName))
+	documentContentIndex := content.DefaultIndexDefinition(contentDocumentIndexName(cfg.IndexName))
+	blogContentIndex := content.DefaultIndexDefinition(contentBlogIndexName(cfg.IndexName))
+
+	transcriptRecords := seedTranscriptRecords(cfg.DefaultLocale)
+	videoRecords, documentRecords, blogRecords := seedContentRecords(cfg.DefaultLocale)
+
+	source := media.NewTranscriptSource(transcriptRecords)
 	projector := media.NewTranscriptProjector(media.TranscriptProjectorConfig{
 		Index:      cfg.IndexName,
 		SourceType: "transcript",
 	})
 	registration := indexing.NewRegistration(
-		index.Name,
-		index,
+		mediaIndex.Name,
+		mediaIndex,
 		"transcript",
 		source,
 		projector,
 		func(record media.TranscriptRecord) string { return record.ID },
 	)
-	if err := registry.Register(index, registration); err != nil {
+	if err := registry.Register(mediaIndex, registration); err != nil {
+		return nil, err
+	}
+
+	sharedVideoRegistration := indexing.NewRegistrationWithKey(
+		sharedContentIndex.Name,
+		sharedContentIndex,
+		"video",
+		"video",
+		content.NewSource(videoRecords),
+		content.NewProjector(content.ProjectorConfig{Index: sharedContentIndex.Name, SourceType: "video"}),
+		func(record content.Record) string { return record.ID },
+	)
+	if err := registry.Register(sharedContentIndex, sharedVideoRegistration); err != nil {
+		return nil, err
+	}
+	sharedDocumentRegistration := indexing.NewRegistrationWithKey(
+		sharedContentIndex.Name,
+		sharedContentIndex,
+		"document",
+		"document",
+		content.NewSource(documentRecords),
+		content.NewProjector(content.ProjectorConfig{Index: sharedContentIndex.Name, SourceType: "document"}),
+		func(record content.Record) string { return record.ID },
+	)
+	if err := registry.Register(sharedContentIndex, sharedDocumentRegistration); err != nil {
+		return nil, err
+	}
+	sharedBlogRegistration := indexing.NewRegistrationWithKey(
+		sharedContentIndex.Name,
+		sharedContentIndex,
+		"blog_article",
+		"blog_article",
+		content.NewSource(blogRecords),
+		content.NewProjector(content.ProjectorConfig{Index: sharedContentIndex.Name, SourceType: "blog_article"}),
+		func(record content.Record) string { return record.ID },
+	)
+	if err := registry.Register(sharedContentIndex, sharedBlogRegistration); err != nil {
+		return nil, err
+	}
+
+	if err := registry.Register(videoContentIndex, indexing.NewRegistration(
+		videoContentIndex.Name,
+		videoContentIndex,
+		"video",
+		content.NewSource(videoRecords),
+		content.NewProjector(content.ProjectorConfig{Index: videoContentIndex.Name, SourceType: "video"}),
+		func(record content.Record) string { return record.ID },
+	)); err != nil {
+		return nil, err
+	}
+	if err := registry.Register(documentContentIndex, indexing.NewRegistration(
+		documentContentIndex.Name,
+		documentContentIndex,
+		"document",
+		content.NewSource(documentRecords),
+		content.NewProjector(content.ProjectorConfig{Index: documentContentIndex.Name, SourceType: "document"}),
+		func(record content.Record) string { return record.ID },
+	)); err != nil {
+		return nil, err
+	}
+	if err := registry.Register(blogContentIndex, indexing.NewRegistration(
+		blogContentIndex.Name,
+		blogContentIndex,
+		"blog_article",
+		content.NewSource(blogRecords),
+		content.NewProjector(content.ProjectorConfig{Index: blogContentIndex.Name, SourceType: "blog_article"}),
+		func(record content.Record) string { return record.ID },
+	)); err != nil {
 		return nil, err
 	}
 
@@ -309,14 +398,18 @@ func New(cfg Config) (*Runtime, error) {
 		upsertRule:       upsertRuleCmd,
 		deleteRule:       deleteRuleCmd,
 		setRuleEnabled:   setRuleEnabledCmd,
-		index:            index,
+		mediaIndex:       mediaIndex,
+		contentShared:    sharedContentIndex,
+		contentVideo:     videoContentIndex,
+		contentDocument:  documentContentIndex,
+		contentBlog:      blogContentIndex,
 		cultureDataPath:  cfg.CultureDataPath,
 		defaultLocale:    cfg.DefaultLocale,
 		reindexBatchSize: cfg.ReindexBatchSize,
-		seedRecords:      seedTranscriptRecords(cfg.DefaultLocale),
+		seedRecords:      transcriptRecords,
 	}
 
-	if err := runtime.ensureIndex.Execute(context.Background(), types.EnsureIndexInput{Definition: index}); err != nil {
+	if err := runtime.Ensure(context.Background()); err != nil {
 		return nil, err
 	}
 	if cfg.SeedOnStart {
@@ -342,14 +435,45 @@ func (r *Runtime) IndexName() string {
 	if r == nil {
 		return ""
 	}
-	return r.index.Name
+	return r.contentShared.Name
 }
 
 func (r *Runtime) IndexDefinition() types.IndexDefinition {
 	if r == nil {
 		return types.IndexDefinition{}
 	}
-	return r.index
+	return r.contentShared
+}
+
+func (r *Runtime) IndexNames() []string {
+	if r == nil {
+		return nil
+	}
+	return []string{
+		r.mediaIndex.Name,
+		r.contentShared.Name,
+		r.contentVideo.Name,
+		r.contentDocument.Name,
+		r.contentBlog.Name,
+	}
+}
+
+func (r *Runtime) SurfaceIndexes(surface string) []string {
+	if r == nil {
+		return nil
+	}
+	switch normalizeSurface(surface, false) {
+	case SurfaceMediaGrouped:
+		return []string{r.mediaIndex.Name}
+	case SurfaceContentSplit:
+		return []string{r.contentVideo.Name, r.contentDocument.Name, r.contentBlog.Name}
+	default:
+		return []string{r.contentShared.Name}
+	}
+}
+
+func (r *Runtime) DefaultSurface() string {
+	return SurfaceContentShared
 }
 
 func (r *Runtime) SearchQuery() SearchQuerier   { return r.search }
@@ -371,35 +495,33 @@ func (r *Runtime) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	health, err := r.health.Query(ctx, types.HealthRequest{Indexes: []string{r.index.Name}})
+	indexes := r.IndexNames()
+	health, err := r.health.Query(ctx, types.HealthRequest{Indexes: indexes})
 	if err != nil {
 		return Status{}, err
 	}
-	stats, err := r.stats.Query(ctx, types.StatsRequest{Indexes: []string{r.index.Name}})
+	stats, err := r.stats.Query(ctx, types.StatsRequest{Indexes: indexes})
 	if err != nil {
 		return Status{}, err
 	}
-	rules, err := r.editorialRules.Query(ctx, types.EditorialRuleListRequest{Indexes: []string{r.index.Name}})
+	rules, err := r.editorialRules.Query(ctx, types.EditorialRuleListRequest{Indexes: []string{r.mediaIndex.Name}})
 	if err != nil {
 		return Status{}, err
 	}
 	documents := 0
 	generation := int64(0)
 	for _, item := range health.Indexes {
-		if item.Name == r.index.Name {
-			documents = item.Documents
-			break
-		}
+		documents += item.Documents
 	}
 	for _, item := range stats.Indexes {
-		if item.Name == r.index.Name {
+		if item.Name == r.contentShared.Name {
 			generation = item.Generation
 			break
 		}
 	}
 	return Status{
 		Provider:         r.provider.Name(),
-		IndexName:        r.index.Name,
+		IndexName:        r.contentShared.Name,
 		DefaultLocale:    r.defaultLocale,
 		CultureDataPath:  r.cultureDataPath,
 		Documents:        documents,
@@ -417,14 +539,19 @@ func (r *Runtime) Stats(ctx context.Context) (types.StatsResult, error) {
 	if r == nil || r.stats == nil {
 		return types.StatsResult{}, fmt.Errorf("search runtime is not initialized")
 	}
-	return r.stats.Query(ctx, types.StatsRequest{Indexes: []string{r.index.Name}})
+	return r.stats.Query(ctx, types.StatsRequest{Indexes: r.IndexNames()})
 }
 
 func (r *Runtime) Ensure(ctx context.Context) error {
 	if r == nil || r.ensureIndex == nil {
 		return fmt.Errorf("search runtime is not initialized")
 	}
-	return r.ensureIndex.Execute(ctx, types.EnsureIndexInput{Definition: r.index})
+	for _, def := range []types.IndexDefinition{r.mediaIndex, r.contentShared, r.contentVideo, r.contentDocument, r.contentBlog} {
+		if err := r.ensureIndex.Execute(ctx, types.EnsureIndexInput{Definition: def}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *Runtime) Reindex(ctx context.Context, batchSize int) error {
@@ -434,10 +561,15 @@ func (r *Runtime) Reindex(ctx context.Context, batchSize int) error {
 	if batchSize <= 0 {
 		batchSize = r.reindexBatchSize
 	}
-	return r.reindex.Execute(ctx, types.ReindexIndexInput{
-		Index:     r.index.Name,
-		BatchSize: batchSize,
-	})
+	for _, indexName := range r.IndexNames() {
+		if err := r.reindex.Execute(ctx, types.ReindexIndexInput{
+			Index:     indexName,
+			BatchSize: batchSize,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *Runtime) ListEditorialRules(ctx context.Context, enabled *bool) ([]types.EditorialRankRule, error) {
@@ -445,7 +577,7 @@ func (r *Runtime) ListEditorialRules(ctx context.Context, enabled *bool) ([]type
 		return nil, fmt.Errorf("search runtime is not initialized")
 	}
 	return r.editorialRules.Query(ctx, types.EditorialRuleListRequest{
-		Indexes: []string{r.index.Name},
+		Indexes: []string{r.mediaIndex.Name},
 		Enabled: enabled,
 	})
 }
@@ -455,7 +587,7 @@ func (r *Runtime) UpsertEditorialRule(ctx context.Context, rule types.EditorialR
 		return fmt.Errorf("search runtime is not initialized")
 	}
 	if len(rule.Scope.Indexes) == 0 {
-		rule.Scope.Indexes = []string{r.index.Name}
+		rule.Scope.Indexes = []string{r.mediaIndex.Name}
 	}
 	return r.upsertRule.Execute(ctx, types.UpsertEditorialRuleInput{Rule: rule})
 }
@@ -516,16 +648,18 @@ func (r *Runtime) Search(ctx context.Context, req SearchRequest) (types.SearchRe
 		return types.SearchResultPage{}, fmt.Errorf("search runtime is not initialized")
 	}
 	req = r.BindSearchRequest(req)
+	req.Surface = normalizeSurface(req.Surface, req.Group)
+	req.Group = req.Surface == SurfaceMediaGrouped
 	sortField, sortDir := normalizeSearchSort(req.SortField, req.SortDir)
 	request := types.SearchRequest{
-		Indexes: []string{r.index.Name},
+		Indexes: r.SurfaceIndexes(req.Surface),
 		Query:   strings.TrimSpace(req.Query),
 		Locale:  firstNonEmpty(strings.TrimSpace(req.Locale), r.defaultLocale),
 		Page:    positiveOr(req.Page, 1),
 		PerPage: positiveOr(req.PerPage, 10),
-		Facets:  media.DefaultArchiveFacetRequests(),
+		Facets:  surfaceFacetRequests(req.Surface),
 	}
-	if req.Group {
+	if req.Surface == SurfaceMediaGrouped {
 		request.GroupBy = "parent_id"
 	}
 
@@ -570,8 +704,9 @@ func (r *Runtime) Suggest(ctx context.Context, req SuggestRequest) (types.Sugges
 		return types.SuggestResult{}, fmt.Errorf("search runtime is not initialized")
 	}
 	req = r.BindSuggestRequest(req)
+	req.Surface = normalizeSurface(req.Surface, false)
 	return r.suggest.Query(ctx, types.SuggestRequest{
-		Indexes: []string{r.index.Name},
+		Indexes: r.SurfaceIndexes(req.Surface),
 		Query:   strings.TrimSpace(req.Query),
 		Locale:  firstNonEmpty(strings.TrimSpace(req.Locale), r.defaultLocale),
 		Limit:   positiveOr(req.Limit, 5),
@@ -589,7 +724,7 @@ func (r *Runtime) seedEditorialRules(ctx context.Context) error {
 			Position:       &position,
 			Enabled:        true,
 			Scope: types.EditorialScope{
-				Indexes: []string{r.index.Name},
+				Indexes: []string{r.mediaIndex.Name},
 				Query:   "blueprint",
 				Locale:  r.defaultLocale,
 			},
@@ -602,7 +737,7 @@ func (r *Runtime) seedEditorialRules(ctx context.Context) error {
 			Action:         types.EditorialActionHide,
 			Enabled:        false,
 			Scope: types.EditorialScope{
-				Indexes: []string{r.index.Name},
+				Indexes: []string{r.mediaIndex.Name},
 				Query:   "localization",
 				Locale:  r.defaultLocale,
 			},
@@ -634,6 +769,38 @@ func normalizeConfig(cfg Config) Config {
 		cfg.ReindexBatchSize = 25
 	}
 	return cfg
+}
+
+func normalizeSurface(surface string, grouped bool) string {
+	switch strings.TrimSpace(surface) {
+	case SurfaceMediaGrouped, SurfaceContentShared, SurfaceContentSplit:
+		return strings.TrimSpace(surface)
+	}
+	if grouped {
+		return SurfaceMediaGrouped
+	}
+	return SurfaceContentShared
+}
+
+func surfaceFacetRequests(surface string) []types.FacetRequest {
+	requests := media.DefaultArchiveFacetRequests()
+	if normalizeSurface(surface, false) == SurfaceMediaGrouped {
+		return requests
+	}
+	return append([]types.FacetRequest{{Field: "entity_type", Limit: 10, Disjunctive: true}}, requests...)
+}
+
+func contentSharedIndexName(mediaIndex string) string {
+	return strings.TrimSpace(mediaIndex) + "_content_shared"
+}
+func contentVideoIndexName(mediaIndex string) string {
+	return strings.TrimSpace(mediaIndex) + "_videos"
+}
+func contentDocumentIndexName(mediaIndex string) string {
+	return strings.TrimSpace(mediaIndex) + "_documents"
+}
+func contentBlogIndexName(mediaIndex string) string {
+	return strings.TrimSpace(mediaIndex) + "_blog_articles"
 }
 
 func newProvider(cfg Config) (providers.Provider, error) {
@@ -718,6 +885,10 @@ func compact(values []string) []string {
 	return out
 }
 
+func compactStrings(values ...string) []string {
+	return compact(values)
+}
+
 func collapseFilterTerms(terms []types.FilterExpr) types.FilterExpr {
 	switch len(terms) {
 	case 0:
@@ -751,11 +922,198 @@ type seededMediaFixture struct {
 }
 
 func seedTranscriptRecords(locale string) []media.TranscriptRecord {
+	return buildSeedTranscriptRecords(seedMediaFixtures(locale))
+}
+
+func seedContentRecords(locale string) ([]content.Record, []content.Record, []content.Record) {
+	fixtures := seedMediaFixtures(locale)
+	videoRecords := []content.Record{
+		buildWholeEntityRecord(types.DocumentTypeVideo, "video", fixtures[0].Media, "Whole-item archive view for blueprint architecture search and archive facet exploration."),
+		buildWholeEntityRecord(types.DocumentTypeVideo, "video", fixtures[1].Media, "Whole-item locale planning view covering catalog normalization, locale fallback rules, and multilingual site search."),
+		buildWholeEntityRecord(types.DocumentTypeVideo, "video", fixtures[6].Media, "Whole-item case study showing how architecture searches narrow by location, series, and workshop format."),
+		buildWholeEntityRecord(types.DocumentTypeVideo, "video", fixtures[8].Media, "Whole-item Tara practice result carrying deity, practice, and long-duration filters."),
+	}
+
+	documents := []content.Record{
+		buildWholeEntityRecord(types.DocumentTypeDocument, "document", media.MediaRecord{
+			ID:              "document-1",
+			Title:           "Blueprint Faceting Checklist",
+			Summary:         "Operational checklist for validating architecture facets and mixed-content search surfaces.",
+			URL:             "/documents/blueprint-faceting-checklist",
+			Topic:           "architecture",
+			TopicPath:       []string{"Teaching Topics", "Architecture"},
+			CategoryPath:    []string{"Teaching Categories", "Operations", "Documentation"},
+			People:          []string{"Maya Lin", "Archive Research Team"},
+			Subjects:        []string{"Facet Validation"},
+			Texts:           []string{"Search Blueprint"},
+			Location:        "Boulder",
+			Sangha:          "Archive Engineering",
+			Format:          "Guide",
+			Series:          "Search Foundations",
+			DurationSeconds: 900,
+			PublishedAt:     seededPublishedAt(2025, time.January, 20),
+			Badge:           "Checklist",
+			Locale:          locale,
+		}, "Checklist for validating grouped media search separately from flat video, document, and blog surfaces."),
+		buildWholeEntityRecord(types.DocumentTypeDocument, "document", media.MediaRecord{
+			ID:              "document-2",
+			Title:           "Localization Rollout Workbook",
+			Summary:         "Planning workbook for locale-aware search rollout and fallback inspection.",
+			URL:             "/documents/localization-rollout-workbook",
+			Topic:           "localization",
+			TopicPath:       []string{"Teaching Topics", "Localization"},
+			CategoryPath:    []string{"Teaching Categories", "Operations", "Documentation"},
+			People:          []string{"Elena Ruiz"},
+			Subjects:        []string{"Locale Fallback"},
+			Texts:           []string{"Culture Catalog"},
+			Location:        "Madrid",
+			Sangha:          "Translation Sangha",
+			Format:          "Workbook",
+			Series:          "Locale Planning Lab",
+			DurationSeconds: 1200,
+			PublishedAt:     seededPublishedAt(2024, time.September, 12),
+			Badge:           "Workbook",
+			Locale:          locale,
+		}, "Workbook for auditing locale filters, fallback ordering, and exact-locale ranking across site-search content."),
+		buildWholeEntityRecord(types.DocumentTypeDocument, "document", media.MediaRecord{
+			ID:              "document-3",
+			Title:           "Catalog Cleanup Runbook",
+			Summary:         "Maintenance guide for metadata cleanup and zero-drift index refreshes.",
+			URL:             "/documents/catalog-cleanup-runbook",
+			Topic:           "indexing",
+			TopicPath:       []string{"Teaching Topics", "Indexing"},
+			CategoryPath:    []string{"Teaching Categories", "Operations", "Maintenance"},
+			People:          []string{"Omar Patel"},
+			Subjects:        []string{"Metadata Maintenance"},
+			Texts:           []string{"Catalog Checklist"},
+			Location:        "Chicago",
+			Sangha:          "Archive Engineering",
+			Format:          "Runbook",
+			Series:          "Search Operations",
+			DurationSeconds: 600,
+			PublishedAt:     seededPublishedAt(2023, time.May, 3),
+			Badge:           "Runbook",
+			Locale:          locale,
+		}, "Runbook for document projection validation, delete-by-source checks, and reindex safety."),
+		buildWholeEntityRecord(types.DocumentTypeDocument, "document", media.MediaRecord{
+			ID:              "document-4",
+			Title:           "Tara Retreat Handout",
+			Summary:         "Handout connecting Tara practice metadata to search filters and archive labels.",
+			URL:             "/documents/tara-retreat-handout",
+			Topic:           "tara",
+			TopicPath:       []string{"Teaching Topics", "Tara"},
+			CategoryPath:    []string{"Teaching Categories", "Practice", "Handout"},
+			People:          []string{"Tenzin Rocha"},
+			Subjects:        []string{"Tara Practice"},
+			Texts:           []string{"Praise to the 21 Taras"},
+			Deities:         []string{"Tara"},
+			Location:        "Santa Fe",
+			Sangha:          "Practice Sangha",
+			Format:          "Handout",
+			Series:          "Bodhisattva Cycle",
+			DurationSeconds: 1500,
+			PublishedAt:     seededPublishedAt(2019, time.October, 1),
+			Badge:           "Practice",
+			Locale:          locale,
+		}, "Practice handout for validating deity facets, retreat-style durations, and mixed-content result rendering."),
+	}
+
 	alternateLocale := "es"
 	if strings.EqualFold(locale, alternateLocale) {
 		alternateLocale = "en"
 	}
-	fixtures := []seededMediaFixture{
+	blogs := []content.Record{
+		buildWholeEntityRecord(types.DocumentTypeBlogArticle, "blog_article", media.MediaRecord{
+			ID:              "blog-1",
+			Title:           "Why Mixed-Entity Search Needs Explicit Modes",
+			Summary:         "Notes on keeping grouped transcript retrieval separate from site-wide content search.",
+			URL:             "/blog/mixed-entity-search-modes",
+			Topic:           "architecture",
+			TopicPath:       []string{"Teaching Topics", "Architecture"},
+			CategoryPath:    []string{"Teaching Categories", "Commentary", "Design Notes"},
+			People:          []string{"Jon Alvarez"},
+			Subjects:        []string{"Search Modes"},
+			Texts:           []string{"Search Blueprint"},
+			Location:        "Boulder",
+			Sangha:          "Archive Engineering",
+			Format:          "Blog",
+			Series:          "Search Notes",
+			DurationSeconds: 420,
+			PublishedAt:     seededPublishedAt(2025, time.March, 1),
+			Badge:           "Blog",
+			Locale:          locale,
+		}, "Grouped transcript search is valuable, but whole-entity site search should stay flat when indexes mix videos, documents, and articles."),
+		buildWholeEntityRecord(types.DocumentTypeBlogArticle, "blog_article", media.MediaRecord{
+			ID:              "blog-2",
+			Title:           "Locale Fallbacks for Site Search",
+			Summary:         "Field notes from rolling out locale-aware content search across admin and demo surfaces.",
+			URL:             "/blog/locale-fallbacks-site-search",
+			Topic:           "localization",
+			TopicPath:       []string{"Teaching Topics", "Localization"},
+			CategoryPath:    []string{"Teaching Categories", "Commentary", "Field Notes"},
+			People:          []string{"Elena Ruiz", "Martin Cole"},
+			Subjects:        []string{"Locale Policy"},
+			Texts:           []string{"Culture Catalog"},
+			Location:        "Mexico City",
+			Sangha:          "Translation Sangha",
+			Format:          "Blog",
+			Series:          "Search Notes",
+			DurationSeconds: 360,
+			PublishedAt:     seededPublishedAt(2024, time.June, 18),
+			Badge:           "Locale",
+			Locale:          alternateLocale,
+		}, "This article compares exact locale matches and fallback content when the same site search surface spans multiple entity types."),
+		buildWholeEntityRecord(types.DocumentTypeBlogArticle, "blog_article", media.MediaRecord{
+			ID:              "blog-3",
+			Title:           "Catalog Cleanup in Short Bursts",
+			Summary:         "Short operational notes for quick metadata maintenance sessions.",
+			URL:             "/blog/catalog-cleanup-short-bursts",
+			Topic:           "indexing",
+			TopicPath:       []string{"Teaching Topics", "Indexing"},
+			CategoryPath:    []string{"Teaching Categories", "Operations", "Notes"},
+			People:          []string{"Omar Patel"},
+			Subjects:        []string{"Quick Maintenance"},
+			Texts:           []string{"Catalog Checklist"},
+			Location:        "Chicago",
+			Sangha:          "Archive Engineering",
+			Format:          "Blog",
+			Series:          "Search Operations",
+			DurationSeconds: 180,
+			PublishedAt:     seededPublishedAt(2022, time.February, 8),
+			Badge:           "Ops",
+			Locale:          locale,
+		}, "Short-form operational content keeps low-duration filters populated outside the media archive."),
+		buildWholeEntityRecord(types.DocumentTypeBlogArticle, "blog_article", media.MediaRecord{
+			ID:              "blog-4",
+			Title:           "Practice Metadata and Search Filters",
+			Summary:         "How deity and practice labels should behave in whole-entity search.",
+			URL:             "/blog/practice-metadata-search-filters",
+			Topic:           "tara",
+			TopicPath:       []string{"Teaching Topics", "Tara"},
+			CategoryPath:    []string{"Teaching Categories", "Practice", "Commentary"},
+			People:          []string{"Tenzin Rocha", "Maya Lin"},
+			Subjects:        []string{"Practice Metadata"},
+			Texts:           []string{"Practice Notes"},
+			Deities:         []string{"Tara"},
+			Location:        "Santa Fe",
+			Sangha:          "Practice Sangha",
+			Format:          "Blog",
+			Series:          "Bodhisattva Cycle",
+			DurationSeconds: 300,
+			PublishedAt:     seededPublishedAt(2021, time.December, 6),
+			Badge:           "Practice",
+			Locale:          locale,
+		}, "Practice-oriented article metadata should facet cleanly without being mistaken for anchored transcript evidence."),
+	}
+	return videoRecords, documents, blogs
+}
+
+func seedMediaFixtures(locale string) []seededMediaFixture {
+	alternateLocale := "es"
+	if strings.EqualFold(locale, alternateLocale) {
+		alternateLocale = "en"
+	}
+	return []seededMediaFixture{
 		{
 			Media: media.MediaRecord{
 				ID:              "media-1",
@@ -1081,7 +1439,6 @@ func seedTranscriptRecords(locale string) []media.TranscriptRecord {
 			},
 		},
 	}
-	return buildSeedTranscriptRecords(fixtures)
 }
 
 func buildSeedTranscriptRecords(fixtures []seededMediaFixture) []media.TranscriptRecord {
@@ -1109,6 +1466,69 @@ func buildSeedTranscriptRecords(fixtures []seededMediaFixture) []media.Transcrip
 		}
 	}
 	return out
+}
+
+func buildWholeEntityRecord(docType, sourceType string, item media.MediaRecord, body string) content.Record {
+	localeValue := strings.TrimSpace(item.Locale)
+	projection := media.BuildArchiveProjection(item, localeValue)
+	fields := map[string]any{
+		"topic":              projection.TopicLeaf,
+		"topic_hierarchy":    append([]string(nil), projection.TopicHierarchy...),
+		"category":           projection.CategoryLeaf,
+		"category_hierarchy": append([]string(nil), projection.CategoryHierarchy...),
+		"people":             append([]string(nil), projection.People...),
+		"subject":            append([]string(nil), projection.Subjects...),
+		"text":               append([]string(nil), projection.Texts...),
+		"deity":              append([]string(nil), projection.Deities...),
+		"location":           projection.Location,
+		"sangha":             projection.Sangha,
+		"format":             projection.Format,
+		"series":             projection.Series,
+		"decade":             projection.Decade,
+		"duration_bucket":    projection.DurationBucket,
+		"published_year":     projection.PublishedYear,
+		"result_badge":       projection.Badge,
+	}
+	facets := map[string][]string{
+		"topic":              compactStrings(projection.TopicLeaf),
+		"topic_hierarchy":    append([]string(nil), projection.TopicHierarchy...),
+		"category":           compactStrings(projection.CategoryLeaf),
+		"category_hierarchy": append([]string(nil), projection.CategoryHierarchy...),
+		"people":             append([]string(nil), projection.People...),
+		"subject":            append([]string(nil), projection.Subjects...),
+		"text":               append([]string(nil), projection.Texts...),
+		"deity":              append([]string(nil), projection.Deities...),
+		"locale":             compactStrings(localeValue),
+		"decade":             compactStrings(projection.Decade),
+		"duration_bucket":    compactStrings(projection.DurationBucket),
+		"location":           compactStrings(projection.Location),
+		"sangha":             compactStrings(projection.Sangha),
+		"format":             compactStrings(projection.Format),
+		"series":             compactStrings(projection.Series),
+	}
+	numeric := map[string]float64{
+		"published_year":   float64(projection.PublishedYear),
+		"duration_seconds": float64(projection.DurationSeconds),
+	}
+	metadata := map[string]any{
+		"published_at":   item.PublishedAt,
+		"published_year": projection.PublishedYear,
+	}
+	return content.Record{
+		ID:         item.ID,
+		Type:       docType,
+		SourceType: sourceType,
+		SourceID:   item.ID,
+		Title:      item.Title,
+		Summary:    item.Summary,
+		Body:       strings.TrimSpace(body),
+		URL:        item.URL,
+		Locale:     localeValue,
+		Fields:     fields,
+		Facets:     facets,
+		Numeric:    numeric,
+		Metadata:   metadata,
+	}
 }
 
 func seedTranscriptRecordID(mediaID, trackLocale string, part int) string {

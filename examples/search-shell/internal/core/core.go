@@ -147,17 +147,19 @@ func New(ctx context.Context, cfg *config.AppConfig) (*Core, error) {
 	}
 
 	if searchService := adm.SearchService(); searchService != nil {
+		sharedIndexes := searchRuntime.SurfaceIndexes(searchdemo.SurfaceContentShared)
 		searchService.SetPrimary(admin.NewGoSearchGlobalAdapter(admin.GoSearchGlobalAdapterConfig{
 			Search:       searchRuntime.SearchQuery(),
-			Indexes:      []string{searchRuntime.IndexName()},
-			FallbackType: "media",
+			Indexes:      sharedIndexes,
+			FallbackType: "content",
 		}))
 	}
 
+	sharedIndexes := searchRuntime.SurfaceIndexes(searchdemo.SurfaceContentShared)
 	siteSearchProvider := admin.NewGoSearchSiteProvider(admin.GoSearchSiteProviderConfig{
 		Search:  searchRuntime.SearchQuery(),
 		Suggest: searchRuntime.SuggestQuery(),
-		Indexes: []string{searchRuntime.IndexName()},
+		Indexes: sharedIndexes,
 	})
 
 	searchOperations := &admin.GoSearchOperations{
@@ -165,7 +167,7 @@ func New(ctx context.Context, cfg *config.AppConfig) (*Core, error) {
 		Stats:       searchRuntime.StatsQuery(),
 		EnsureIndex: searchRuntime.EnsureCommand(),
 		Reindex:     searchRuntime.ReindexCommand(),
-		Indexes:     []string{searchRuntime.IndexName()},
+		Indexes:     searchRuntime.IndexNames(),
 	}
 
 	return &Core{

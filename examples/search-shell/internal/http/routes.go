@@ -313,10 +313,11 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
   <div class="header-inner">
     <a href="/" class="logo">Search Demo</a>
     <form class="search-box" method="GET" action="{{.ActionPath}}" id="searchForm">
-      <input type="text" class="search-input" id="searchInput" name="q" value="{{.Query}}" placeholder="Search transcripts..." autocomplete="off" />
+      <input type="text" class="search-input" id="searchInput" name="q" value="{{.Query}}" placeholder="Search archive content..." autocomplete="off" />
       <button type="submit" class="search-btn">Search</button>
       <div class="suggestions" id="suggestions"></div>
       <!-- Preserve other params -->
+      <input type="hidden" name="surface" value="{{.Surface}}" />
       <input type="hidden" name="locale" value="{{.Locale}}" />
       <input type="hidden" name="accept_language" value="{{.AcceptLanguage}}" />
       <input type="hidden" name="group" value="{{if .Group}}true{{else}}false{{end}}" />
@@ -372,6 +373,15 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
         </div>
         {{end}}
         {{end}}
+
+        <div class="filter-group">
+          <label class="filter-label" for="filterSurface">Surface</label>
+          <select class="filter-select" id="filterSurface">
+            <option value="content_shared" {{if eq .Surface "content_shared"}}selected{{end}}>Content shared index</option>
+            <option value="content_split" {{if eq .Surface "content_split"}}selected{{end}}>Content split indexes</option>
+            <option value="media_grouped" {{if eq .Surface "media_grouped"}}selected{{end}}>Media grouped transcripts</option>
+          </select>
+        </div>
 
         <div class="filter-group">
           <label class="filter-label" for="filterLocale">Locale</label>
@@ -579,9 +589,10 @@ searchInput.addEventListener('blur', () => {
 
 async function fetchSuggestions(query) {
   try {
+    const surface = document.getElementById('filterSurface')?.value || '{{.Surface}}';
     const locale = document.getElementById('filterLocale')?.value || '';
     const acceptLanguage = document.getElementById('filterAcceptLanguage')?.value || '';
-    const resp = await fetch('{{.SuggestPath}}?q=' + encodeURIComponent(query) + '&locale=' + encodeURIComponent(locale) + '&accept_language=' + encodeURIComponent(acceptLanguage) + '&limit=5');
+    const resp = await fetch('{{.SuggestPath}}?q=' + encodeURIComponent(query) + '&surface=' + encodeURIComponent(surface) + '&locale=' + encodeURIComponent(locale) + '&accept_language=' + encodeURIComponent(acceptLanguage) + '&limit=5');
     const data = await resp.json();
     if (data.result && data.result.items && data.result.items.length > 0) {
       suggestions.innerHTML = data.result.items.map(item =>
@@ -615,6 +626,8 @@ function escapeHtml(text) {
 function applyFilters() {
   const params = new URLSearchParams(window.location.search);
   params.set('q', searchInput.value || '');
+  const surface = document.getElementById('filterSurface').value;
+  params.set('surface', surface);
 
   const locale = document.getElementById('filterLocale').value.trim();
   if (locale) params.set('locale', locale);
@@ -632,7 +645,7 @@ function applyFilters() {
   if (topics.length > 0) params.set('topics', topics.join(','));
   else params.delete('topics');
 
-  const group = document.getElementById('filterGroup').value;
+  const group = surface === 'media_grouped' ? 'true' : document.getElementById('filterGroup').value;
   params.set('group', group);
   setOptionalParam(params, 'published_year_gte', document.getElementById('publishedYearGTE').value);
   setOptionalParam(params, 'published_year_lte', document.getElementById('publishedYearLTE').value);
@@ -657,7 +670,8 @@ function clearFilters() {
   Array.from(params.keys())
     .filter(key => key.startsWith('facet_'))
     .forEach(key => params.delete(key));
-  params.set('group', 'true');
+  params.set('surface', 'content_shared');
+  params.set('group', 'false');
   params.set('page', '1');
   window.location.href = '{{.ActionPath}}?' + params.toString();
 }
@@ -844,6 +858,7 @@ type searchView struct {
 	SuggestPath        string
 	CurrentAPIURL      string
 	Query              string
+	Surface            string
 	Locale             string
 	AcceptLanguage     string
 	LocaleSource       string
@@ -968,15 +983,17 @@ func homeHandler(appCore *core.Core) router.HandlerFunc {
 			SearchJSON:    prettyJSON(status),
 			RulesJSON:     prettyJSON(rules),
 			Links: []link{
-				{Label: "Demo search page", Href: "/demo/search?q=transcript"},
+				{Label: "Demo media grouped", Href: "/demo/search?surface=media_grouped&group=true&q=transcript"},
+				{Label: "Demo shared content", Href: "/demo/search?surface=content_shared&q=search"},
+				{Label: "Demo split content", Href: "/demo/search?surface=content_split&q=search"},
 				{Label: "Architecture landing preset", Href: "/demo/topics/architecture"},
 				{Label: "Operations page", Href: "/demo/ops"},
-				{Label: "Demo search API", Href: "/api/demo/search?q=transcript"},
+				{Label: "Demo search API", Href: "/api/demo/search?surface=content_shared&q=search"},
 				{Label: "Demo editorial API", Href: "/api/demo/editorial"},
-				{Label: "Admin search API", Href: path.Join(cfg.Admin.BasePath, "api/search") + "?query=blueprint&limit=5"},
-				{Label: "Site search page", Href: "/site/search?q=blueprint&locale=en"},
-				{Label: "Site search API", Href: "/api/v1/site/search?q=transcript&locale=en"},
-				{Label: "Site suggest API", Href: "/api/v1/site/search/suggest?q=sea&locale=en"},
+				{Label: "Admin search API", Href: path.Join(cfg.Admin.BasePath, "api/search") + "?query=search&limit=5"},
+				{Label: "Site search page", Href: "/site/search?surface=content_shared&q=search&locale=en"},
+				{Label: "Site search API", Href: "/api/v1/site/search?surface=content_shared&q=search&locale=en"},
+				{Label: "Site suggest API", Href: "/api/v1/site/search/suggest?surface=content_shared&q=sea&locale=en"},
 				{Label: "Admin root", Href: cfg.Admin.BasePath},
 				{Label: "Admin login", Href: path.Join(cfg.Admin.BasePath, "login")},
 			},
@@ -1005,6 +1022,7 @@ func topicLandingHandler(appCore *core.Core) router.HandlerFunc {
 	return func(c router.Context) error {
 		request := parseSearchRequest(c)
 		request.LandingSlug = strings.TrimSpace(c.Param("topic_slug"))
+		request.Surface = searchdemo.SurfaceMediaGrouped
 		request.Group = true
 		if preset, ok := media.TopicLandingPreset(request.LandingSlug); ok {
 			if request.FacetFilters == nil {
@@ -1025,6 +1043,13 @@ func topicLandingHandler(appCore *core.Core) router.HandlerFunc {
 }
 
 func renderSearchPage(c router.Context, appCore *core.Core, title, actionPath, apiPath, suggestPath string, request searchdemo.SearchRequest) error {
+	if strings.TrimSpace(request.Surface) == "" {
+		if request.Group {
+			request.Surface = searchdemo.SurfaceMediaGrouped
+		} else {
+			request.Surface = appCore.Search.DefaultSurface()
+		}
+	}
 	result, err := appCore.Search.Search(c.Context(), request)
 	if err != nil {
 		return c.JSON(500, map[string]any{"error": err.Error()})
@@ -1058,6 +1083,7 @@ func renderSearchPage(c router.Context, appCore *core.Core, title, actionPath, a
 		APIPath:            apiPath,
 		SuggestPath:        suggestPath,
 		Query:              request.Query,
+		Surface:            request.Surface,
 		Locale:             request.Locale,
 		AcceptLanguage:     request.AcceptLanguage,
 		LocaleSource:       request.LocaleSource,
@@ -1161,6 +1187,7 @@ func suggestAPIHandler(appCore *core.Core) router.HandlerFunc {
 	return func(c router.Context) error {
 		request := appCore.Search.BindSuggestRequest(searchdemo.SuggestRequest{
 			Query:          strings.TrimSpace(c.Query("q")),
+			Surface:        strings.TrimSpace(c.Query("surface")),
 			Locale:         strings.TrimSpace(c.Query("locale")),
 			AcceptLanguage: resolveAcceptLanguage(c.Query("accept_language"), c.Header("Accept-Language")),
 			Limit:          atoiDefault(c.Query("limit"), 5),
@@ -1307,6 +1334,7 @@ func parseSearchRequest(c router.Context) searchdemo.SearchRequest {
 
 	return searchdemo.SearchRequest{
 		Query:              strings.TrimSpace(c.Query("q")),
+		Surface:            strings.TrimSpace(c.Query("surface")),
 		Locale:             strings.TrimSpace(c.Query("locale")),
 		AcceptLanguage:     resolveAcceptLanguage(c.Query("accept_language"), c.Header("Accept-Language")),
 		Topic:              legacyTopic,
@@ -1317,7 +1345,7 @@ func parseSearchRequest(c router.Context) searchdemo.SearchRequest {
 		PublishedYearLTE:   optionalInt(c.Query("published_year_lte")),
 		DurationSecondsGTE: optionalInt(c.Query("duration_seconds_gte")),
 		DurationSecondsLTE: optionalInt(c.Query("duration_seconds_lte")),
-		Group:              !strings.EqualFold(strings.TrimSpace(c.Query("group")), "false"),
+		Group:              strings.EqualFold(strings.TrimSpace(c.Query("group")), "true"),
 		Page:               atoiDefault(c.Query("page"), 1),
 		PerPage:            atoiDefault(c.Query("per_page"), 10),
 		SortField:          sortField,
@@ -1329,6 +1357,9 @@ func buildSearchURL(basePath string, state searchView, page int) string {
 	params := url.Values{}
 	if query := strings.TrimSpace(state.Query); query != "" {
 		params.Set("q", query)
+	}
+	if surface := strings.TrimSpace(state.Surface); surface != "" {
+		params.Set("surface", surface)
 	}
 	if locale := strings.TrimSpace(state.Locale); locale != "" {
 		params.Set("locale", locale)

@@ -25,8 +25,11 @@ func TestRuntimeBootstrapsSeededSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	if status.Documents != 21 {
-		t.Fatalf("expected 21 seeded transcript documents, got %d", status.Documents)
+	if status.Documents != 45 {
+		t.Fatalf("expected 45 seeded documents across media and content indexes, got %d", status.Documents)
+	}
+	if len(runtime.IndexNames()) != 5 {
+		t.Fatalf("expected five managed indexes, got %v", runtime.IndexNames())
 	}
 
 	result, err := runtime.Search(context.Background(), SearchRequest{
@@ -50,6 +53,9 @@ func TestRuntimeBootstrapsSeededSearch(t *testing.T) {
 	}
 	if len(suggest.Items) == 0 {
 		t.Fatalf("expected suggestions, got none")
+	}
+	if suggest.Items[0].Type == "" {
+		t.Fatalf("expected typed suggestions, got %+v", suggest.Items[0])
 	}
 }
 
@@ -261,6 +267,19 @@ func TestRuntimeSearchCanDisableGrouping(t *testing.T) {
 	}
 	if len(result.Hits) < 2 {
 		t.Fatalf("expected multiple hits, got %d", len(result.Hits))
+	}
+	foundDocument := false
+	foundBlog := false
+	for _, hit := range result.Hits {
+		switch hit.Type {
+		case "document":
+			foundDocument = true
+		case "blog_article":
+			foundBlog = true
+		}
+	}
+	if !foundDocument || !foundBlog {
+		t.Fatalf("expected mixed whole-entity content hits, got %+v", result.Hits)
 	}
 }
 
@@ -476,5 +495,53 @@ func TestRuntimeSearchSupportsCrossFacetCombinationNarrowing(t *testing.T) {
 	}
 	if result.Groups[0].Parent == nil || result.Groups[0].Parent.Title != "Architecture Case Studies" {
 		t.Fatalf("unexpected grouped result: %+v", result.Groups[0].Parent)
+	}
+}
+
+func TestRuntimeContentSharedAndSplitSurfacesReturnEquivalentEntityTypes(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	shared, err := runtime.Search(context.Background(), SearchRequest{
+		Locale:  "",
+		Surface: SurfaceContentShared,
+		Query:   "search",
+	})
+	if err != nil {
+		t.Fatalf("search shared surface: %v", err)
+	}
+	split, err := runtime.Search(context.Background(), SearchRequest{
+		Locale:  "",
+		Surface: SurfaceContentSplit,
+		Query:   "search",
+	})
+	if err != nil {
+		t.Fatalf("search split surface: %v", err)
+	}
+	if shared.Total == 0 || split.Total == 0 {
+		t.Fatalf("expected results on both content surfaces, shared=%d split=%d", shared.Total, split.Total)
+	}
+	sharedTypes := map[string]bool{}
+	for _, hit := range shared.Hits {
+		sharedTypes[hit.Type] = true
+	}
+	splitTypes := map[string]bool{}
+	for _, hit := range split.Hits {
+		splitTypes[hit.Type] = true
+	}
+	for _, typ := range []string{"video", "document", "blog_article"} {
+		if !sharedTypes[typ] {
+			t.Fatalf("expected shared surface to include %s hits, got %+v", typ, shared.Hits)
+		}
+		if !splitTypes[typ] {
+			t.Fatalf("expected split surface to include %s hits, got %+v", typ, split.Hits)
+		}
 	}
 }

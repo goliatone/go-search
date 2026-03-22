@@ -1,6 +1,7 @@
 package apphttp
 
 import (
+	"bytes"
 	"net/url"
 	"strings"
 	"testing"
@@ -27,6 +28,7 @@ func TestNormalizeTopicsMergesLegacyAndCSVValues(t *testing.T) {
 func TestBuildSearchURLPreservesStateAndEscapesValues(t *testing.T) {
 	view := searchView{
 		Query:              "a&b",
+		Surface:            "content_split",
 		Locale:             "en",
 		AcceptLanguage:     "fr-CA,fr;q=0.9,en;q=0.8",
 		Topics:             []string{"architecture", "ui"},
@@ -51,6 +53,9 @@ func TestBuildSearchURLPreservesStateAndEscapesValues(t *testing.T) {
 	params := parsed.Query()
 	if params.Get("q") != "a&b" {
 		t.Fatalf("q = %q", params.Get("q"))
+	}
+	if params.Get("surface") != "content_split" {
+		t.Fatalf("surface = %q", params.Get("surface"))
 	}
 	if params.Get("accept_language") != "fr-CA,fr;q=0.9,en;q=0.8" {
 		t.Fatalf("accept_language = %q", params.Get("accept_language"))
@@ -137,5 +142,45 @@ func TestFormatTimestampRangeUsesFormattedBounds(t *testing.T) {
 	got := formatTimestampRange(&types.MediaAnchor{StartMS: 5600, EndMS: 128000})
 	if got != "0:05.6 - 2:08" {
 		t.Fatalf("formatTimestampRange() = %q", got)
+	}
+}
+
+func TestSearchTemplateRendersExplicitSurfaceModesAndMixedContentTypes(t *testing.T) {
+	view := searchView{
+		Title:       "Search",
+		ActionPath:  "/demo/search",
+		APIPath:     "/api/demo/search",
+		SuggestPath: "/api/demo/suggest",
+		Surface:     "content_shared",
+		Page:        1,
+		PerPage:     10,
+		TotalPages:  1,
+		Result: types.SearchResultPage{
+			Page:    1,
+			PerPage: 10,
+			Total:   3,
+			Hits: []types.SearchHit{
+				{ID: "video-1", Type: types.DocumentTypeVideo, Title: "Search Architecture Walkthrough", URL: "/videos/1", Locale: "en"},
+				{ID: "document-1", Type: types.DocumentTypeDocument, Title: "Search Rollout Workbook", URL: "/documents/1", Locale: "en"},
+				{ID: "blog-1", Type: types.DocumentTypeBlogArticle, Title: "Search Notes", URL: "/blog/1", Locale: "en"},
+			},
+		},
+	}
+	var out bytes.Buffer
+	if err := searchTemplate.Execute(&out, view); err != nil {
+		t.Fatalf("render template: %v", err)
+	}
+	body := out.String()
+	for _, needle := range []string{
+		`value="content_shared" selected`,
+		`value="content_split"`,
+		`value="media_grouped"`,
+		`badge badge-type">video<`,
+		`badge badge-type">document<`,
+		`badge badge-type">blog_article<`,
+	} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("expected %q in rendered template", needle)
+		}
 	}
 }
