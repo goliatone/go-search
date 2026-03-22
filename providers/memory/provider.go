@@ -456,12 +456,17 @@ func toHit(doc types.Document, score float64, req types.SearchRequest) types.Sea
 	if doc.ParentID != "" {
 		hit.Parent = searchParent(doc)
 	}
-	if doc.StartMS != nil && doc.EndMS != nil {
+	if doc.StartMS != nil || doc.EndMS != nil || strings.TrimSpace(doc.AnchorURL) != "" {
 		hit.Anchor = &types.MediaAnchor{
-			ParentID: doc.ParentID,
-			StartMS:  *doc.StartMS,
-			EndMS:    *doc.EndMS,
-			URL:      doc.AnchorURL,
+			ParentID:   firstNonEmptyString(doc.ParentID, doc.ID),
+			ParentType: parentType(doc),
+			URL:        firstNonEmptyString(doc.AnchorURL, doc.URL),
+		}
+		if doc.StartMS != nil {
+			hit.Anchor.StartMS = *doc.StartMS
+		}
+		if doc.EndMS != nil {
+			hit.Anchor.EndMS = *doc.EndMS
 		}
 	}
 	if doc.Body != "" {
@@ -704,7 +709,7 @@ func searchParent(doc types.Document) *types.SearchParent {
 	}
 	parent := &types.SearchParent{
 		ID:    doc.ParentID,
-		Type:  types.DocumentTypeVideo,
+		Type:  parentType(doc),
 		Title: doc.Title,
 		URL:   doc.URL,
 	}
@@ -718,4 +723,28 @@ func searchParent(doc types.Document) *types.SearchParent {
 		parent.Thumbnail = toString(thumbnail)
 	}
 	return parent
+}
+
+func parentType(doc types.Document) string {
+	if value, ok := doc.Fields["parent_type"]; ok {
+		if out := strings.TrimSpace(toString(value)); out != "" {
+			return out
+		}
+	}
+	if doc.ParentID != "" {
+		return types.DocumentTypeVideo
+	}
+	if strings.TrimSpace(doc.Type) != "" {
+		return doc.Type
+	}
+	return types.DocumentTypeVideo
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }

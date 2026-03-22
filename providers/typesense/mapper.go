@@ -211,6 +211,7 @@ func mapDocument(raw *map[string]any) types.Document {
 		"index",
 		"type",
 		"parent_id",
+		"parent_type",
 		"source_type",
 		"source_id",
 		"title",
@@ -294,7 +295,7 @@ func mapParent(doc types.Document) *types.SearchParent {
 	}
 	return &types.SearchParent{
 		ID:        parentID,
-		Type:      types.DocumentTypeVideo,
+		Type:      parentType(doc),
 		Title:     parentTitle,
 		URL:       parentURL,
 		Thumbnail: fieldString(doc.Fields, "parent_thumbnail"),
@@ -315,8 +316,8 @@ func mapAnchor(doc types.Document) *types.MediaAnchor {
 		return nil
 	}
 	anchor := &types.MediaAnchor{
-		ParentID:   doc.ParentID,
-		ParentType: types.DocumentTypeVideo,
+		ParentID:   firstNonEmpty(doc.ParentID, doc.ID),
+		ParentType: parentType(doc),
 		URL:        firstNonEmpty(doc.AnchorURL, doc.URL),
 	}
 	if doc.StartMS != nil {
@@ -326,6 +327,19 @@ func mapAnchor(doc types.Document) *types.MediaAnchor {
 		anchor.EndMS = *doc.EndMS
 	}
 	return anchor
+}
+
+func parentType(doc types.Document) string {
+	if value := strings.TrimSpace(fieldString(doc.Fields, "parent_type")); value != "" {
+		return value
+	}
+	if strings.TrimSpace(doc.ParentID) != "" {
+		return types.DocumentTypeVideo
+	}
+	if strings.TrimSpace(doc.Type) != "" {
+		return doc.Type
+	}
+	return types.DocumentTypeVideo
 }
 
 func mapSnippet(hit tsapi.SearchResultHit, doc types.Document) *types.SearchSnippet {

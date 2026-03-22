@@ -21,7 +21,7 @@ func upsertDocuments(ctx context.Context, client *tstypesense.Client, runtime ma
 		payload = append(payload, compileDocument(runtime.def, doc))
 	}
 	results, err := client.Collection(runtime.collectionName).Documents().Import(ctx, payload, &tsapi.ImportDocumentsParams{
-		Action:   indexActionPtr(tsapi.Upsert),
+		Action:   new(tsapi.Upsert),
 		ReturnId: new(true),
 	})
 	if err != nil {

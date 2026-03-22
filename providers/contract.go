@@ -118,4 +118,79 @@ func RunContractSuite(t *testing.T, factory Factory) {
 			t.Fatalf("expected zero results after delete by source, got %d", page.Total)
 		}
 	})
+
+	t.Run("heterogeneous flat multi-index search", func(t *testing.T) {
+		provider := factory(t)
+		ctx := context.Background()
+		defs := []types.IndexDefinition{
+			{Name: "videos"},
+			{Name: "documents"},
+			{Name: "blog_articles"},
+		}
+		for _, def := range defs {
+			if err := provider.EnsureIndex(ctx, def); err != nil {
+				t.Fatalf("ensure index %s: %v", def.Name, err)
+			}
+		}
+		if err := provider.UpsertDocuments(ctx, "videos", []types.Document{{
+			ID:      "video-1",
+			Index:   "videos",
+			Type:    types.DocumentTypeVideo,
+			Title:   "Search Architecture Walkthrough",
+			Summary: "video summary",
+			Body:    "search architecture video",
+			URL:     "/videos/1",
+			Locale:  "en",
+			Facets:  map[string][]string{"entity_type": {types.DocumentTypeVideo}},
+		}}); err != nil {
+			t.Fatalf("upsert video doc: %v", err)
+		}
+		if err := provider.UpsertDocuments(ctx, "documents", []types.Document{{
+			ID:      "document-1",
+			Index:   "documents",
+			Type:    types.DocumentTypeDocument,
+			Title:   "Search Rollout Workbook",
+			Summary: "document summary",
+			Body:    "search rollout document",
+			URL:     "/documents/1",
+			Locale:  "en",
+			Facets:  map[string][]string{"entity_type": {types.DocumentTypeDocument}},
+		}}); err != nil {
+			t.Fatalf("upsert document doc: %v", err)
+		}
+		if err := provider.UpsertDocuments(ctx, "blog_articles", []types.Document{{
+			ID:      "blog-1",
+			Index:   "blog_articles",
+			Type:    types.DocumentTypeBlogArticle,
+			Title:   "Search Notes",
+			Summary: "blog summary",
+			Body:    "search notes article",
+			URL:     "/blog/1",
+			Locale:  "en",
+			Facets:  map[string][]string{"entity_type": {types.DocumentTypeBlogArticle}},
+		}}); err != nil {
+			t.Fatalf("upsert blog doc: %v", err)
+		}
+		page, err := provider.Search(ctx, types.SearchRequest{
+			Indexes: []string{"videos", "documents", "blog_articles"},
+			Query:   "search",
+			Page:    1,
+			PerPage: 10,
+		})
+		if err != nil {
+			t.Fatalf("search: %v", err)
+		}
+		if page.Total < 3 {
+			t.Fatalf("expected at least three hits, got %+v", page)
+		}
+		found := map[string]bool{}
+		for _, hit := range page.Hits {
+			found[hit.Type] = true
+		}
+		for _, typ := range []string{types.DocumentTypeVideo, types.DocumentTypeDocument, types.DocumentTypeBlogArticle} {
+			if !found[typ] {
+				t.Fatalf("expected hit type %q in %+v", typ, page.Hits)
+			}
+		}
+	})
 }

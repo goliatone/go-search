@@ -107,12 +107,7 @@ func (p *Planner) NormalizeSearchRequest(req types.SearchRequest) types.SearchRe
 	req.Locale = p.normalizeLocale(req.Locale)
 	req.Locales = p.normalizeLocales(req.Locales)
 	if req.GroupBy == "" && !p.defaults.DisableIndexGroupByDefault {
-		for _, index := range req.Indexes {
-			if def, ok := p.registry.GetIndex(index); ok && def.GroupByDefault != "" {
-				req.GroupBy = def.GroupByDefault
-				break
-			}
-		}
+		req.GroupBy = p.defaultGroupBy(req.Indexes)
 	}
 	if req.Mode == "" {
 		req.Mode = p.defaults.DefaultSearchMode
@@ -166,6 +161,9 @@ func (p *Planner) BuildSearchPlan(ctx context.Context, req types.SearchRequest) 
 	}
 	indexes, err := p.resolveIndexes(req.Indexes)
 	if err != nil {
+		return SearchPlan{}, err
+	}
+	if err := p.validateGroupedSearch(req, indexes); err != nil {
 		return SearchPlan{}, err
 	}
 	if p.scopeGuard != nil && !p.scopeGuard.AllowSearch(ctx, req.Actor, req) {
@@ -319,6 +317,47 @@ func (p *Planner) resolveIndexes(indexes []string) ([]types.IndexDefinition, err
 		out = append(out, def)
 	}
 	return out, nil
+}
+
+func (p *Planner) defaultGroupBy(indexes []string) string {
+	if len(indexes) == 0 {
+		return ""
+	}
+	groupBy := ""
+	for _, index := range indexes {
+		def, ok := p.registry.GetIndex(index)
+		if !ok {
+			continue
+		}
+		value := strings.TrimSpace(def.GroupByDefault)
+		if value == "" {
+			return ""
+		}
+		if groupBy == "" {
+			groupBy = value
+			continue
+		}
+		if groupBy != value {
+			return ""
+		}
+	}
+	return groupBy
+}
+
+func (p *Planner) validateGroupedSearch(req types.SearchRequest, indexes []types.IndexDefinition) error {
+	if strings.TrimSpace(req.GroupBy) == "" {
+		return nil
+	}
+	for _, def := range indexes {
+		if strings.TrimSpace(def.GroupByDefault) == strings.TrimSpace(req.GroupBy) {
+			continue
+		}
+		return errs.InvalidInput("grouped search is not supported for the selected index set", map[string]any{
+			"group_by": req.GroupBy,
+			"index":    def.Name,
+		})
+	}
+	return nil
 }
 
 func supportsMode(caps types.CapabilitySet, mode types.SearchMode) bool {
