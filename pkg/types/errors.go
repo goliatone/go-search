@@ -1,6 +1,7 @@
 package types
 
 const (
+	TextCodeInvalidInput          = "SEARCH_INVALID_INPUT"
 	TextCodeUnknownIndex          = "SEARCH_UNKNOWN_INDEX"
 	TextCodeUnsupportedCapability = "SEARCH_UNSUPPORTED_CAPABILITY"
 	TextCodeInvalidFilter         = "SEARCH_INVALID_FILTER"

@@ -6,6 +6,8 @@ import "time"
 
 const (
 	DocumentTypeVideo             = "video"
+	DocumentTypeDocument          = "document"
+	DocumentTypeBlogArticle       = "blog_article"
 	DocumentTypeTranscriptSegment = "transcript_segment"
 )
 

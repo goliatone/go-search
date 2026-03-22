@@ -62,22 +62,25 @@ type DeleteDocumentsInput struct {
 func (DeleteDocumentsInput) Type() string { return "search::delete_documents" }
 
 type IndexRecordInput struct {
-	Index    string `json:"index"`
-	RecordID string `json:"record_id"`
+	Index           string `json:"index"`
+	RegistrationKey string `json:"registration_key,omitempty"`
+	RecordID        string `json:"record_id"`
 }
 
 func (IndexRecordInput) Type() string { return "search::index_record" }
 
 type DeleteRecordInput struct {
-	Index    string `json:"index"`
-	RecordID string `json:"record_id"`
+	Index           string `json:"index"`
+	RegistrationKey string `json:"registration_key,omitempty"`
+	RecordID        string `json:"record_id"`
 }
 
 func (DeleteRecordInput) Type() string { return "search::delete_record" }
 
 type ReindexIndexInput struct {
-	Index     string `json:"index"`
-	BatchSize int    `json:"batch_size"`
+	Index           string `json:"index"`
+	RegistrationKey string `json:"registration_key,omitempty"`
+	BatchSize       int    `json:"batch_size"`
 }
 
 func (ReindexIndexInput) Type() string { return "search::reindex_index" }
