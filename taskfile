@@ -9,6 +9,7 @@ export LGR_NO_TIMESTAMP=true
 
 GIT_MAIN="main"
 VERSION_FILE="./.version"
+PROJECT_ROOT="$(pwd)"
 
 # If we have a .taskenv file load it as source
 if [ -f .taskenv ]; then
@@ -30,6 +31,13 @@ TYPESENSE_PORT="${TYPESENSE_PORT:-8108}"
 TYPESENSE_PROTOCOL="${TYPESENSE_PROTOCOL:-http}"
 TYPESENSE_API_KEY="${GO_SEARCH_TEST_TYPESENSE_API_KEY:-${TYPESENSE_API_KEY:-xyz}}"
 TYPESENSE_URL="${GO_SEARCH_TEST_TYPESENSE_URL:-${TYPESENSE_PROTOCOL}://localhost:${TYPESENSE_PORT}}"
+GO_TOOLCHAIN="${GO_TOOLCHAIN:-local}"
+GO_STATICCHECK_VERSION="${GO_STATICCHECK_VERSION:-v0.7.0}"
+GO_GOVULNCHECK_VERSION="${GO_GOVULNCHECK_VERSION:-v1.1.4}"
+GO_GOSEC_VERSION="${GO_GOSEC_VERSION:-v2.25.0}"
+GO_QUALITY_BASELINE_DIR="${GO_QUALITY_BASELINE_DIR:-${PROJECT_ROOT}/ops/quality/baselines}"
+GO_QUALITY_BASELINE_SCRIPT="${GO_QUALITY_BASELINE_SCRIPT:-${PROJECT_ROOT}/tools/quality/baseline.sh}"
+GO_QUALITY_MODULES="${GO_QUALITY_MODULES:-. adapters/goadmin adapters/gocms adapters/gousers}"
 
 
 #################################################
@@ -78,6 +86,561 @@ function _install:envset {
     fi
 }
 
+function _go:bin {
+    if command -v go >/dev/null 2>&1; then
+        command -v go
+        return 0
+    fi
+
+    echo "go binary not found in PATH" >&2
+    return 1
+}
+
+function _go:tool_bin_dir {
+    local go_bin
+    local gobin
+    local gopath
+
+    go_bin=$(_go:bin) || return 1
+    gobin="$("${go_bin}" env GOBIN)"
+    if [ -n "${gobin}" ]; then
+        printf '%s\n' "${gobin}"
+        return 0
+    fi
+
+    gopath="$("${go_bin}" env GOPATH)"
+    if [ -n "${gopath}" ]; then
+        printf '%s\n' "${gopath%/}/bin"
+        return 0
+    fi
+
+    echo "unable to resolve Go tool bin directory" >&2
+    return 1
+}
+
+function _go:tool:path {
+    local name=$1
+    local bin_dir
+
+    if command -v "${name}" >/dev/null 2>&1; then
+        command -v "${name}"
+        return 0
+    fi
+
+    bin_dir=$(_go:tool_bin_dir) || return 1
+    if [ -x "${bin_dir}/${name}" ]; then
+        printf '%s\n' "${bin_dir}/${name}"
+        return 0
+    fi
+
+    return 1
+}
+
+function _go:tool:install {
+    local name=$1
+    local target=$2
+    local go_bin
+
+    go_bin=$(_go:bin) || return 1
+    echo "Installing ${name} (${target})"
+    GOTOOLCHAIN="${GO_TOOLCHAIN}" "${go_bin}" install "${target}" || return 1
+    _go:tool:path "${name}" || return 1
+}
+
+function _go:tool:ensure {
+    local name=$1
+    local target=$2
+    local tool_path
+
+    if tool_path=$(_go:tool:path "${name}" 2>/dev/null); then
+        printf '%s\n' "${tool_path}"
+        return 0
+    fi
+
+    _go:tool:install "${name}" "${target}"
+}
+
+function _go:module_dirs {
+    local module
+    for module in ${GO_QUALITY_MODULES}; do
+        printf '%s\n' "${module}"
+    done
+}
+
+function _go:module_key {
+    local module=$1
+
+    if [ "${module}" = "." ]; then
+        printf 'root\n'
+        return 0
+    fi
+
+    printf '%s\n' "${module//\//__}"
+}
+
+function _go:baseline_path {
+    local module=$1
+    local tool=$2
+    local module_key
+
+    module_key=$(_go:module_key "${module}") || return 1
+    printf '%s/%s/%s.txt\n' "${GO_QUALITY_BASELINE_DIR}" "${module_key}" "${tool}"
+}
+
+function _go:packages {
+    local module_dir=$1
+    shift
+    local go_bin
+    local -a patterns=()
+
+    go_bin=$(_go:bin) || return 1
+    if [ "$#" -gt 0 ]; then
+        patterns=("$@")
+    else
+        patterns=("./...")
+    fi
+
+    (
+        cd "${module_dir}" || exit 1
+        "${go_bin}" list "${patterns[@]}"
+    )
+}
+
+function _go:package_dirs {
+    local module_dir=$1
+    shift
+    local go_bin
+    local -a patterns=()
+
+    go_bin=$(_go:bin) || return 1
+    if [ "$#" -gt 0 ]; then
+        patterns=("$@")
+    else
+        patterns=("./...")
+    fi
+
+    (
+        cd "${module_dir}" || exit 1
+        "${go_bin}" list -f '{{.Dir}}' "${patterns[@]}"
+    )
+}
+
+function _go:files {
+    find . -type f -name '*.go' \
+        -not -path './.git/*' \
+        -not -path './.gocache/*' \
+        -not -path './.tmp/*' \
+        -not -path './node_modules/*' \
+        -not -path './vendor/*' \
+        | sort
+}
+
+function _go:for_each_module {
+    local callback=$1
+    shift
+    local module
+
+    while IFS= read -r module; do
+        if [ -n "${module}" ]; then
+            "${callback}" "${module}" "$@" || return 1
+        fi
+    done < <(_go:module_dirs)
+}
+
+function _go:packages_for_module {
+    local module=$1
+    shift
+    local -a packages=()
+    local pkg
+
+    while IFS= read -r pkg; do
+        if [ -n "${pkg}" ]; then
+            packages+=("${pkg}")
+        fi
+    done < <(_go:packages "${module}" "$@")
+
+    printf '%s\0' "${packages[@]}"
+}
+
+function _go:package_dirs_for_module {
+    local module=$1
+    shift
+    local -a dirs=()
+    local dir
+
+    while IFS= read -r dir; do
+        if [ -n "${dir}" ]; then
+            dirs+=("${dir}")
+        fi
+    done < <(_go:package_dirs "${module}" "$@")
+
+    printf '%s\0' "${dirs[@]}"
+}
+
+function _go:test_module {
+    local module=$1
+    shift
+    local go_bin
+    local -a packages=()
+
+    go_bin=$(_go:bin) || return 1
+    while IFS= read -r -d '' pkg; do
+        packages+=("${pkg}")
+    done < <(_go:packages_for_module "${module}" "$@")
+    if [ "${#packages[@]}" -eq 0 ]; then
+        return 0
+    fi
+
+    echo "==> go:test (${module})"
+    (
+        cd "${module}" || exit 1
+        "${go_bin}" test "${packages[@]}"
+    )
+}
+
+function _go:race_module {
+    local module=$1
+    shift
+    local go_bin
+    local -a packages=()
+
+    go_bin=$(_go:bin) || return 1
+    while IFS= read -r -d '' pkg; do
+        packages+=("${pkg}")
+    done < <(_go:packages_for_module "${module}" "$@")
+    if [ "${#packages[@]}" -eq 0 ]; then
+        return 0
+    fi
+
+    echo "==> go:race (${module})"
+    (
+        cd "${module}" || exit 1
+        "${go_bin}" test -race -count=1 "${packages[@]}"
+    )
+}
+
+function _go:vet_module {
+    local module=$1
+    shift
+    local go_bin
+    local -a packages=()
+
+    go_bin=$(_go:bin) || return 1
+    while IFS= read -r -d '' pkg; do
+        packages+=("${pkg}")
+    done < <(_go:packages_for_module "${module}" "$@")
+    if [ "${#packages[@]}" -eq 0 ]; then
+        return 0
+    fi
+
+    echo "==> go:vet (${module})"
+    (
+        cd "${module}" || exit 1
+        "${go_bin}" vet "${packages[@]}"
+    )
+}
+
+function _go:lint:staticcheck_module {
+    local module=$1
+    shift
+    local staticcheck_bin
+    local -a packages=()
+
+    staticcheck_bin=$(_go:tool:ensure "staticcheck" "honnef.co/go/tools/cmd/staticcheck@${GO_STATICCHECK_VERSION}") || return 1
+    while IFS= read -r -d '' pkg; do
+        packages+=("${pkg}")
+    done < <(_go:packages_for_module "${module}" "$@")
+    if [ "${#packages[@]}" -eq 0 ]; then
+        return 0
+    fi
+
+    echo "==> go:lint:staticcheck (${module})"
+    (
+        cd "${module}" || exit 1
+        "${staticcheck_bin}" "${packages[@]}"
+    )
+}
+
+function _go:lint:staticcheck:baseline_module {
+    local module=$1
+    shift
+    local staticcheck_bin
+    local baseline_path
+    local -a packages=()
+
+    staticcheck_bin=$(_go:tool:ensure "staticcheck" "honnef.co/go/tools/cmd/staticcheck@${GO_STATICCHECK_VERSION}") || return 1
+    baseline_path=$(_go:baseline_path "${module}" "staticcheck") || return 1
+    while IFS= read -r -d '' pkg; do
+        packages+=("${pkg}")
+    done < <(_go:packages_for_module "${module}" "$@")
+    if [ "${#packages[@]}" -eq 0 ]; then
+        return 0
+    fi
+
+    echo "==> go:lint:staticcheck:baseline (${module})"
+    (
+        cd "${module}" || exit 1
+        STATICCHECK_BIN="${staticcheck_bin}" "${GO_QUALITY_BASELINE_SCRIPT}" check staticcheck "${baseline_path}" "${packages[@]}"
+    )
+}
+
+function _go:security:govulncheck_module {
+    local module=$1
+    shift
+    local govulncheck_bin
+    local -a packages=()
+
+    govulncheck_bin=$(_go:tool:ensure "govulncheck" "golang.org/x/vuln/cmd/govulncheck@${GO_GOVULNCHECK_VERSION}") || return 1
+    while IFS= read -r -d '' pkg; do
+        packages+=("${pkg}")
+    done < <(_go:packages_for_module "${module}" "$@")
+    if [ "${#packages[@]}" -eq 0 ]; then
+        return 0
+    fi
+
+    echo "==> go:security:govulncheck (${module})"
+    (
+        cd "${module}" || exit 1
+        "${govulncheck_bin}" "${packages[@]}"
+    )
+}
+
+function _go:security:gosec_module {
+    local module=$1
+    shift
+    local gosec_bin
+    local -a package_dirs=()
+
+    gosec_bin=$(_go:tool:ensure "gosec" "github.com/securego/gosec/v2/cmd/gosec@${GO_GOSEC_VERSION}") || return 1
+    while IFS= read -r -d '' dir; do
+        package_dirs+=("${dir}")
+    done < <(_go:package_dirs_for_module "${module}" "$@")
+    if [ "${#package_dirs[@]}" -eq 0 ]; then
+        return 0
+    fi
+
+    echo "==> go:security:gosec (${module})"
+    "${gosec_bin}" "${package_dirs[@]}"
+}
+
+function _go:security:gosec:baseline_module {
+    local module=$1
+    shift
+    local gosec_bin
+    local baseline_path
+    local -a package_dirs=()
+
+    gosec_bin=$(_go:tool:ensure "gosec" "github.com/securego/gosec/v2/cmd/gosec@${GO_GOSEC_VERSION}") || return 1
+    baseline_path=$(_go:baseline_path "${module}" "gosec") || return 1
+    while IFS= read -r -d '' dir; do
+        package_dirs+=("${dir}")
+    done < <(_go:package_dirs_for_module "${module}" "$@")
+    if [ "${#package_dirs[@]}" -eq 0 ]; then
+        return 0
+    fi
+
+    echo "==> go:security:gosec:baseline (${module})"
+    GOSEC_BIN="${gosec_bin}" "${GO_QUALITY_BASELINE_SCRIPT}" check gosec "${baseline_path}" "${package_dirs[@]}"
+}
+
+function _go:baseline:update:staticcheck_module {
+    local module=$1
+    shift
+    local staticcheck_bin
+    local baseline_path
+    local -a packages=()
+
+    staticcheck_bin=$(_go:tool:ensure "staticcheck" "honnef.co/go/tools/cmd/staticcheck@${GO_STATICCHECK_VERSION}") || return 1
+    baseline_path=$(_go:baseline_path "${module}" "staticcheck") || return 1
+    while IFS= read -r -d '' pkg; do
+        packages+=("${pkg}")
+    done < <(_go:packages_for_module "${module}" "$@")
+    if [ "${#packages[@]}" -eq 0 ]; then
+        return 0
+    fi
+
+    echo "==> go:baseline:update:staticcheck (${module})"
+    (
+        cd "${module}" || exit 1
+        STATICCHECK_BIN="${staticcheck_bin}" "${GO_QUALITY_BASELINE_SCRIPT}" update staticcheck "${baseline_path}" "${packages[@]}"
+    )
+}
+
+function _go:baseline:update:gosec_module {
+    local module=$1
+    shift
+    local gosec_bin
+    local baseline_path
+    local -a package_dirs=()
+
+    gosec_bin=$(_go:tool:ensure "gosec" "github.com/securego/gosec/v2/cmd/gosec@${GO_GOSEC_VERSION}") || return 1
+    baseline_path=$(_go:baseline_path "${module}" "gosec") || return 1
+    while IFS= read -r -d '' dir; do
+        package_dirs+=("${dir}")
+    done < <(_go:package_dirs_for_module "${module}" "$@")
+    if [ "${#package_dirs[@]}" -eq 0 ]; then
+        return 0
+    fi
+
+    echo "==> go:baseline:update:gosec (${module})"
+    GOSEC_BIN="${gosec_bin}" "${GO_QUALITY_BASELINE_SCRIPT}" update gosec "${baseline_path}" "${package_dirs[@]}"
+}
+
+function _go:mod:tidy_module {
+    local module=$1
+    local go_bin
+
+    go_bin=$(_go:bin) || return 1
+    echo "==> go:mod:tidy (${module})"
+    (
+        cd "${module}" || exit 1
+        "${go_bin}" mod tidy
+    )
+}
+
+function go:tools:staticcheck {
+    _go:tool:install "staticcheck" "honnef.co/go/tools/cmd/staticcheck@${GO_STATICCHECK_VERSION}"
+}
+
+function go:tools:govulncheck {
+    _go:tool:install "govulncheck" "golang.org/x/vuln/cmd/govulncheck@${GO_GOVULNCHECK_VERSION}"
+}
+
+function go:tools:gosec {
+    _go:tool:install "gosec" "github.com/securego/gosec/v2/cmd/gosec@${GO_GOSEC_VERSION}"
+}
+
+function go:tools:all {
+    go:tools:staticcheck || return 1
+    go:tools:govulncheck || return 1
+    go:tools:gosec || return 1
+}
+
+function go:mod:tidy:all {
+    _go:for_each_module _go:mod:tidy_module
+}
+
+function go:fmt {
+    local gofmt_bin
+    local -a files=()
+    local file
+
+    gofmt_bin="$(dirname "$(_go:bin)")/gofmt"
+    while IFS= read -r file; do
+        if [ -n "${file}" ]; then
+            files+=("${file}")
+        fi
+    done < <(_go:files)
+    if [ "${#files[@]}" -eq 0 ]; then
+        echo "No Go files found"
+        return 0
+    fi
+
+    "${gofmt_bin}" -w "${files[@]}"
+}
+
+function go:fmt:check {
+    local gofmt_bin
+    local -a files=()
+    local file
+    local unformatted
+
+    gofmt_bin="$(dirname "$(_go:bin)")/gofmt"
+    while IFS= read -r file; do
+        if [ -n "${file}" ]; then
+            files+=("${file}")
+        fi
+    done < <(_go:files)
+    if [ "${#files[@]}" -eq 0 ]; then
+        echo "No Go files found"
+        return 0
+    fi
+
+    unformatted="$("${gofmt_bin}" -l "${files[@]}")"
+    if [ -n "${unformatted}" ]; then
+        echo "The following Go files need formatting:"
+        echo "${unformatted}"
+        return 1
+    fi
+}
+
+function go:test {
+    _go:for_each_module _go:test_module "$@"
+}
+
+function go:race {
+    _go:for_each_module _go:race_module "$@"
+}
+
+function go:vet {
+    _go:for_each_module _go:vet_module "$@"
+}
+
+function go:lint:staticcheck {
+    _go:for_each_module _go:lint:staticcheck_module "$@"
+}
+
+function go:lint:all {
+    go:vet "$@" || return 1
+    go:lint:staticcheck "$@" || return 1
+}
+
+function go:lint:staticcheck:baseline {
+    _go:for_each_module _go:lint:staticcheck:baseline_module "$@"
+}
+
+function go:security:govulncheck {
+    _go:for_each_module _go:security:govulncheck_module "$@"
+}
+
+function go:security:gosec {
+    _go:for_each_module _go:security:gosec_module "$@"
+}
+
+function go:security:gosec:baseline {
+    _go:for_each_module _go:security:gosec:baseline_module "$@"
+}
+
+function go:security:all {
+    go:security:govulncheck "$@" || return 1
+    go:security:gosec "$@" || return 1
+}
+
+function go:baseline:update:staticcheck {
+    _go:for_each_module _go:baseline:update:staticcheck_module "$@"
+}
+
+function go:baseline:update:gosec {
+    _go:for_each_module _go:baseline:update:gosec_module "$@"
+}
+
+function go:baseline:update:all {
+    go:baseline:update:staticcheck "$@" || return 1
+    go:baseline:update:gosec "$@" || return 1
+}
+
+function go:quality:all {
+    go:fmt:check || return 1
+    go:test "$@" || return 1
+    go:race "$@" || return 1
+    go:lint:all "$@" || return 1
+    go:security:all "$@" || return 1
+}
+
+function go:quality:baseline {
+    go:fmt:check || return 1
+    go:test "$@" || return 1
+    go:race "$@" || return 1
+    go:vet "$@" || return 1
+    go:lint:staticcheck:baseline "$@" || return 1
+    go:security:govulncheck "$@" || return 1
+    go:security:gosec:baseline "$@" || return 1
+}
+
+function go:all {
+    go:quality:all "$@"
+}
+
 ##########################################
 # Application management
 ##########################################
@@ -99,7 +662,7 @@ function dev:env:load {
 }
 
 function dev:test {
-    go test ./...
+    go:test
 }
 
 function dev:test:release:fast {
