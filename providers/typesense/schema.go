@@ -106,29 +106,36 @@ func buildCollectionSchema(cfg Config, def types.IndexDefinition) (*tsapi.Collec
 
 func fixedFieldSpecs() map[string]schemaFieldSpec {
 	return map[string]schemaFieldSpec{
-		"id":               {Type: "string", Index: true, Optional: false},
-		"document_id":      {Type: "string", Optional: true},
-		"index":            {Type: "string", Facet: true, Optional: true},
-		"registration_key": {Type: "string", Facet: true, Optional: true},
-		"type":             {Type: "string", Facet: true, Optional: true},
-		"parent_id":        {Type: "string", Facet: true, Optional: true},
-		"source_type":      {Type: "string", Facet: true, Optional: true},
-		"source_id":        {Type: "string", Facet: true, Optional: true},
-		"title":            {Type: "string", Index: true, Optional: true},
-		"summary":          {Type: "string", Index: true, Optional: true},
-		"body":             {Type: "string", Index: true, Optional: true},
-		"url":              {Type: "string", Optional: true},
-		"anchor_url":       {Type: "string", Optional: true},
-		"locale":           {Type: "string", Facet: true, Optional: true},
-		"start_ms":         {Type: "int64", Sort: true, Optional: true, RangeIndex: true},
-		"end_ms":           {Type: "int64", Sort: true, Optional: true, RangeIndex: true},
-		"parent_title":     {Type: "string", Index: true, Optional: true},
-		"parent_summary":   {Type: "string", Index: true, Optional: true},
-		"parent_url":       {Type: "string", Optional: true},
-		"parent_thumbnail": {Type: "string", Optional: true},
-		"track_kind":       {Type: "string", Facet: true, Optional: true},
-		"source_format":    {Type: "string", Facet: true, Optional: true},
-		"topic":            {Type: "string[]", Facet: true, Optional: true},
+		"id":                     {Type: "string", Index: true, Optional: false},
+		"document_id":            {Type: "string", Optional: true},
+		"index":                  {Type: "string", Facet: true, Optional: true},
+		"registration_key":       {Type: "string", Facet: true, Optional: true},
+		"type":                   {Type: "string", Facet: true, Optional: true},
+		"parent_id":              {Type: "string", Facet: true, Optional: true},
+		"source_type":            {Type: "string", Facet: true, Optional: true},
+		"source_id":              {Type: "string", Facet: true, Optional: true},
+		"title":                  {Type: "string", Index: true, Optional: true},
+		"summary":                {Type: "string", Index: true, Optional: true},
+		"body":                   {Type: "string", Index: true, Optional: true},
+		"url":                    {Type: "string", Optional: true},
+		"anchor_url":             {Type: "string", Optional: true},
+		"locale":                 {Type: "string", Facet: true, Optional: true},
+		"start_ms":               {Type: "int64", Sort: true, Optional: true, RangeIndex: true},
+		"end_ms":                 {Type: "int64", Sort: true, Optional: true, RangeIndex: true},
+		"parent_title":           {Type: "string", Index: true, Optional: true},
+		"parent_summary":         {Type: "string", Index: true, Optional: true},
+		"parent_url":             {Type: "string", Optional: true},
+		"parent_thumbnail":       {Type: "string", Optional: true},
+		"track_kind":             {Type: "string", Facet: true, Optional: true},
+		"source_format":          {Type: "string", Facet: true, Optional: true},
+		"topic":                  {Type: "string[]", Facet: true, Optional: true},
+		"scope_tenant_id":        {Type: "string", Facet: true, Optional: true},
+		"scope_org_id":           {Type: "string", Facet: true, Optional: true},
+		"scope_labels":           {Type: "string[]", Facet: true, Optional: true},
+		"visibility_public":      {Type: "bool", Facet: true, Optional: true},
+		"visibility_roles":       {Type: "string[]", Facet: true, Optional: true},
+		"visibility_permissions": {Type: "string[]", Facet: true, Optional: true},
+		"visibility_status":      {Type: "string", Facet: true, Optional: true},
 	}
 }
 
@@ -317,12 +324,6 @@ func isNumericType(typeName string) bool {
 		return false
 	}
 }
-
-//go:fix inline
-func boolPtr(value bool) *bool { return new(value) }
-
-//go:fix inline
-func stringPtr(value string) *string { return new(value) }
 
 func ptrBool(value *bool) bool {
 	return value != nil && *value

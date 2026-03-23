@@ -2,6 +2,7 @@ package typesense
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -151,6 +152,9 @@ func compileCombinedFilter(def types.IndexDefinition, req types.SearchRequest) (
 		}
 		parts = append(parts, fmt.Sprintf("locale:=[%s]", strings.Join(values, ",")))
 	}
+	if scopeFilter := compileScopeFilter(req.Scope); scopeFilter != "" {
+		parts = append(parts, scopeFilter)
+	}
 
 	return strings.Join(parts, " && "), nil
 }
@@ -278,18 +282,25 @@ func searchQueryFields(def types.IndexDefinition) []string {
 
 func allowedFilterFields(def types.IndexDefinition) map[string]struct{} {
 	out := map[string]struct{}{
-		"id":            {},
-		"index":         {},
-		"type":          {},
-		"parent_id":     {},
-		"source_type":   {},
-		"source_id":     {},
-		"locale":        {},
-		"start_ms":      {},
-		"end_ms":        {},
-		"track_kind":    {},
-		"source_format": {},
-		"topic":         {},
+		"id":                     {},
+		"index":                  {},
+		"type":                   {},
+		"parent_id":              {},
+		"source_type":            {},
+		"source_id":              {},
+		"locale":                 {},
+		"start_ms":               {},
+		"end_ms":                 {},
+		"track_kind":             {},
+		"source_format":          {},
+		"topic":                  {},
+		"scope_tenant_id":        {},
+		"scope_org_id":           {},
+		"scope_labels":           {},
+		"visibility_public":      {},
+		"visibility_roles":       {},
+		"visibility_permissions": {},
+		"visibility_status":      {},
 	}
 	for _, field := range def.FilterableFields {
 		out[field] = struct{}{}
@@ -300,6 +311,40 @@ func allowedFilterFields(def types.IndexDefinition) map[string]struct{} {
 	if def.GroupByDefault != "" {
 		out[def.GroupByDefault] = struct{}{}
 	}
+	return out
+}
+
+func compileScopeFilter(scope types.Scope) string {
+	parts := make([]string, 0, len(scope.Labels)+2)
+	if tenantID := strings.TrimSpace(scope.TenantID); tenantID != "" {
+		parts = append(parts, fmt.Sprintf("scope_tenant_id:=%s", encodeStringValue(tenantID)))
+	}
+	if orgID := strings.TrimSpace(scope.OrgID); orgID != "" {
+		parts = append(parts, fmt.Sprintf("scope_org_id:=%s", encodeStringValue(orgID)))
+	}
+	for _, label := range scopeLabelTokens(scope.Labels) {
+		parts = append(parts, fmt.Sprintf("scope_labels:=%s", encodeStringValue(label)))
+	}
+	return strings.Join(parts, " && ")
+}
+
+func scopeLabelTokens(labels map[string]string) []string {
+	if len(labels) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(labels))
+	for key, value := range labels {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" {
+			continue
+		}
+		out = append(out, key+"="+value)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	sort.Strings(out)
 	return out
 }
 
@@ -414,6 +459,3 @@ func dedupe(values []string) []string {
 	}
 	return out
 }
-
-//go:fix inline
-func intPtr(value int) *int { return new(value) }

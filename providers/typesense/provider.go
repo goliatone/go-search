@@ -426,7 +426,6 @@ func (p *Provider) searchMultiIndex(ctx context.Context, req types.SearchRequest
 		},
 	}
 	allHits := []types.SearchHit{}
-	allGroups := []types.SearchGroup{}
 	facets := map[string]map[string]int{}
 	total := 0
 	duration := int64(0)
@@ -449,13 +448,11 @@ func (p *Provider) searchMultiIndex(ctx context.Context, req types.SearchRequest
 		total += page.Total
 		duration += page.DurationMS
 		allHits = append(allHits, page.Hits...)
-		for _, group := range page.Groups {
-			allGroups = append(allGroups, group)
-		}
 		mergeFacets(facets, page.Facets)
 	}
 
 	if req.GroupBy != "" {
+		allGroups := ranking.GroupHits(allHits)
 		sort.SliceStable(allGroups, func(i, j int) bool {
 			return compareSearchHits(req, *allGroups[i].TopHit, *allGroups[j].TopHit)
 		})
@@ -643,10 +640,90 @@ func compareSearchHits(req types.SearchRequest, left, right types.SearchHit) boo
 	if leftExact != rightExact {
 		return leftExact
 	}
+	if ordered, ok := compareRequestedSorts(req.Sort, left, right); ok {
+		return ordered
+	}
 	if left.Score == right.Score {
 		return left.ID < right.ID
 	}
 	return left.Score > right.Score
+}
+
+func compareRequestedSorts(sorts []types.Sort, left, right types.SearchHit) (bool, bool) {
+	for _, sortField := range sorts {
+		if strings.TrimSpace(sortField.Field) == "" {
+			continue
+		}
+		leftNum, rightNum, numeric := sortableNumbers(left, right, sortField.Field)
+		if numeric {
+			if leftNum == rightNum {
+				continue
+			}
+			if sortField.Direction == types.SortAsc {
+				return leftNum < rightNum, true
+			}
+			return leftNum > rightNum, true
+		}
+		leftText := sortableText(left, sortField.Field)
+		rightText := sortableText(right, sortField.Field)
+		if leftText == rightText {
+			continue
+		}
+		if sortField.Direction == types.SortAsc {
+			return leftText < rightText, true
+		}
+		return leftText > rightText, true
+	}
+	return false, false
+}
+
+func sortableNumbers(left, right types.SearchHit, field string) (float64, float64, bool) {
+	leftValue, leftOK := sortableNumber(left, field)
+	rightValue, rightOK := sortableNumber(right, field)
+	if !leftOK && !rightOK {
+		return 0, 0, false
+	}
+	return leftValue, rightValue, true
+}
+
+func sortableNumber(hit types.SearchHit, field string) (float64, bool) {
+	switch strings.ToLower(strings.TrimSpace(field)) {
+	case "start_ms":
+		if hit.Anchor != nil {
+			return float64(hit.Anchor.StartMS), true
+		}
+	case "end_ms":
+		if hit.Anchor != nil {
+			return float64(hit.Anchor.EndMS), true
+		}
+	}
+	if hit.Document != nil && hit.Document.Numeric != nil {
+		if value, ok := hit.Document.Numeric[field]; ok {
+			return value, true
+		}
+	}
+	if hit.Document != nil && hit.Document.Fields != nil {
+		if value, ok := hit.Document.Fields[field]; ok {
+			return asFloat64(value), true
+		}
+	}
+	return 0, false
+}
+
+func sortableText(hit types.SearchHit, field string) string {
+	switch strings.ToLower(strings.TrimSpace(field)) {
+	case "title":
+		return strings.ToLower(strings.TrimSpace(hit.Title))
+	case "locale":
+		return strings.ToLower(strings.TrimSpace(hit.Locale))
+	default:
+		if hit.Document != nil && hit.Document.Fields != nil {
+			if raw, ok := hit.Document.Fields[field]; ok {
+				return strings.ToLower(strings.TrimSpace(stringify(raw)))
+			}
+		}
+		return ""
+	}
 }
 
 func mergeFacets(dst map[string]map[string]int, input []types.SearchFacet) {

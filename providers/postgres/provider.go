@@ -150,7 +150,7 @@ func (p *Provider) ReplaceDocuments(ctx context.Context, index, registrationKey 
 				Model((*documentModel)(nil)).
 				Where("index_name = ?", index).
 				Where("registration_key = ?", registrationKey).
-				Where("source_id IN (?)", bun.In(sourceIDs)).
+				Where("source_id IN (?)", bun.List(sourceIDs)).
 				Exec(ctx); err != nil {
 				return err
 			}
@@ -213,7 +213,7 @@ func (p *Provider) DeleteDocuments(ctx context.Context, index string, ids []stri
 	_, err := p.db.NewDelete().
 		Model((*documentModel)(nil)).
 		Where("index_name = ?", index).
-		Where("document_id IN (?)", bun.In(ids)).
+		Where("document_id IN (?)", bun.List(ids)).
 		Exec(ctx)
 	return err
 }
@@ -230,7 +230,7 @@ func (p *Provider) DeleteBySource(ctx context.Context, index, registrationKey st
 		Model((*documentModel)(nil)).
 		Where("index_name = ?", index).
 		Where("registration_key = ?", registrationKey).
-		Where("source_id IN (?)", bun.In(sourceIDs)).
+		Where("source_id IN (?)", bun.List(sourceIDs)).
 		Exec(ctx)
 	return err
 }
@@ -356,7 +356,7 @@ func (p *Provider) Health(ctx context.Context, req types.HealthRequest) (types.H
 		ColumnExpr("COUNT(*) AS documents").
 		GroupExpr("index_name")
 	if len(req.Indexes) > 0 {
-		q = q.Where("index_name IN (?)", bun.In(req.Indexes))
+		q = q.Where("index_name IN (?)", bun.List(req.Indexes))
 	}
 	if err := q.Scan(ctx, &rows); err != nil {
 		return types.HealthStatus{}, err
@@ -422,7 +422,7 @@ func (p *Provider) searchRows(ctx context.Context, req types.SearchRequest) ([]d
 	rows := []documentModel{}
 	q := p.db.NewSelect().
 		Model(&rows).
-		Where("index_name IN (?)", bun.In(req.Indexes))
+		Where("index_name IN (?)", bun.List(req.Indexes))
 	if trimmed := strings.TrimSpace(req.Query); trimmed != "" {
 		querySearchConfig := requestSearchConfig(req, p.cfg.SearchConfig)
 		q = q.ColumnExpr(
@@ -467,7 +467,7 @@ func (p *Provider) suggestRows(ctx context.Context, req types.SuggestRequest) ([
 	}
 	q := p.db.NewSelect().
 		Model(&rows).
-		Where("index_name IN (?)", bun.In(req.Indexes)).
+		Where("index_name IN (?)", bun.List(req.Indexes)).
 		ColumnExpr("0::double precision AS search_rank").
 		ColumnExpr(
 			"GREATEST(similarity(title, ?), similarity(COALESCE(fields->>'parent_title', ''), ?)) AS trigram_score",
@@ -660,11 +660,76 @@ func matchesFilter(expr types.FilterExpr, doc types.Document) bool {
 		}
 		return true
 	case types.ExistsExpr:
-		_, fieldExists := doc.Fields[v.Field]
-		return fieldExists == v.Exists
+		return fieldExists(doc, v.Field) == v.Exists
 	default:
 		return false
 	}
+}
+
+func fieldExists(doc types.Document, field string) bool {
+	field = strings.TrimSpace(field)
+	if field == "" {
+		return false
+	}
+	switch field {
+	case "id":
+		return strings.TrimSpace(doc.ID) != ""
+	case "index":
+		return strings.TrimSpace(doc.Index) != ""
+	case "registration_key":
+		return strings.TrimSpace(doc.RegistrationKey) != ""
+	case "type":
+		return strings.TrimSpace(doc.Type) != ""
+	case "parent_id":
+		return strings.TrimSpace(doc.ParentID) != ""
+	case "source_type":
+		return strings.TrimSpace(doc.SourceType) != ""
+	case "source_id":
+		return strings.TrimSpace(doc.SourceID) != ""
+	case "source_version":
+		return strings.TrimSpace(doc.SourceVersion) != ""
+	case "title":
+		return strings.TrimSpace(doc.Title) != ""
+	case "summary":
+		return strings.TrimSpace(doc.Summary) != ""
+	case "body":
+		return strings.TrimSpace(doc.Body) != ""
+	case "url":
+		return strings.TrimSpace(doc.URL) != ""
+	case "anchor_url":
+		return strings.TrimSpace(doc.AnchorURL) != ""
+	case "locale":
+		return strings.TrimSpace(doc.Locale) != ""
+	case "start_ms":
+		return doc.StartMS != nil
+	case "end_ms":
+		return doc.EndMS != nil
+	case "scope_tenant_id":
+		return strings.TrimSpace(doc.Scope.TenantID) != ""
+	case "scope_org_id":
+		return strings.TrimSpace(doc.Scope.OrgID) != ""
+	case "scope_labels":
+		return len(doc.Scope.Labels) > 0
+	case "visibility_public":
+		return true
+	case "visibility_roles":
+		return len(doc.Visibility.Roles) > 0
+	case "visibility_permissions":
+		return len(doc.Visibility.Permissions) > 0
+	case "visibility_status":
+		return strings.TrimSpace(doc.Visibility.Status) != ""
+	}
+	if values, ok := doc.Facets[field]; ok {
+		return len(values) > 0
+	}
+	if _, ok := doc.Numeric[field]; ok {
+		return true
+	}
+	if _, ok := doc.Booleans[field]; ok {
+		return true
+	}
+	_, ok := doc.Fields[field]
+	return ok
 }
 
 func termMatches(term types.TermExpr, doc types.Document) bool {

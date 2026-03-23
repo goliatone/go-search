@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"strings"
-	"time"
 
 	"github.com/goliatone/go-search/pkg/types"
 )
@@ -35,8 +34,4 @@ func normalizeConfig(cfg Config) Config {
 		cfg.Clock = types.SystemClock()
 	}
 	return cfg
-}
-
-func defaultNow() time.Time {
-	return time.Now().UTC()
 }

@@ -3,6 +3,7 @@ package typesense
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 
@@ -17,8 +18,15 @@ func upsertDocuments(ctx context.Context, client *tstypesense.Client, runtime ma
 		return nil
 	}
 	payload := make([]any, 0, len(docs))
+	snapshots := make([]documentSnapshot, 0, len(docs))
 	for _, doc := range docs {
-		payload = append(payload, compileDocument(runtime.def, doc))
+		compiled := compileDocument(runtime.def, doc)
+		payload = append(payload, compiled)
+		snapshot, err := captureDocumentSnapshot(ctx, client, runtime, compiled)
+		if err != nil {
+			return err
+		}
+		snapshots = append(snapshots, snapshot)
 	}
 	results, err := client.Collection(runtime.collectionName).Documents().Import(ctx, payload, &tsapi.ImportDocumentsParams{
 		Action:   new(tsapi.Upsert),
@@ -27,13 +35,20 @@ func upsertDocuments(ctx context.Context, client *tstypesense.Client, runtime ma
 	if err != nil {
 		return errs.Wrap(err, map[string]any{"collection": runtime.collectionName, "index": runtime.def.Name})
 	}
-	for _, result := range results {
+	var joined error
+	for i, result := range results {
 		if result == nil || result.Success {
 			continue
 		}
-		return errs.Wrap(io.ErrUnexpectedEOF, map[string]any{
+		if rollbackErr := rollbackDocumentSnapshots(ctx, client, runtime, snapshots, results); rollbackErr != nil {
+			joined = errors.Join(io.ErrUnexpectedEOF, rollbackErr)
+		} else {
+			joined = io.ErrUnexpectedEOF
+		}
+		return errs.Wrap(joined, map[string]any{
 			"collection": runtime.collectionName,
 			"index":      runtime.def.Name,
+			"position":   i,
 			"error":      result.Error,
 			"document":   result.Document,
 		})
@@ -103,20 +118,27 @@ func replaceDocuments(ctx context.Context, client *tstypesense.Client, runtime m
 
 func compileDocument(def types.IndexDefinition, doc types.Document) map[string]any {
 	payload := map[string]any{
-		"id":               storageDocumentID(doc),
-		"document_id":      doc.ID,
-		"index":            doc.Index,
-		"registration_key": strings.TrimSpace(doc.RegistrationKey),
-		"type":             doc.Type,
-		"parent_id":        doc.ParentID,
-		"source_type":      doc.SourceType,
-		"source_id":        doc.SourceID,
-		"title":            doc.Title,
-		"summary":          doc.Summary,
-		"body":             doc.Body,
-		"url":              doc.URL,
-		"anchor_url":       doc.AnchorURL,
-		"locale":           doc.Locale,
+		"id":                     storageDocumentID(doc),
+		"document_id":            doc.ID,
+		"index":                  firstNonEmpty(doc.Index, def.Name),
+		"registration_key":       strings.TrimSpace(doc.RegistrationKey),
+		"type":                   doc.Type,
+		"parent_id":              doc.ParentID,
+		"source_type":            doc.SourceType,
+		"source_id":              doc.SourceID,
+		"title":                  doc.Title,
+		"summary":                doc.Summary,
+		"body":                   doc.Body,
+		"url":                    doc.URL,
+		"anchor_url":             doc.AnchorURL,
+		"locale":                 doc.Locale,
+		"scope_tenant_id":        strings.TrimSpace(doc.Scope.TenantID),
+		"scope_org_id":           strings.TrimSpace(doc.Scope.OrgID),
+		"scope_labels":           scopeLabelTokens(doc.Scope.Labels),
+		"visibility_public":      doc.Visibility.Public,
+		"visibility_roles":       append([]string(nil), doc.Visibility.Roles...),
+		"visibility_permissions": append([]string(nil), doc.Visibility.Permissions...),
+		"visibility_status":      strings.TrimSpace(doc.Visibility.Status),
 	}
 	if doc.StartMS != nil {
 		payload["start_ms"] = *doc.StartMS
@@ -182,6 +204,72 @@ func compileDocument(def types.IndexDefinition, doc types.Document) map[string]a
 		payload[existsFieldName(field)] = hasMeaningfulValue(payload[field])
 	}
 	return payload
+}
+
+type documentSnapshot struct {
+	DocumentID string
+	Exists     bool
+	Previous   map[string]any
+}
+
+func captureDocumentSnapshot(ctx context.Context, client *tstypesense.Client, runtime managedIndex, payload map[string]any) (documentSnapshot, error) {
+	documentID := strings.TrimSpace(stringify(payload["id"]))
+	if documentID == "" {
+		return documentSnapshot{}, errs.InvalidInput("typesense document id is required", map[string]any{
+			"collection": runtime.collectionName,
+			"index":      runtime.def.Name,
+		})
+	}
+	previous, err := client.Collection(runtime.collectionName).Document(documentID).Retrieve(ctx)
+	if err != nil {
+		if isTypesenseStatus(err, 404) {
+			return documentSnapshot{DocumentID: documentID}, nil
+		}
+		return documentSnapshot{}, errs.Wrap(err, map[string]any{
+			"collection": runtime.collectionName,
+			"index":      runtime.def.Name,
+			"id":         documentID,
+		})
+	}
+	return documentSnapshot{
+		DocumentID: documentID,
+		Exists:     true,
+		Previous:   previous,
+	}, nil
+}
+
+func rollbackDocumentSnapshots(ctx context.Context, client *tstypesense.Client, runtime managedIndex, snapshots []documentSnapshot, results []*tsapi.ImportDocumentResponse) error {
+	var joined error
+	for i := len(results) - 1; i >= 0; i-- {
+		if i >= len(snapshots) {
+			continue
+		}
+		result := results[i]
+		if result == nil || !result.Success {
+			continue
+		}
+		snapshot := snapshots[i]
+		if snapshot.Exists {
+			if _, err := client.Collection(runtime.collectionName).Documents().Upsert(ctx, snapshot.Previous, &tsapi.DocumentIndexParameters{}); err != nil {
+				joined = errors.Join(joined, errs.Wrap(err, map[string]any{
+					"collection": runtime.collectionName,
+					"index":      runtime.def.Name,
+					"id":         snapshot.DocumentID,
+					"operation":  "restore",
+				}))
+			}
+			continue
+		}
+		if _, err := client.Collection(runtime.collectionName).Document(snapshot.DocumentID).Delete(ctx); err != nil && !isTypesenseStatus(err, 404) {
+			joined = errors.Join(joined, errs.Wrap(err, map[string]any{
+				"collection": runtime.collectionName,
+				"index":      runtime.def.Name,
+				"id":         snapshot.DocumentID,
+				"operation":  "cleanup",
+			}))
+		}
+	}
+	return joined
 }
 
 func extractDocumentIDs(result *tsapi.SearchResult) []string {
@@ -280,9 +368,6 @@ func hasMeaningfulValue(value any) bool {
 		return true
 	}
 }
-
-//go:fix inline
-func indexActionPtr(value tsapi.IndexAction) *tsapi.IndexAction { return new(value) }
 
 func stringify(value any) string {
 	switch v := value.(type) {

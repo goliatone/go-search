@@ -195,6 +195,17 @@ func mapDocument(raw *map[string]any) types.Document {
 		Locale:          fieldStringValue(*raw, "locale"),
 		Fields:          map[string]any{},
 		Metadata:        map[string]any{},
+		Scope: types.Scope{
+			TenantID: fieldStringValue(*raw, "scope_tenant_id"),
+			OrgID:    fieldStringValue(*raw, "scope_org_id"),
+			Labels:   scopeLabelsFromValue((*raw)["scope_labels"]),
+		},
+		Visibility: types.Visibility{
+			Public:      boolFieldValue(*raw, "visibility_public"),
+			Roles:       stringSliceFieldValueOrNil(*raw, "visibility_roles"),
+			Permissions: stringSliceFieldValueOrNil(*raw, "visibility_permissions"),
+			Status:      fieldStringValue(*raw, "visibility_status"),
+		},
 	}
 	if value, ok := int64FieldValue(*raw, "start_ms"); ok {
 		doc.StartMS = &value
@@ -228,6 +239,13 @@ func mapDocument(raw *map[string]any) types.Document {
 		"parent_thumbnail",
 		"track_kind",
 		"source_format",
+		"scope_tenant_id",
+		"scope_org_id",
+		"scope_labels",
+		"visibility_public",
+		"visibility_roles",
+		"visibility_permissions",
+		"visibility_status",
 	} {
 		reserved[field] = struct{}{}
 		if value, ok := (*raw)[field]; ok {
@@ -522,6 +540,62 @@ func stringSliceFieldValue(fields map[string]any, key string) ([]string, bool) {
 	}
 }
 
+func stringSliceFieldValueOrNil(fields map[string]any, key string) []string {
+	values, ok := stringSliceFieldValue(fields, key)
+	if !ok {
+		return nil
+	}
+	return values
+}
+
+func boolFieldValue(fields map[string]any, key string) bool {
+	value, ok := fields[key]
+	if !ok {
+		return false
+	}
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(strings.TrimSpace(v), "true")
+	default:
+		return false
+	}
+}
+
+func scopeLabelsFromValue(value any) map[string]string {
+	switch typed := value.(type) {
+	case []string:
+		return decodeScopeLabels(typed)
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			out = append(out, stringify(item))
+		}
+		return decodeScopeLabels(out)
+	default:
+		return nil
+	}
+}
+
+func decodeScopeLabels(values []string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for _, item := range values {
+		key, value, ok := strings.Cut(strings.TrimSpace(item), "=")
+		if !ok || strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
+			continue
+		}
+		out[key] = value
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 func ensureNumeric(in map[string]float64) map[string]float64 {
 	if in == nil {
 		return map[string]float64{}
@@ -545,9 +619,6 @@ func asFloat64(value any) float64 {
 		return 0
 	}
 }
-
-//go:fix inline
-func float64Ptr(value float64) *float64 { return new(value) }
 
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
