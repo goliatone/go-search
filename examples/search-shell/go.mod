@@ -7,10 +7,11 @@ require (
 	github.com/goliatone/go-admin v0.26.0
 	github.com/goliatone/go-admin/quickstart v0.0.0
 	github.com/goliatone/go-auth v0.36.0
-	github.com/goliatone/go-cms v0.42.0
+	github.com/goliatone/go-cms v0.44.0
+	github.com/goliatone/go-command v0.18.0
 	github.com/goliatone/go-featuregate v0.6.0
 	github.com/goliatone/go-router v0.54.0
-	github.com/goliatone/go-search v0.0.0
+	github.com/goliatone/go-search v0.1.0
 	github.com/goliatone/go-search/adapters/gocms v0.0.0
 	github.com/goliatone/go-search/adapters/gousers v0.0.0
 	github.com/goliatone/go-users v0.18.0
@@ -93,7 +94,6 @@ require (
 	github.com/gofiber/utils v1.2.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/goliatone/go-auth/adapters/featuregate v0.36.0 // indirect
-	github.com/goliatone/go-command v0.18.0 // indirect
 	github.com/goliatone/go-composite-fs v0.3.0 // indirect
 	github.com/goliatone/go-config v0.13.0 // indirect
 	github.com/goliatone/go-crud v0.23.0 // indirect
@@ -103,7 +103,7 @@ require (
 	github.com/goliatone/go-export v0.7.0 // indirect
 	github.com/goliatone/go-export/adapters/template/go-template v0.7.0 // indirect
 	github.com/goliatone/go-formgen v0.18.0 // indirect
-	github.com/goliatone/go-i18n v0.4.0 // indirect
+	github.com/goliatone/go-i18n v0.5.0 // indirect
 	github.com/goliatone/go-job v0.19.0 // indirect
 	github.com/goliatone/go-logger v0.8.0 // indirect
 	github.com/goliatone/go-masker v0.1.0 // indirect
@@ -113,7 +113,7 @@ require (
 	github.com/goliatone/go-print v0.4.1 // indirect
 	github.com/goliatone/go-repository-bun v0.15.1 // indirect
 	github.com/goliatone/go-repository-cache v0.7.1 // indirect
-	github.com/goliatone/go-search/adapters/goadmin v0.0.0 // indirect
+	github.com/goliatone/go-search/adapters/goadmin v0.1.0 // indirect
 	github.com/goliatone/go-slug v0.1.0 // indirect
 	github.com/goliatone/go-template v0.3.1 // indirect
 	github.com/goliatone/go-theme v0.3.0 // indirect
