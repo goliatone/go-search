@@ -52,6 +52,25 @@ func TestSearchConfigNormalizationFallsBackSafely(t *testing.T) {
 	}
 }
 
+func TestFieldExistsMatchesCanonicalAndFacetFields(t *testing.T) {
+	start := int64(1000)
+	doc := types.Document{
+		ID:      "doc-1",
+		Title:   "Ocean Wind",
+		StartMS: &start,
+		Facets:  map[string][]string{"topic": {"archive"}},
+	}
+	if !fieldExists(doc, "start_ms") {
+		t.Fatalf("expected canonical numeric field to exist")
+	}
+	if !fieldExists(doc, "topic") {
+		t.Fatalf("expected facet field to exist")
+	}
+	if fieldExists(doc, "missing_field") {
+		t.Fatalf("expected missing field to be absent")
+	}
+}
+
 func TestPostgresProviderContractSuite(t *testing.T) {
 	providers.RunContractSuite(t, func(t *testing.T) providers.Provider {
 		t.Helper()

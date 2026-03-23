@@ -620,8 +620,3 @@ func TestSearchPrefersExactLocaleAndAnnotatesFallbackOrigins(t *testing.T) {
 		t.Fatalf("fallback hit locale origin = %#v", origin)
 	}
 }
-
-//go:fix inline
-func ptr[T any](value T) *T {
-	return new(value)
-}

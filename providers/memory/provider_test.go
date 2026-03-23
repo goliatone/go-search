@@ -334,3 +334,40 @@ func TestProviderSupportsRangeFilteringWithSelectedDisjunctiveArchiveFacets(t *t
 		t.Fatalf("expected disjunctive sibling count to remain visible in %+v", page.Facets)
 	}
 }
+
+func TestProviderExistsExprMatchesCanonicalAndFacetFields(t *testing.T) {
+	provider := New(Config{})
+	ctx := context.Background()
+	if err := provider.EnsureIndex(ctx, types.IndexDefinition{Name: "media"}); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	start := int64(1000)
+	if err := provider.UpsertDocuments(ctx, "media", []types.Document{{
+		ID:      "doc-1",
+		Index:   "media",
+		Title:   "Ocean Wind",
+		Body:    "prayer",
+		StartMS: &start,
+		Facets:  map[string][]string{"topic": {"archive"}},
+	}}); err != nil {
+		t.Fatalf("upsert docs: %v", err)
+	}
+	for _, filter := range []types.FilterExpr{
+		types.ExistsExpr{Field: "start_ms", Exists: true},
+		types.ExistsExpr{Field: "topic", Exists: true},
+	} {
+		page, err := provider.Search(ctx, types.SearchRequest{
+			Indexes: []string{"media"},
+			Query:   "prayer",
+			Filters: filter,
+			Page:    1,
+			PerPage: 10,
+		})
+		if err != nil {
+			t.Fatalf("search: %v", err)
+		}
+		if page.Total != 1 {
+			t.Fatalf("expected exists filter %+v to match canonical field, got %+v", filter, page)
+		}
+	}
+}

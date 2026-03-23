@@ -40,6 +40,12 @@ func TestBuildCollectionSchemaIncludesFixedTranscriptFields(t *testing.T) {
 	if field, ok := fields["topic"]; !ok || field.Type != "string[]" {
 		t.Fatalf("expected topic string[] facet field, got %+v", field)
 	}
+	if field, ok := fields["scope_tenant_id"]; !ok || field.Facet == nil || !*field.Facet {
+		t.Fatalf("expected scope_tenant_id facet field, got %+v", field)
+	}
+	if field, ok := fields["visibility_public"]; !ok || field.Type != "bool" {
+		t.Fatalf("expected visibility_public bool field, got %+v", field)
+	}
 }
 
 func TestBuildCollectionSchemaMarksArchiveRangeFields(t *testing.T) {
@@ -121,6 +127,41 @@ func TestCompileSearchParamsCompilesExistsExprToShadowField(t *testing.T) {
 	}
 }
 
+func TestCompileSearchParamsAddsScopeFilters(t *testing.T) {
+	def := types.IndexDefinition{
+		Name:               "media",
+		DefaultQueryFields: []string{"title"},
+	}
+	params, err := compileSearchParams(Config{}, def, types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "ocean",
+		Page:    1,
+		PerPage: 10,
+		Scope: types.Scope{
+			TenantID: "tenant-a",
+			OrgID:    "org-1",
+			Labels:   map[string]string{"role": "member", "surface": "support"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("compile search params: %v", err)
+	}
+	if params.FilterBy == nil {
+		t.Fatalf("expected scope filter")
+	}
+	filter := *params.FilterBy
+	for _, fragment := range []string{
+		"scope_tenant_id:=tenant-a",
+		"scope_org_id:=org-1",
+		"scope_labels:=role=member",
+		"scope_labels:=surface=support",
+	} {
+		if !strings.Contains(filter, fragment) {
+			t.Fatalf("expected filter fragment %q in %q", fragment, filter)
+		}
+	}
+}
+
 func TestCompileSearchParamsCompilesArchiveRangeAndHierarchyFilters(t *testing.T) {
 	params, err := compileSearchParams(Config{}, media.DefaultArchiveIndexDefinition("media"), types.SearchRequest{
 		Indexes: []string{"media"},
@@ -164,12 +205,18 @@ func TestCompileSearchParamsCompilesArchiveRangeAndHierarchyFilters(t *testing.T
 func TestCompileDocumentAddsExistsShadowFields(t *testing.T) {
 	doc := types.Document{
 		ID:              "segment-1",
-		Index:           "media",
 		RegistrationKey: "transcript",
 		Type:            types.DocumentTypeTranscriptSegment,
 		Title:           "Ocean Wind",
 		Locale:          "en",
 		Facets:          map[string][]string{"topic": {"archive"}},
+		Scope:           types.Scope{TenantID: "tenant-a", OrgID: "org-1", Labels: map[string]string{"role": "member"}},
+		Visibility: types.Visibility{
+			Public:      true,
+			Roles:       []string{"editor"},
+			Permissions: []string{"search:view"},
+			Status:      "published",
+		},
 	}
 	payload := compileDocument(types.IndexDefinition{
 		Name:             "media",
@@ -181,6 +228,15 @@ func TestCompileDocumentAddsExistsShadowFields(t *testing.T) {
 	if payload["document_id"] != "segment-1" {
 		t.Fatalf("expected external document id field, got %+v", payload["document_id"])
 	}
+	if payload["index"] != "media" {
+		t.Fatalf("expected index fallback from definition, got %+v", payload["index"])
+	}
+	if payload["scope_tenant_id"] != "tenant-a" || payload["scope_org_id"] != "org-1" {
+		t.Fatalf("expected scope fields, got %+v", payload)
+	}
+	if payload["visibility_public"] != true || payload["visibility_status"] != "published" {
+		t.Fatalf("expected visibility fields, got %+v", payload)
+	}
 	if payload["__exists_topic"] != true {
 		t.Fatalf("expected topic exists shadow field, got %+v", payload["__exists_topic"])
 	}
@@ -189,6 +245,58 @@ func TestCompileDocumentAddsExistsShadowFields(t *testing.T) {
 	}
 	if payload["__exists_source_id"] != false {
 		t.Fatalf("expected empty source_id shadow field to be false, got %+v", payload["__exists_source_id"])
+	}
+}
+
+func TestMapDocumentRestoresScopeAndVisibility(t *testing.T) {
+	doc := mapDocument(&map[string]any{
+		"id":                     "video::shared-1",
+		"document_id":            "shared-1",
+		"index":                  "media",
+		"registration_key":       "video",
+		"type":                   types.DocumentTypeVideo,
+		"title":                  "Shared Video",
+		"scope_tenant_id":        "tenant-a",
+		"scope_org_id":           "org-1",
+		"scope_labels":           []any{"role=member", "surface=support"},
+		"visibility_public":      true,
+		"visibility_roles":       []any{"editor"},
+		"visibility_permissions": []any{"search:view"},
+		"visibility_status":      "published",
+	})
+	if doc.Scope.TenantID != "tenant-a" || doc.Scope.OrgID != "org-1" {
+		t.Fatalf("expected scope fields, got %+v", doc.Scope)
+	}
+	if doc.Scope.Labels["role"] != "member" || doc.Scope.Labels["surface"] != "support" {
+		t.Fatalf("expected scope labels, got %+v", doc.Scope.Labels)
+	}
+	if !doc.Visibility.Public || doc.Visibility.Status != "published" {
+		t.Fatalf("expected visibility fields, got %+v", doc.Visibility)
+	}
+	if len(doc.Visibility.Roles) != 1 || doc.Visibility.Roles[0] != "editor" {
+		t.Fatalf("expected visibility roles, got %+v", doc.Visibility)
+	}
+}
+
+func TestCompareSearchHitsHonorsRequestedSorts(t *testing.T) {
+	left := types.SearchHit{
+		ID:       "b",
+		Title:    "Later",
+		Score:    100,
+		Anchor:   &types.MediaAnchor{StartMS: 200},
+		Document: &types.Document{Numeric: map[string]float64{"start_ms": 200}},
+	}
+	right := types.SearchHit{
+		ID:       "a",
+		Title:    "Earlier",
+		Score:    10,
+		Anchor:   &types.MediaAnchor{StartMS: 100},
+		Document: &types.Document{Numeric: map[string]float64{"start_ms": 100}},
+	}
+	if !compareSearchHits(types.SearchRequest{
+		Sort: []types.Sort{{Field: "start_ms", Direction: types.SortAsc}},
+	}, right, left) {
+		t.Fatalf("expected requested sort to outrank score")
 	}
 }
 
@@ -294,6 +402,3 @@ func TestMapFacetsBuildsHierarchicalFacetMetadata(t *testing.T) {
 		}
 	}
 }
-
-//go:fix inline
-func int64Ptr(value int64) *int64 { return new(value) }
