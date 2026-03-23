@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/goliatone/go-search/indexing"
@@ -18,6 +19,16 @@ func (s queryGenerationStore) Get(_ context.Context, index string) (int64, error
 }
 
 func (s queryGenerationStore) Bump(context.Context, string) (int64, error) {
+	return 0, nil
+}
+
+type failingQueryGenerationStore struct{}
+
+func (failingQueryGenerationStore) Get(context.Context, string) (int64, error) {
+	return 0, errors.New("boom")
+}
+
+func (failingQueryGenerationStore) Bump(context.Context, string) (int64, error) {
 	return 0, nil
 }
 
@@ -65,5 +76,27 @@ func TestHealthAndStatsRespectRequestedIndexes(t *testing.T) {
 	}
 	if stats.Indexes[1].Name != "external" || stats.Indexes[1].Registered || stats.Indexes[1].ProviderStatus != "ready" {
 		t.Fatalf("expected provider-only external stats, got %+v", stats.Indexes[1])
+	}
+}
+
+func TestStatsReturnsGenerationStoreErrors(t *testing.T) {
+	registry := indexing.NewRegistry()
+	if err := registry.Register(types.IndexDefinition{Name: "media"}, nil); err != nil {
+		t.Fatalf("register index: %v", err)
+	}
+	provider := memory.New(memory.Config{})
+	if err := provider.EnsureIndex(context.Background(), types.IndexDefinition{Name: "media"}); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	statsQuery, err := NewStats(StatsConfig{
+		Provider:        provider,
+		Registry:        registry,
+		GenerationStore: failingQueryGenerationStore{},
+	})
+	if err != nil {
+		t.Fatalf("new stats query: %v", err)
+	}
+	if _, err := statsQuery.Query(context.Background(), types.StatsRequest{Indexes: []string{"media"}}); err == nil {
+		t.Fatalf("expected generation store error")
 	}
 }

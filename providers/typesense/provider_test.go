@@ -1,6 +1,7 @@
 package typesense
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -297,6 +298,25 @@ func TestCompareSearchHitsHonorsRequestedSorts(t *testing.T) {
 		Sort: []types.Sort{{Field: "start_ms", Direction: types.SortAsc}},
 	}, right, left) {
 		t.Fatalf("expected requested sort to outrank score")
+	}
+}
+
+func TestDocumentPayloadHashIgnoresMapOrder(t *testing.T) {
+	left := map[string]any{
+		"id":    "video::shared-1",
+		"title": "Shared Video",
+		"scope_labels": []string{
+			"role=member",
+			"surface=support",
+		},
+	}
+	right := map[string]any{}
+	raw := []byte(`{"title":"Shared Video","scope_labels":["role=member","surface=support"],"id":"video::shared-1"}`)
+	if err := json.Unmarshal(raw, &right); err != nil {
+		t.Fatalf("unmarshal right payload: %v", err)
+	}
+	if documentPayloadHash(left) != documentPayloadHash(right) {
+		t.Fatalf("expected stable payload hash across map order")
 	}
 }
 

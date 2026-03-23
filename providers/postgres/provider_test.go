@@ -658,7 +658,6 @@ func TestPostgresProviderSupportsSharedIndexMultiRegistrationReindex(t *testing.
 	def := content.DefaultIndexDefinition("content_shared")
 	registry := indexing.NewRegistry()
 	for _, record := range testkit.SharedIndexContentRecords() {
-		record := record
 		if err := registry.Register(def, indexing.NewRegistrationWithKey(
 			def.Name,
 			def,
