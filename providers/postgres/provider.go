@@ -363,9 +363,7 @@ func (p *Provider) Health(ctx context.Context, req types.HealthRequest) (types.H
 	}
 	p.mu.RLock()
 	ensured := make(map[string]types.IndexDefinition, len(p.indexes))
-	for name, def := range p.indexes {
-		ensured[name] = def
-	}
+	maps.Copy(ensured, p.indexes)
 	p.mu.RUnlock()
 
 	rowCounts := make(map[string]int, len(rows))

@@ -1,7 +1,7 @@
 package subtitle
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"strconv"
@@ -62,7 +62,7 @@ func normalizeMergeConfig(cfg MergeConfig) MergeConfig {
 
 func SegmentDocumentID(sourceType, sourceID, localeCode, version string, cue Cue) string {
 	localeCode = locale.Normalize(localeCode)
-	sum := sha1.Sum([]byte(strings.Join([]string{
+	sum := sha256.Sum256([]byte(strings.Join([]string{
 		sourceType,
 		sourceID,
 		localeCode,

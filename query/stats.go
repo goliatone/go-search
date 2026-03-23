@@ -73,7 +73,13 @@ func (q *Stats) Query(ctx context.Context, req types.StatsRequest) (types.StatsR
 		generation := int64(0)
 		if q.generationStore != nil {
 			if _, ok := registryIndexes[name]; ok {
-				generation, _ = q.generationStore.Get(ctx, name)
+				generation, err = q.generationStore.Get(ctx, name)
+				if err != nil {
+					return types.StatsResult{}, errs.Wrap(err, map[string]any{
+						"index":  name,
+						"source": "generation_store",
+					})
+				}
 			}
 		}
 		indexHealth, hasHealth := healthIndexes[name]

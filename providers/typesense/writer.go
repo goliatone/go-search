@@ -2,8 +2,10 @@ package typesense
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 
@@ -210,6 +212,7 @@ type documentSnapshot struct {
 	DocumentID string
 	Exists     bool
 	Previous   map[string]any
+	Attempted  string
 }
 
 func captureDocumentSnapshot(ctx context.Context, client *tstypesense.Client, runtime managedIndex, payload map[string]any) (documentSnapshot, error) {
@@ -223,7 +226,10 @@ func captureDocumentSnapshot(ctx context.Context, client *tstypesense.Client, ru
 	previous, err := client.Collection(runtime.collectionName).Document(documentID).Retrieve(ctx)
 	if err != nil {
 		if isTypesenseStatus(err, 404) {
-			return documentSnapshot{DocumentID: documentID}, nil
+			return documentSnapshot{
+				DocumentID: documentID,
+				Attempted:  documentPayloadHash(payload),
+			}, nil
 		}
 		return documentSnapshot{}, errs.Wrap(err, map[string]any{
 			"collection": runtime.collectionName,
@@ -235,6 +241,7 @@ func captureDocumentSnapshot(ctx context.Context, client *tstypesense.Client, ru
 		DocumentID: documentID,
 		Exists:     true,
 		Previous:   previous,
+		Attempted:  documentPayloadHash(payload),
 	}, nil
 }
 
@@ -249,6 +256,16 @@ func rollbackDocumentSnapshots(ctx context.Context, client *tstypesense.Client, 
 			continue
 		}
 		snapshot := snapshots[i]
+		current, err := currentDocumentSnapshot(ctx, client, runtime, snapshot.DocumentID)
+		if err != nil {
+			joined = errors.Join(joined, err)
+			continue
+		}
+		if current == nil || documentPayloadHash(current) != snapshot.Attempted {
+			// Another writer changed the document after our write landed.
+			// Skip rollback so we do not overwrite newer state.
+			continue
+		}
 		if snapshot.Exists {
 			if _, err := client.Collection(runtime.collectionName).Documents().Upsert(ctx, snapshot.Previous, &tsapi.DocumentIndexParameters{}); err != nil {
 				joined = errors.Join(joined, errs.Wrap(err, map[string]any{
@@ -270,6 +287,28 @@ func rollbackDocumentSnapshots(ctx context.Context, client *tstypesense.Client, 
 		}
 	}
 	return joined
+}
+
+func currentDocumentSnapshot(ctx context.Context, client *tstypesense.Client, runtime managedIndex, documentID string) (map[string]any, error) {
+	current, err := client.Collection(runtime.collectionName).Document(documentID).Retrieve(ctx)
+	if err != nil {
+		if isTypesenseStatus(err, 404) {
+			return nil, nil
+		}
+		return nil, errs.Wrap(err, map[string]any{
+			"collection": runtime.collectionName,
+			"index":      runtime.def.Name,
+			"id":         documentID,
+			"operation":  "reload",
+		})
+	}
+	return current, nil
+}
+
+func documentPayloadHash(payload map[string]any) string {
+	raw, _ := json.Marshal(payload)
+	sum := sha256.Sum256(raw)
+	return fmt.Sprintf("%x", sum[:])
 }
 
 func extractDocumentIDs(result *tsapi.SearchResult) []string {

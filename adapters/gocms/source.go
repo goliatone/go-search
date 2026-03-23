@@ -224,10 +224,7 @@ func sliceWithCursor[T any](items []T, limit int, cursor string, idGetter func(T
 	if limit > 0 && start+limit < end {
 		end = start + limit
 	}
-	out := make([]T, 0, end-start)
-	for _, item := range items[start:end] {
-		out = append(out, item)
-	}
+	out := append(make([]T, 0, end-start), items[start:end]...)
 	next := ""
 	if end < len(items) {
 		next = idGetter(items[end-1])

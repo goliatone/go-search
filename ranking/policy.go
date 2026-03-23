@@ -86,19 +86,16 @@ func GroupHits(hits []types.SearchHit) []types.SearchGroup {
 	byParent := map[string][]types.SearchHit{}
 	order := []string{}
 	for _, hit := range hits {
-		key := hit.ID
-		parent := hit.Parent
-		if parent != nil && parent.ID != "" {
-			key = parent.ID
+		internalKey, externalKey := groupingKeys(hit)
+		if _, ok := byParent[internalKey]; !ok {
+			order = append(order, internalKey)
 		}
-		if _, ok := byParent[key]; !ok {
-			order = append(order, key)
-		}
-		byParent[key] = append(byParent[key], hit)
+		byParent[internalKey] = append(byParent[internalKey], hit)
+		_ = externalKey
 	}
 	groups := make([]types.SearchGroup, 0, len(order))
-	for _, key := range order {
-		groupHits := byParent[key]
+	for _, internalKey := range order {
+		groupHits := byParent[internalKey]
 		sort.SliceStable(groupHits, func(i, j int) bool {
 			if groupHits[i].FinalScore == groupHits[j].FinalScore {
 				return groupHits[i].ID < groupHits[j].ID
@@ -106,8 +103,9 @@ func GroupHits(hits []types.SearchHit) []types.SearchGroup {
 			return groupHits[i].FinalScore > groupHits[j].FinalScore
 		})
 		top := groupHits[0]
+		_, externalKey := groupingKeys(top)
 		group := types.SearchGroup{
-			Key:    key,
+			Key:    externalKey,
 			Parent: top.Parent,
 			TopHit: &top,
 			Hits:   groupHits,
@@ -116,6 +114,7 @@ func GroupHits(hits []types.SearchHit) []types.SearchGroup {
 				"top_hit_id":   top.ID,
 				"final_score":  top.FinalScore,
 				"locale_match": localeMatchLabel(top),
+				"group_key":    internalKey,
 			},
 		}
 		if group.Parent == nil {
@@ -135,6 +134,21 @@ func GroupHits(hits []types.SearchHit) []types.SearchGroup {
 		return groups[i].TopHit.FinalScore > groups[j].TopHit.FinalScore
 	})
 	return groups
+}
+
+func groupingKeys(hit types.SearchHit) (string, string) {
+	groupID := strings.TrimSpace(hit.ID)
+	if hit.Parent != nil && strings.TrimSpace(hit.Parent.ID) != "" {
+		groupID = strings.TrimSpace(hit.Parent.ID)
+	}
+	index := ""
+	if hit.Document != nil {
+		index = strings.TrimSpace(hit.Document.Index)
+	}
+	if index == "" {
+		index = "_default"
+	}
+	return index + "\x00" + groupID, groupID
 }
 
 func matchesRule(req types.SearchRequest, targetID string, parentTargetID string, rule types.EditorialRankRule, now time.Time) bool {

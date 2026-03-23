@@ -2,6 +2,7 @@ package indexing
 
 import (
 	"context"
+	"maps"
 
 	"github.com/goliatone/go-search/internal/errs"
 	"github.com/goliatone/go-search/internal/observe"
@@ -281,9 +282,7 @@ func mergeActivityEvent(base, resolved types.ActivityEvent) types.ActivityEvent 
 		if base.Metadata == nil {
 			base.Metadata = map[string]any{}
 		}
-		for key, value := range resolved.Metadata {
-			base.Metadata[key] = value
-		}
+		maps.Copy(base.Metadata, resolved.Metadata)
 	}
 	return base
 }
@@ -293,8 +292,6 @@ func cloneActivityMetadata(metadata map[string]any) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(metadata))
-	for key, value := range metadata {
-		out[key] = value
-	}
+	maps.Copy(out, metadata)
 	return out
 }

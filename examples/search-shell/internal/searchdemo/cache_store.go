@@ -75,7 +75,9 @@ func (s *runtimeTTLStore[V]) Get(_ context.Context, key string) (V, bool, error)
 		return s.zeroVal, false, nil
 	}
 	if !entry.expiresAt.IsZero() && !entry.expiresAt.After(now) {
-		s.Delete(context.Background(), key)
+		if err := s.Delete(context.Background(), key); err != nil {
+			return s.zeroVal, false, err
+		}
 		s.recordMiss()
 		return s.zeroVal, false, nil
 	}

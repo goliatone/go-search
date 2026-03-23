@@ -18,7 +18,7 @@ func main() {
 		panic(err)
 	}
 
-	appCore, err := core.New(nil, &cfg)
+	appCore, err := core.New(context.Background(), &cfg)
 	if err != nil {
 		panic(err)
 	}

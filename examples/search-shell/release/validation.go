@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"slices"
 	"strings"
 	"time"
 
@@ -518,15 +517,6 @@ func isExactLocaleOrigin(origin string) bool {
 	return origin == "exact" || origin == "matched"
 }
 
-func groupPosition(groups []types.SearchGroup, parentID string) int {
-	for i, group := range groups {
-		if group.Parent != nil && group.Parent.ID == parentID {
-			return i
-		}
-	}
-	return -1
-}
-
 func hitPositionByParent(hits []types.SearchHit, parentID string) int {
 	for i, hit := range hits {
 		if hit.Parent != nil && hit.Parent.ID == parentID {
@@ -598,10 +588,4 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func sortedChecks(values []string) []string {
-	out := append([]string(nil), values...)
-	slices.Sort(out)
-	return out
 }
