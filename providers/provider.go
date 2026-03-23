@@ -13,9 +13,9 @@ type Provider interface {
 	Search(ctx context.Context, req types.SearchRequest) (types.SearchResultPage, error)
 	Suggest(ctx context.Context, req types.SuggestRequest) (types.SuggestResult, error)
 	UpsertDocuments(ctx context.Context, index string, docs []types.Document) error
-	ReplaceDocuments(ctx context.Context, index string, sourceIDs []string, docs []types.Document) error
+	ReplaceDocuments(ctx context.Context, index, registrationKey string, sourceIDs []string, docs []types.Document) error
 	DeleteDocuments(ctx context.Context, index string, ids []string) error
-	DeleteBySource(ctx context.Context, index string, sourceIDs []string) error
+	DeleteBySource(ctx context.Context, index, registrationKey string, sourceIDs []string) error
 	Health(ctx context.Context, req types.HealthRequest) (types.HealthStatus, error)
 }
 

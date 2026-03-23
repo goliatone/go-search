@@ -107,7 +107,9 @@ func buildCollectionSchema(cfg Config, def types.IndexDefinition) (*tsapi.Collec
 func fixedFieldSpecs() map[string]schemaFieldSpec {
 	return map[string]schemaFieldSpec{
 		"id":               {Type: "string", Index: true, Optional: false},
+		"document_id":      {Type: "string", Optional: true},
 		"index":            {Type: "string", Facet: true, Optional: true},
+		"registration_key": {Type: "string", Facet: true, Optional: true},
 		"type":             {Type: "string", Facet: true, Optional: true},
 		"parent_id":        {Type: "string", Facet: true, Optional: true},
 		"source_type":      {Type: "string", Facet: true, Optional: true},

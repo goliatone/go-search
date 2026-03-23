@@ -102,7 +102,7 @@ func RunContractSuite(t *testing.T, factory Factory) {
 		if len(suggest.Items) == 0 {
 			t.Fatalf("expected suggestions")
 		}
-		if err := provider.DeleteBySource(ctx, "media", []string{"track-1"}); err != nil {
+		if err := provider.DeleteBySource(ctx, "media", "", []string{"track-1"}); err != nil {
 			t.Fatalf("delete by source: %v", err)
 		}
 		page, err = provider.Search(ctx, types.SearchRequest{

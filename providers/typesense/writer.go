@@ -42,6 +42,14 @@ func upsertDocuments(ctx context.Context, client *tstypesense.Client, runtime ma
 }
 
 func deleteDocuments(ctx context.Context, client *tstypesense.Client, runtime managedIndex, ids []string) error {
+	storageIDs, err := listDocumentIDsByField(ctx, client, runtime, "document_id", ids, "")
+	if err != nil {
+		return err
+	}
+	return deleteDocumentsByStorageID(ctx, client, runtime, storageIDs)
+}
+
+func deleteDocumentsByStorageID(ctx context.Context, client *tstypesense.Client, runtime managedIndex, ids []string) error {
 	for _, id := range ids {
 		id = strings.TrimSpace(id)
 		if id == "" {
@@ -54,29 +62,33 @@ func deleteDocuments(ctx context.Context, client *tstypesense.Client, runtime ma
 	return nil
 }
 
-func deleteBySource(ctx context.Context, client *tstypesense.Client, runtime managedIndex, sourceIDs []string) error {
-	ids, err := listDocumentIDsBySource(ctx, client, runtime, sourceIDs)
+func deleteBySource(ctx context.Context, client *tstypesense.Client, runtime managedIndex, registrationKey string, sourceIDs []string) error {
+	ids, err := listDocumentIDsBySource(ctx, client, runtime, registrationKey, sourceIDs)
 	if err != nil {
 		return err
 	}
-	return deleteDocuments(ctx, client, runtime, ids)
+	return deleteDocumentsByStorageID(ctx, client, runtime, ids)
 }
 
-func replaceDocuments(ctx context.Context, client *tstypesense.Client, runtime managedIndex, sourceIDs []string, docs []types.Document) error {
+func replaceDocuments(ctx context.Context, client *tstypesense.Client, runtime managedIndex, registrationKey string, sourceIDs []string, docs []types.Document) error {
+	registrationKey = strings.TrimSpace(registrationKey)
+	for i := range docs {
+		docs[i].RegistrationKey = firstNonEmpty(strings.TrimSpace(docs[i].RegistrationKey), registrationKey)
+	}
 	if err := upsertDocuments(ctx, client, runtime, docs); err != nil {
 		return err
 	}
 	if len(sourceIDs) == 0 {
 		return nil
 	}
-	existingIDs, err := listDocumentIDsBySource(ctx, client, runtime, sourceIDs)
+	existingIDs, err := listDocumentIDsBySource(ctx, client, runtime, registrationKey, sourceIDs)
 	if err != nil {
 		return err
 	}
 	keep := map[string]struct{}{}
 	for _, doc := range docs {
-		if strings.TrimSpace(doc.ID) != "" {
-			keep[doc.ID] = struct{}{}
+		if id := strings.TrimSpace(storageDocumentID(doc)); id != "" {
+			keep[id] = struct{}{}
 		}
 	}
 	stale := make([]string, 0, len(existingIDs))
@@ -86,23 +98,25 @@ func replaceDocuments(ctx context.Context, client *tstypesense.Client, runtime m
 		}
 		stale = append(stale, id)
 	}
-	return deleteDocuments(ctx, client, runtime, stale)
+	return deleteDocumentsByStorageID(ctx, client, runtime, stale)
 }
 
 func compileDocument(def types.IndexDefinition, doc types.Document) map[string]any {
 	payload := map[string]any{
-		"id":          doc.ID,
-		"index":       doc.Index,
-		"type":        doc.Type,
-		"parent_id":   doc.ParentID,
-		"source_type": doc.SourceType,
-		"source_id":   doc.SourceID,
-		"title":       doc.Title,
-		"summary":     doc.Summary,
-		"body":        doc.Body,
-		"url":         doc.URL,
-		"anchor_url":  doc.AnchorURL,
-		"locale":      doc.Locale,
+		"id":               storageDocumentID(doc),
+		"document_id":      doc.ID,
+		"index":            doc.Index,
+		"registration_key": strings.TrimSpace(doc.RegistrationKey),
+		"type":             doc.Type,
+		"parent_id":        doc.ParentID,
+		"source_type":      doc.SourceType,
+		"source_id":        doc.SourceID,
+		"title":            doc.Title,
+		"summary":          doc.Summary,
+		"body":             doc.Body,
+		"url":              doc.URL,
+		"anchor_url":       doc.AnchorURL,
+		"locale":           doc.Locale,
 	}
 	if doc.StartMS != nil {
 		payload["start_ms"] = *doc.StartMS
@@ -186,9 +200,13 @@ func extractDocumentIDs(result *tsapi.SearchResult) []string {
 	return out
 }
 
-func listDocumentIDsBySource(ctx context.Context, client *tstypesense.Client, runtime managedIndex, sourceIDs []string) ([]string, error) {
-	values := make([]string, 0, len(sourceIDs))
-	for _, id := range sourceIDs {
+func listDocumentIDsBySource(ctx context.Context, client *tstypesense.Client, runtime managedIndex, registrationKey string, sourceIDs []string) ([]string, error) {
+	return listDocumentIDsByField(ctx, client, runtime, "source_id", sourceIDs, "registration_key:="+encodeStringValue(strings.TrimSpace(registrationKey)))
+}
+
+func listDocumentIDsByField(ctx context.Context, client *tstypesense.Client, runtime managedIndex, field string, rawValues []string, extraFilters ...string) ([]string, error) {
+	values := make([]string, 0, len(rawValues))
+	for _, id := range rawValues {
 		id = strings.TrimSpace(id)
 		if id != "" {
 			values = append(values, encodeStringValue(id))
@@ -198,7 +216,13 @@ func listDocumentIDsBySource(ctx context.Context, client *tstypesense.Client, ru
 		return nil, nil
 	}
 
-	filter := "source_id:=[" + strings.Join(values, ",") + "]"
+	filterParts := []string{field + ":=[" + strings.Join(values, ",") + "]"}
+	for _, filter := range extraFilters {
+		if strings.TrimSpace(filter) != "" {
+			filterParts = append(filterParts, filter)
+		}
+	}
+	filter := strings.Join(filterParts, " && ")
 	out := []string{}
 	for pageNumber := 1; ; pageNumber++ {
 		query := "*"
@@ -226,6 +250,20 @@ func listDocumentIDsBySource(ctx context.Context, client *tstypesense.Client, ru
 			return out, nil
 		}
 	}
+}
+
+func storageDocumentID(doc types.Document) string {
+	return storageDocumentIDFor(strings.TrimSpace(doc.RegistrationKey), strings.TrimSpace(doc.ID))
+}
+
+func storageDocumentIDFor(registrationKey, documentID string) string {
+	if documentID == "" {
+		return ""
+	}
+	if registrationKey == "" {
+		registrationKey = "_default"
+	}
+	return registrationKey + "::" + documentID
 }
 
 func hasMeaningfulValue(value any) bool {

@@ -180,20 +180,21 @@ func mapDocument(raw *map[string]any) types.Document {
 		return types.Document{}
 	}
 	doc := types.Document{
-		ID:         fieldStringValue(*raw, "id"),
-		Index:      fieldStringValue(*raw, "index"),
-		Type:       fieldStringValue(*raw, "type"),
-		ParentID:   fieldStringValue(*raw, "parent_id"),
-		SourceType: fieldStringValue(*raw, "source_type"),
-		SourceID:   fieldStringValue(*raw, "source_id"),
-		Title:      fieldStringValue(*raw, "title"),
-		Summary:    fieldStringValue(*raw, "summary"),
-		Body:       fieldStringValue(*raw, "body"),
-		URL:        fieldStringValue(*raw, "url"),
-		AnchorURL:  fieldStringValue(*raw, "anchor_url"),
-		Locale:     fieldStringValue(*raw, "locale"),
-		Fields:     map[string]any{},
-		Metadata:   map[string]any{},
+		ID:              firstNonEmpty(fieldStringValue(*raw, "document_id"), fieldStringValue(*raw, "id")),
+		Index:           fieldStringValue(*raw, "index"),
+		RegistrationKey: fieldStringValue(*raw, "registration_key"),
+		Type:            fieldStringValue(*raw, "type"),
+		ParentID:        fieldStringValue(*raw, "parent_id"),
+		SourceType:      fieldStringValue(*raw, "source_type"),
+		SourceID:        fieldStringValue(*raw, "source_id"),
+		Title:           fieldStringValue(*raw, "title"),
+		Summary:         fieldStringValue(*raw, "summary"),
+		Body:            fieldStringValue(*raw, "body"),
+		URL:             fieldStringValue(*raw, "url"),
+		AnchorURL:       fieldStringValue(*raw, "anchor_url"),
+		Locale:          fieldStringValue(*raw, "locale"),
+		Fields:          map[string]any{},
+		Metadata:        map[string]any{},
 	}
 	if value, ok := int64FieldValue(*raw, "start_ms"); ok {
 		doc.StartMS = &value
@@ -207,7 +208,6 @@ func mapDocument(raw *map[string]any) types.Document {
 	}
 	reserved := map[string]struct{}{}
 	for _, field := range []string{
-		"id",
 		"index",
 		"type",
 		"parent_id",
@@ -235,6 +235,9 @@ func mapDocument(raw *map[string]any) types.Document {
 			doc.Metadata[field] = value
 		}
 	}
+	reserved["id"] = struct{}{}
+	reserved["document_id"] = struct{}{}
+	reserved["registration_key"] = struct{}{}
 	if value, ok := stringSliceFieldValue(*raw, "topic"); ok {
 		doc.Facets = map[string][]string{"topic": value}
 		reserved["topic"] = struct{}{}

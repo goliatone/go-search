@@ -313,20 +313,20 @@ func (p *Provider) DeleteDocuments(ctx context.Context, index string, ids []stri
 	return deleteDocuments(ctx, p.client, runtime, ids)
 }
 
-func (p *Provider) DeleteBySource(ctx context.Context, index string, sourceIDs []string) error {
+func (p *Provider) DeleteBySource(ctx context.Context, index, registrationKey string, sourceIDs []string) error {
 	runtime, err := p.runtimeFor(index)
 	if err != nil {
 		return err
 	}
-	return deleteBySource(ctx, p.client, runtime, sourceIDs)
+	return deleteBySource(ctx, p.client, runtime, registrationKey, sourceIDs)
 }
 
-func (p *Provider) ReplaceDocuments(ctx context.Context, index string, sourceIDs []string, docs []types.Document) error {
+func (p *Provider) ReplaceDocuments(ctx context.Context, index, registrationKey string, sourceIDs []string, docs []types.Document) error {
 	runtime, err := p.runtimeFor(index)
 	if err != nil {
 		return err
 	}
-	return replaceDocuments(ctx, p.client, runtime, sourceIDs, docs)
+	return replaceDocuments(ctx, p.client, runtime, registrationKey, sourceIDs, docs)
 }
 
 func (p *Provider) Health(ctx context.Context, req types.HealthRequest) (types.HealthStatus, error) {

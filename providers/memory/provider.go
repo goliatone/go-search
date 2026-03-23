@@ -75,12 +75,12 @@ func (p *Provider) UpsertDocuments(_ context.Context, index string, docs []types
 	}
 	for _, doc := range docs {
 		doc.Index = index
-		p.docs[index][doc.ID] = doc.Clone()
+		p.docs[index][internalDocumentKey(doc)] = doc.Clone()
 	}
 	return nil
 }
 
-func (p *Provider) ReplaceDocuments(_ context.Context, index string, sourceIDs []string, docs []types.Document) error {
+func (p *Provider) ReplaceDocuments(_ context.Context, index, registrationKey string, sourceIDs []string, docs []types.Document) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if _, ok := p.docs[index]; !ok {
@@ -92,6 +92,9 @@ func (p *Provider) ReplaceDocuments(_ context.Context, index string, sourceIDs [
 	}
 	if len(sourceSet) > 0 {
 		for id, doc := range p.docs[index] {
+			if !registrationMatches(doc, registrationKey) {
+				continue
+			}
 			if _, ok := sourceSet[doc.SourceID]; ok {
 				delete(p.docs[index], id)
 			}
@@ -99,7 +102,8 @@ func (p *Provider) ReplaceDocuments(_ context.Context, index string, sourceIDs [
 	}
 	for _, doc := range docs {
 		doc.Index = index
-		p.docs[index][doc.ID] = doc.Clone()
+		doc.RegistrationKey = firstNonEmptyString(doc.RegistrationKey, registrationKey)
+		p.docs[index][internalDocumentKey(doc)] = doc.Clone()
 	}
 	return nil
 }
@@ -107,13 +111,24 @@ func (p *Provider) ReplaceDocuments(_ context.Context, index string, sourceIDs [
 func (p *Provider) DeleteDocuments(_ context.Context, index string, ids []string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if len(ids) == 0 {
+		return nil
+	}
+	want := map[string]struct{}{}
 	for _, id := range ids {
-		delete(p.docs[index], id)
+		if trimmed := strings.TrimSpace(id); trimmed != "" {
+			want[trimmed] = struct{}{}
+		}
+	}
+	for key, doc := range p.docs[index] {
+		if _, ok := want[doc.ID]; ok {
+			delete(p.docs[index], key)
+		}
 	}
 	return nil
 }
 
-func (p *Provider) DeleteBySource(_ context.Context, index string, sourceIDs []string) error {
+func (p *Provider) DeleteBySource(_ context.Context, index, registrationKey string, sourceIDs []string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	sourceSet := map[string]struct{}{}
@@ -121,11 +136,31 @@ func (p *Provider) DeleteBySource(_ context.Context, index string, sourceIDs []s
 		sourceSet[id] = struct{}{}
 	}
 	for id, doc := range p.docs[index] {
+		if !registrationMatches(doc, registrationKey) {
+			continue
+		}
 		if _, ok := sourceSet[doc.SourceID]; ok {
 			delete(p.docs[index], id)
 		}
 	}
 	return nil
+}
+
+func internalDocumentKey(doc types.Document) string {
+	return firstNonEmptyString(strings.TrimSpace(doc.RegistrationKey), "_default") + "\x00" + strings.TrimSpace(doc.ID)
+}
+
+func registrationMatches(doc types.Document, registrationKey string) bool {
+	return strings.TrimSpace(doc.RegistrationKey) == strings.TrimSpace(registrationKey)
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func (p *Provider) Search(_ context.Context, req types.SearchRequest) (types.SearchResultPage, error) {
@@ -738,13 +773,4 @@ func parentType(doc types.Document) string {
 		return doc.Type
 	}
 	return types.DocumentTypeVideo
-}
-
-func firstNonEmptyString(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
 }
