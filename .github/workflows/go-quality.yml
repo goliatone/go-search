@@ -1,0 +1,80 @@
+name: Go Quality
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "**/*.go"
+      - "**/go.mod"
+      - "**/go.sum"
+      - "taskfile"
+      - "tools/quality/**"
+      - "ops/quality/baselines/**"
+      - ".github/workflows/go-quality.yml"
+  push:
+    branches: [main]
+    paths:
+      - "**/*.go"
+      - "**/go.mod"
+      - "**/go.sum"
+      - "taskfile"
+      - "tools/quality/**"
+      - "ops/quality/baselines/**"
+      - ".github/workflows/go-quality.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Go Quality Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GO_TOOLCHAIN: local
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            adapters/goadmin/go.sum
+            adapters/gocms/go.sum
+            adapters/gousers/go.sum
+            examples/search-shell/go.sum
+
+      - name: Make task scripts executable
+        run: chmod +x ./taskfile ./tools/quality/baseline.sh
+
+      - name: Install Go quality tools
+        run: ./taskfile go:tools:all
+
+      - name: Check formatting
+        run: ./taskfile go:fmt:check
+
+      - name: Run tests
+        run: ./taskfile go:test
+
+      - name: Run race detector
+        run: ./taskfile go:race
+
+      - name: Run vet
+        run: ./taskfile go:vet
+
+      - name: Run staticcheck against baselines
+        run: ./taskfile go:lint:staticcheck:baseline
+
+      - name: Run govulncheck
+        run: ./taskfile go:security:govulncheck
+
+      - name: Run gosec against baselines
+        run: ./taskfile go:security:gosec:baseline
