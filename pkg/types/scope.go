@@ -71,8 +71,10 @@ type ActivityEvent struct {
 	Verb       string         `json:"verb"`
 	ObjectType string         `json:"object_type"`
 	ObjectID   string         `json:"object_id"`
+	RecordID   string         `json:"record_id,omitempty"`
 	ActorID    string         `json:"actor_id"`
 	TenantID   string         `json:"tenant_id"`
+	OrgID      string         `json:"org_id,omitempty"`
 	OccurredAt int64          `json:"occurred_at"`
 	Metadata   map[string]any `json:"metadata"`
 }

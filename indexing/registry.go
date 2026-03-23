@@ -19,6 +19,10 @@ type RecordIndexer interface {
 	ListRecordIDs(ctx context.Context, limit int, cursor string) ([]string, string, error)
 }
 
+type ActivityEventResolver interface {
+	ResolveActivityEvent(ctx context.Context, verb, recordID string, docs []types.Document, metadata map[string]any) (types.ActivityEvent, error)
+}
+
 type registrationKeyer interface {
 	RegistrationKey() string
 }

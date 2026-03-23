@@ -12,32 +12,33 @@ const (
 )
 
 type Document struct {
-	ID            string              `json:"id"`
-	Index         string              `json:"index"`
-	Type          string              `json:"type"`
-	ParentID      string              `json:"parent_id"`
-	SourceType    string              `json:"source_type"`
-	SourceID      string              `json:"source_id"`
-	SourceVersion string              `json:"source_version"`
-	Title         string              `json:"title"`
-	Summary       string              `json:"summary"`
-	Body          string              `json:"body"`
-	URL           string              `json:"url"`
-	AnchorURL     string              `json:"anchor_url"`
-	Locale        string              `json:"locale"`
-	Score         float64             `json:"score"`
-	CreatedAt     *time.Time          `json:"created_at"`
-	UpdatedAt     *time.Time          `json:"updated_at"`
-	PublishedAt   *time.Time          `json:"published_at"`
-	StartMS       *int64              `json:"start_ms"`
-	EndMS         *int64              `json:"end_ms"`
-	Fields        map[string]any      `json:"fields"`
-	Facets        map[string][]string `json:"facets"`
-	Numeric       map[string]float64  `json:"numeric"`
-	Booleans      map[string]bool     `json:"booleans"`
-	Scope         Scope               `json:"scope"`
-	Visibility    Visibility          `json:"visibility"`
-	Metadata      map[string]any      `json:"metadata"`
+	ID              string              `json:"id"`
+	Index           string              `json:"index"`
+	RegistrationKey string              `json:"-"`
+	Type            string              `json:"type"`
+	ParentID        string              `json:"parent_id"`
+	SourceType      string              `json:"source_type"`
+	SourceID        string              `json:"source_id"`
+	SourceVersion   string              `json:"source_version"`
+	Title           string              `json:"title"`
+	Summary         string              `json:"summary"`
+	Body            string              `json:"body"`
+	URL             string              `json:"url"`
+	AnchorURL       string              `json:"anchor_url"`
+	Locale          string              `json:"locale"`
+	Score           float64             `json:"score"`
+	CreatedAt       *time.Time          `json:"created_at"`
+	UpdatedAt       *time.Time          `json:"updated_at"`
+	PublishedAt     *time.Time          `json:"published_at"`
+	StartMS         *int64              `json:"start_ms"`
+	EndMS           *int64              `json:"end_ms"`
+	Fields          map[string]any      `json:"fields"`
+	Facets          map[string][]string `json:"facets"`
+	Numeric         map[string]float64  `json:"numeric"`
+	Booleans        map[string]bool     `json:"booleans"`
+	Scope           Scope               `json:"scope"`
+	Visibility      Visibility          `json:"visibility"`
+	Metadata        map[string]any      `json:"metadata"`
 }
 
 func (d Document) Clone() Document {

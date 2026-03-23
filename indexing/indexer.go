@@ -118,7 +118,13 @@ func (i *Indexer) ReindexIndex(ctx context.Context, index, registrationKey strin
 	if registrationKey != "" {
 		metadata["registration_key"] = registrationKey
 	}
-	i.emitActivity(ctx, "reindexed", objectType, index, metadata)
+	i.emitActivity(ctx, types.ActivityEvent{
+		Channel:    "search",
+		Verb:       "reindexed",
+		ObjectType: objectType,
+		ObjectID:   index,
+		Metadata:   metadata,
+	})
 	observe.Count(ctx, i.metrics, i.logger, "search.reindex.count", int64(total), map[string]string{"index": index})
 	observe.ObserveDuration(ctx, i.metrics, i.logger, "search.reindex.duration_ms", startedAt, map[string]string{"index": index})
 	return nil
@@ -133,11 +139,14 @@ func (i *Indexer) indexRecord(ctx context.Context, index, registrationKey, recor
 	if err != nil {
 		return nil, errs.ProjectorFailure(err, map[string]any{"index": index, "record_id": recordID})
 	}
+	for i := range docs {
+		docs[i].RegistrationKey = registration.RegistrationKey
+	}
 	sourceIDs, err := registration.Indexer.DeleteSourceIDs(ctx, recordID)
 	if err != nil {
 		return nil, err
 	}
-	if err := i.provider.ReplaceDocuments(ctx, index, sourceIDs, docs); err != nil {
+	if err := i.provider.ReplaceDocuments(ctx, index, registration.RegistrationKey, sourceIDs, docs); err != nil {
 		observe.Count(ctx, i.metrics, i.logger, "search.index_record.error.count", 1, map[string]string{"index": index})
 		return nil, err
 	}
@@ -151,7 +160,7 @@ func (i *Indexer) indexRecord(ctx context.Context, index, registrationKey, recor
 		if registration.RegistrationKey != "" {
 			metadata["registration_key"] = registration.RegistrationKey
 		}
-		i.emitActivity(ctx, "indexed", registration.Indexer.SourceType(), recordID, metadata)
+		i.emitActivity(ctx, i.recordActivityEvent(ctx, registration, "indexed", recordID, docs, metadata))
 	}
 	observe.Count(ctx, i.metrics, i.logger, "search.index_record.count", int64(len(docs)), map[string]string{"index": index})
 	return docs, nil
@@ -162,11 +171,19 @@ func (i *Indexer) deleteRecord(ctx context.Context, index, registrationKey, reco
 	if err != nil {
 		return err
 	}
+	var activity types.ActivityEvent
+	if emitActivity {
+		metadata := map[string]any{"index": index}
+		if registration.RegistrationKey != "" {
+			metadata["registration_key"] = registration.RegistrationKey
+		}
+		activity = i.recordActivityEvent(ctx, registration, "deleted", recordID, nil, metadata)
+	}
 	sourceIDs, err := registration.Indexer.DeleteSourceIDs(ctx, recordID)
 	if err != nil {
 		return err
 	}
-	if err := i.provider.DeleteBySource(ctx, index, sourceIDs); err != nil {
+	if err := i.provider.DeleteBySource(ctx, index, registration.RegistrationKey, sourceIDs); err != nil {
 		observe.Count(ctx, i.metrics, i.logger, "search.delete_record.error.count", 1, map[string]string{"index": index})
 		return err
 	}
@@ -176,11 +193,7 @@ func (i *Indexer) deleteRecord(ctx context.Context, index, registrationKey, reco
 		}
 	}
 	if emitActivity {
-		metadata := map[string]any{"index": index}
-		if registration.RegistrationKey != "" {
-			metadata["registration_key"] = registration.RegistrationKey
-		}
-		i.emitActivity(ctx, "deleted", registration.Indexer.SourceType(), recordID, metadata)
+		i.emitActivity(ctx, activity)
 	}
 	observe.Count(ctx, i.metrics, i.logger, "search.delete_record.count", 1, map[string]string{"index": index})
 	return nil
@@ -194,17 +207,94 @@ func (i *Indexer) bumpGeneration(ctx context.Context, index string) error {
 	return err
 }
 
-func (i *Indexer) emitActivity(ctx context.Context, verb, objectType, objectID string, metadata map[string]any) {
+func (i *Indexer) emitActivity(ctx context.Context, event types.ActivityEvent) {
 	if len(i.activities) == 0 {
 		return
 	}
+	if event.Channel == "" {
+		event.Channel = "search"
+	}
+	if event.OccurredAt <= 0 {
+		event.OccurredAt = i.clock.Now().UnixMilli()
+	}
+	observe.NotifyActivities(ctx, i.activities, i.logger, event)
+}
+
+func (i *Indexer) recordActivityEvent(ctx context.Context, registration RegisteredSource, verb, recordID string, docs []types.Document, metadata map[string]any) types.ActivityEvent {
 	event := types.ActivityEvent{
 		Channel:    "search",
 		Verb:       verb,
-		ObjectType: objectType,
-		ObjectID:   objectID,
-		OccurredAt: i.clock.Now().UnixMilli(),
-		Metadata:   metadata,
+		ObjectType: registration.Indexer.SourceType(),
+		ObjectID:   recordID,
+		RecordID:   recordID,
+		Metadata:   cloneActivityMetadata(metadata),
 	}
-	observe.NotifyActivities(ctx, i.activities, i.logger, event)
+	if len(event.Metadata) == 0 {
+		event.Metadata = map[string]any{}
+	}
+	event.Metadata["record_id"] = recordID
+	if resolver, ok := registration.Indexer.(ActivityEventResolver); ok {
+		resolved, err := resolver.ResolveActivityEvent(ctx, verb, recordID, docs, event.Metadata)
+		if err != nil {
+			observe.Warn(i.logger, "search.activity_context_resolver_failed", map[string]any{
+				"index":            registration.Index,
+				"registration_key": registration.RegistrationKey,
+				"record_id":        recordID,
+				"message":          err.Error(),
+			})
+		} else {
+			event = mergeActivityEvent(event, resolved)
+		}
+	}
+	return event
+}
+
+func mergeActivityEvent(base, resolved types.ActivityEvent) types.ActivityEvent {
+	if resolved.Channel != "" {
+		base.Channel = resolved.Channel
+	}
+	if resolved.Verb != "" {
+		base.Verb = resolved.Verb
+	}
+	if resolved.ObjectType != "" {
+		base.ObjectType = resolved.ObjectType
+	}
+	if resolved.ObjectID != "" {
+		base.ObjectID = resolved.ObjectID
+	}
+	if resolved.RecordID != "" {
+		base.RecordID = resolved.RecordID
+	}
+	if resolved.ActorID != "" {
+		base.ActorID = resolved.ActorID
+	}
+	if resolved.TenantID != "" {
+		base.TenantID = resolved.TenantID
+	}
+	if resolved.OrgID != "" {
+		base.OrgID = resolved.OrgID
+	}
+	if resolved.OccurredAt > 0 {
+		base.OccurredAt = resolved.OccurredAt
+	}
+	if len(resolved.Metadata) > 0 {
+		if base.Metadata == nil {
+			base.Metadata = map[string]any{}
+		}
+		for key, value := range resolved.Metadata {
+			base.Metadata[key] = value
+		}
+	}
+	return base
+}
+
+func cloneActivityMetadata(metadata map[string]any) map[string]any {
+	if len(metadata) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(metadata))
+	for key, value := range metadata {
+		out[key] = value
+	}
+	return out
 }

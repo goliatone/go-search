@@ -102,6 +102,59 @@ function dev:test {
     go test ./...
 }
 
+function dev:test:release:fast {
+    go test ./... || return 1
+    (
+        cd examples/search-shell || exit 1
+        ./taskfile dev:test
+    ) || return 1
+    (
+        cd examples/search-shell || exit 1
+        ./taskfile release:validate
+    ) || return 1
+}
+
+function dev:test:release:parity {
+    (
+        cd examples/search-shell || exit 1
+        ./taskfile release:validate:parity
+    )
+}
+
+function dev:test:release:full {
+    (
+        cd ../go-i18n || exit 1
+        go test ./...
+    ) || return 1
+
+    go test ./... || return 1
+
+    (
+        cd examples/search-shell || exit 1
+        ./taskfile dev:test
+    ) || return 1
+
+    (
+        cd examples/search-shell || exit 1
+        ./taskfile release:validate:full
+    ) || return 1
+
+    (
+        cd ../go-admin || exit 1
+        go test ./admin ./quickstart/site ./examples/web
+    ) || return 1
+
+    (
+        cd ../go-cms || exit 1
+        go test ./content ./internal/pages
+    ) || return 1
+
+    (
+        cd ../go-users || exit 1
+        go test ./service ./query ./activity
+    ) || return 1
+}
+
 function dev:test:adapters {
     local dir
 

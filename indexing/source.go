@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/goliatone/go-search/pkg/types"
 )
@@ -88,6 +89,23 @@ func (r *Registration[T]) DeleteSourceIDs(_ context.Context, recordID string) ([
 	return []string{recordID}, nil
 }
 
+func (r *Registration[T]) ResolveActivityEvent(ctx context.Context, verb, recordID string, docs []types.Document, metadata map[string]any) (types.ActivityEvent, error) {
+	event := types.ActivityEvent{
+		Channel:    "search",
+		Verb:       strings.TrimSpace(verb),
+		ObjectType: strings.TrimSpace(r.sourceType),
+		ObjectID:   strings.TrimSpace(recordID),
+		RecordID:   strings.TrimSpace(recordID),
+		Metadata:   cloneMetadata(metadata),
+	}
+	doc, err := r.activityDocument(ctx, recordID, docs)
+	if err != nil {
+		return event, err
+	}
+	applyDocumentActivityContext(&event, doc)
+	return event, nil
+}
+
 func (r *Registration[T]) ListRecordIDs(ctx context.Context, limit int, cursor string) ([]string, string, error) {
 	records, next, err := r.source.List(ctx, limit, cursor)
 	if err != nil {
@@ -116,4 +134,102 @@ func recordID[T any](record T) string {
 		}
 	}
 	return ""
+}
+
+func (r *Registration[T]) activityDocument(ctx context.Context, recordID string, docs []types.Document) (*types.Document, error) {
+	if doc := selectActivityDocument(docs, recordID); doc != nil {
+		return doc, nil
+	}
+	record, err := r.source.Get(ctx, recordID)
+	if err != nil {
+		return nil, err
+	}
+	projected, err := r.projector.Project(ctx, record)
+	if err != nil {
+		return nil, err
+	}
+	return selectActivityDocument(projected, recordID), nil
+}
+
+func selectActivityDocument(docs []types.Document, recordID string) *types.Document {
+	recordID = strings.TrimSpace(recordID)
+	for i := range docs {
+		doc := docs[i]
+		if recordID == "" || strings.EqualFold(strings.TrimSpace(doc.SourceID), recordID) || strings.EqualFold(strings.TrimSpace(doc.ID), recordID) {
+			copy := doc.Clone()
+			return &copy
+		}
+	}
+	if len(docs) == 0 {
+		return nil
+	}
+	copy := docs[0].Clone()
+	return &copy
+}
+
+func applyDocumentActivityContext(event *types.ActivityEvent, doc *types.Document) {
+	if event == nil || doc == nil {
+		return
+	}
+	if sourceType := strings.TrimSpace(doc.SourceType); sourceType != "" {
+		event.ObjectType = sourceType
+	}
+	if objectID := firstActivityValue(strings.TrimSpace(doc.SourceID), strings.TrimSpace(event.ObjectID), strings.TrimSpace(doc.ID)); objectID != "" {
+		event.ObjectID = objectID
+	}
+	if recordID := firstActivityValue(strings.TrimSpace(event.RecordID), strings.TrimSpace(doc.SourceID), strings.TrimSpace(doc.ID), fieldString(doc.Fields, "user_id")); recordID != "" {
+		event.RecordID = recordID
+	}
+	if tenantID := strings.TrimSpace(doc.Scope.TenantID); tenantID != "" {
+		event.TenantID = tenantID
+	}
+	if orgID := strings.TrimSpace(doc.Scope.OrgID); orgID != "" {
+		event.OrgID = orgID
+	}
+	if event.Metadata == nil {
+		event.Metadata = map[string]any{}
+	}
+	if event.RecordID != "" {
+		event.Metadata["record_id"] = event.RecordID
+	}
+	if event.TenantID != "" {
+		event.Metadata["tenant_id"] = event.TenantID
+	}
+	if event.OrgID != "" {
+		event.Metadata["org_id"] = event.OrgID
+	}
+	if userID := fieldString(doc.Fields, "user_id"); userID != "" {
+		event.Metadata["user_id"] = userID
+	}
+}
+
+func fieldString(fields map[string]any, key string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	value, ok := fields[key]
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func firstActivityValue(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func cloneMetadata(metadata map[string]any) map[string]any {
+	if len(metadata) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(metadata))
+	for key, value := range metadata {
+		out[key] = value
+	}
+	return out
 }
