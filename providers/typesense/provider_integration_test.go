@@ -207,32 +207,18 @@ func TestTypesenseProviderSupportsArchiveFacetsAndRangeFiltering(t *testing.T) {
 func TestTypesenseProviderSupportsFlatHeterogeneousSearchAcrossSeparateIndexes(t *testing.T) {
 	provider := newIntegrationProvider(t)
 	ctx := context.Background()
-	defs := []types.IndexDefinition{
+	for _, def := range []types.IndexDefinition{
 		content.DefaultIndexDefinition("videos"),
 		content.DefaultIndexDefinition("documents"),
 		content.DefaultIndexDefinition("blog_articles"),
-	}
-	for _, def := range defs {
+	} {
 		if err := provider.EnsureIndex(ctx, def); err != nil {
 			t.Fatalf("ensure index %s: %v", def.Name, err)
 		}
 	}
-	videoDoc := content.NewProjector(content.ProjectorConfig{Index: "videos", SourceType: "video"})
-	documentDoc := content.NewProjector(content.ProjectorConfig{Index: "documents", SourceType: "document"})
-	blogDoc := content.NewProjector(content.ProjectorConfig{Index: "blog_articles", SourceType: "blog_article"})
-	videoDocs, _ := videoDoc.Project(ctx, content.Record{ID: "video-1", Type: types.DocumentTypeVideo, Title: "Search Architecture Walkthrough", Body: "search architecture video", URL: "/videos/1", Locale: "en"})
-	documentDocs, _ := documentDoc.Project(ctx, content.Record{ID: "document-1", Type: types.DocumentTypeDocument, Title: "Search Rollout Workbook", Body: "search rollout document", URL: "/documents/1", Locale: "en"})
-	blogDocs, _ := blogDoc.Project(ctx, content.Record{ID: "blog-1", Type: types.DocumentTypeBlogArticle, Title: "Search Notes", Body: "search notes article", URL: "/blog/1", Locale: "en"})
-	for _, item := range []struct {
-		index string
-		docs  []types.Document
-	}{
-		{index: "videos", docs: videoDocs},
-		{index: "documents", docs: documentDocs},
-		{index: "blog_articles", docs: blogDocs},
-	} {
-		if err := provider.UpsertDocuments(ctx, item.index, item.docs); err != nil {
-			t.Fatalf("upsert %s docs: %v", item.index, err)
+	for _, item := range testkit.HeterogeneousDocuments() {
+		if err := provider.UpsertDocuments(ctx, item.Index, item.Docs); err != nil {
+			t.Fatalf("upsert %s docs: %v", item.Index, err)
 		}
 	}
 	page, err := provider.Search(ctx, types.SearchRequest{
@@ -412,96 +398,7 @@ func TestTypesenseProviderSupportsArchiveMultiSelectFacetRefinement(t *testing.T
 	if err := provider.EnsureIndex(ctx, def); err != nil {
 		t.Fatalf("ensure index: %v", err)
 	}
-
-	startA, endA := int64(1000), int64(2000)
-	startB, endB := int64(3000), int64(4000)
-	startC, endC := int64(5000), int64(6000)
-	docs := []types.Document{
-		{
-			ID:         "segment-architecture-1",
-			Index:      "media",
-			Type:       types.DocumentTypeTranscriptSegment,
-			ParentID:   "video-architecture",
-			SourceType: "transcript",
-			SourceID:   "track-architecture",
-			Title:      "Architecture Walkthrough",
-			Body:       "archive architecture prayer",
-			URL:        "https://example.org/video-architecture",
-			AnchorURL:  "https://example.org/video-architecture#t=1",
-			Locale:     "en",
-			StartMS:    &startA,
-			EndMS:      &endA,
-			Fields: map[string]any{
-				"parent_title":         "Architecture Walkthrough",
-				"parent_url":           "https://example.org/video-architecture",
-				media.FieldResultBadge: "Blueprint",
-			},
-			Facets: map[string][]string{
-				media.FacetFieldTopicHierarchy: {"Teaching Topics", "Teaching Topics > Architecture"},
-				media.FacetFieldFormat:         {"Teaching"},
-				media.FacetFieldLocale:         {"en"},
-			},
-			Numeric: map[string]float64{
-				media.FieldPublishedYear: 2024,
-			},
-		},
-		{
-			ID:         "segment-tara-1",
-			Index:      "media",
-			Type:       types.DocumentTypeTranscriptSegment,
-			ParentID:   "video-tara",
-			SourceType: "transcript",
-			SourceID:   "track-tara",
-			Title:      "Tara Teachings",
-			Body:       "archive tara prayer",
-			URL:        "https://example.org/video-tara",
-			AnchorURL:  "https://example.org/video-tara#t=3",
-			Locale:     "en",
-			StartMS:    &startB,
-			EndMS:      &endB,
-			Fields: map[string]any{
-				"parent_title":         "Tara Teachings",
-				"parent_url":           "https://example.org/video-tara",
-				media.FieldResultBadge: "Featured",
-			},
-			Facets: map[string][]string{
-				media.FacetFieldTopicHierarchy: {"Teaching Topics", "Teaching Topics > Tara"},
-				media.FacetFieldFormat:         {"Teaching"},
-				media.FacetFieldLocale:         {"en"},
-			},
-			Numeric: map[string]float64{
-				media.FieldPublishedYear: 2024,
-			},
-		},
-		{
-			ID:         "segment-ranking-1",
-			Index:      "media",
-			Type:       types.DocumentTypeTranscriptSegment,
-			ParentID:   "video-ranking",
-			SourceType: "transcript",
-			SourceID:   "track-ranking",
-			Title:      "Ranking Workshop",
-			Body:       "archive ranking prayer",
-			URL:        "https://example.org/video-ranking",
-			AnchorURL:  "https://example.org/video-ranking#t=5",
-			Locale:     "en",
-			StartMS:    &startC,
-			EndMS:      &endC,
-			Fields: map[string]any{
-				"parent_title": "Ranking Workshop",
-				"parent_url":   "https://example.org/video-ranking",
-			},
-			Facets: map[string][]string{
-				media.FacetFieldTopicHierarchy: {"Teaching Topics", "Teaching Topics > Ranking"},
-				media.FacetFieldFormat:         {"Workshop"},
-				media.FacetFieldLocale:         {"en"},
-			},
-			Numeric: map[string]float64{
-				media.FieldPublishedYear: 2022,
-			},
-		},
-	}
-	if err := provider.UpsertDocuments(ctx, "media", docs); err != nil {
+	if err := provider.UpsertDocuments(ctx, "media", testkit.ArchiveFacetDocuments("media")); err != nil {
 		t.Fatalf("upsert docs: %v", err)
 	}
 
@@ -781,7 +678,7 @@ func TestTypesenseProviderLocaleSuggestDeleteBySourceAndStats(t *testing.T) {
 		t.Fatalf("expected parent-deduplicated suggestion, got %+v", suggest.Items)
 	}
 
-	if err := provider.DeleteBySource(ctx, "media", []string{"track-en"}); err != nil {
+	if err := provider.DeleteBySource(ctx, "media", "", []string{"track-en"}); err != nil {
 		t.Fatalf("delete by source: %v", err)
 	}
 	afterDelete, err := provider.Search(ctx, types.SearchRequest{
@@ -883,7 +780,7 @@ func TestTypesenseProviderReplaceDocumentsPreservesDataUntilUpsertSucceeds(t *te
 			},
 		},
 	}
-	err := provider.ReplaceDocuments(ctx, "media", []string{"track-1"}, invalid)
+	err := provider.ReplaceDocuments(ctx, "media", "", []string{"track-1"}, invalid)
 	if err == nil {
 		t.Fatalf("expected replace documents to fail on invalid payload")
 	}
@@ -899,6 +796,72 @@ func TestTypesenseProviderReplaceDocumentsPreservesDataUntilUpsertSucceeds(t *te
 	}
 	if page.Total == 0 {
 		t.Fatalf("expected original docs to remain after failed replace")
+	}
+}
+
+func TestTypesenseProviderScopesSharedIndexReplaceAndDeleteByRegistrationKey(t *testing.T) {
+	provider := newIntegrationProvider(t)
+	ctx := context.Background()
+	def := integrationIndexDefinition("content_shared")
+	if err := provider.EnsureIndex(ctx, def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	videoDocs := []types.Document{{
+		ID:              "shared-1",
+		RegistrationKey: "video",
+		Index:           def.Name,
+		Type:            types.DocumentTypeVideo,
+		SourceType:      "video",
+		SourceID:        "shared-1",
+		Title:           "Shared Video",
+		Body:            "architecture video",
+		URL:             "/videos/shared-1",
+		Locale:          "en",
+	}}
+	documentDocs := []types.Document{{
+		ID:              "shared-1",
+		RegistrationKey: "document",
+		Index:           def.Name,
+		Type:            types.DocumentTypeDocument,
+		SourceType:      "document",
+		SourceID:        "shared-1",
+		Title:           "Shared Document",
+		Body:            "architecture workbook",
+		URL:             "/documents/shared-1",
+		Locale:          "en",
+	}}
+	if err := provider.ReplaceDocuments(ctx, def.Name, "video", []string{"shared-1"}, videoDocs); err != nil {
+		t.Fatalf("replace video docs: %v", err)
+	}
+	if err := provider.ReplaceDocuments(ctx, def.Name, "document", []string{"shared-1"}, documentDocs); err != nil {
+		t.Fatalf("replace document docs: %v", err)
+	}
+	page, err := provider.Search(ctx, types.SearchRequest{
+		Indexes: []string{def.Name},
+		Query:   "architecture",
+		Page:    1,
+		PerPage: 10,
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if page.Total != 2 {
+		t.Fatalf("expected both registrations to survive shared id collision, got %+v", page.Hits)
+	}
+	if err := provider.DeleteBySource(ctx, def.Name, "video", []string{"shared-1"}); err != nil {
+		t.Fatalf("delete video docs: %v", err)
+	}
+	page, err = provider.Search(ctx, types.SearchRequest{
+		Indexes: []string{def.Name},
+		Query:   "architecture",
+		Page:    1,
+		PerPage: 10,
+	})
+	if err != nil {
+		t.Fatalf("search after delete: %v", err)
+	}
+	if page.Total != 1 || len(page.Hits) != 1 || page.Hits[0].Type != types.DocumentTypeDocument {
+		t.Fatalf("expected document registration to remain, got %+v", page.Hits)
 	}
 }
 

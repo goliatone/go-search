@@ -11,6 +11,51 @@ import (
 	"github.com/goliatone/go-search/providers/memory"
 )
 
+type recordingActivityHook struct {
+	events []types.ActivityEvent
+}
+
+func (h *recordingActivityHook) Notify(_ context.Context, event types.ActivityEvent) {
+	h.events = append(h.events, event)
+}
+
+type activityUserRecord struct {
+	ID       string
+	TenantID string
+	OrgID    string
+}
+
+type activityUserSource struct {
+	record activityUserRecord
+}
+
+func (s activityUserSource) Get(context.Context, string) (activityUserRecord, error) {
+	return s.record, nil
+}
+
+func (s activityUserSource) List(context.Context, int, string) ([]activityUserRecord, string, error) {
+	return []activityUserRecord{s.record}, "", nil
+}
+
+type activityUserProjector struct{}
+
+func (activityUserProjector) Project(_ context.Context, record activityUserRecord) ([]types.Document, error) {
+	return []types.Document{{
+		ID:         "user-doc-" + record.ID,
+		Type:       "user",
+		SourceType: "user",
+		SourceID:   record.ID,
+		Title:      "User " + record.ID,
+		Scope: types.Scope{
+			TenantID: record.TenantID,
+			OrgID:    record.OrgID,
+		},
+		Fields: map[string]any{
+			"user_id": record.ID,
+		},
+	}}, nil
+}
+
 type mutableTranscriptSource struct {
 	record media.TranscriptRecord
 }
@@ -21,6 +66,42 @@ func (s *mutableTranscriptSource) Get(context.Context, string) (media.Transcript
 
 func (s *mutableTranscriptSource) List(context.Context, int, string) ([]media.TranscriptRecord, string, error) {
 	return []media.TranscriptRecord{s.record}, "", nil
+}
+
+type sharedRegistrationRecord struct {
+	ID    string
+	Type  string
+	Title string
+	Body  string
+}
+
+type sharedRegistrationSource struct {
+	record sharedRegistrationRecord
+}
+
+func (s sharedRegistrationSource) Get(context.Context, string) (sharedRegistrationRecord, error) {
+	return s.record, nil
+}
+
+func (s sharedRegistrationSource) List(context.Context, int, string) ([]sharedRegistrationRecord, string, error) {
+	return []sharedRegistrationRecord{s.record}, "", nil
+}
+
+type sharedRegistrationProjector struct {
+	sourceType string
+}
+
+func (p sharedRegistrationProjector) Project(_ context.Context, record sharedRegistrationRecord) ([]types.Document, error) {
+	return []types.Document{{
+		ID:         record.ID,
+		Type:       record.Type,
+		SourceType: p.sourceType,
+		SourceID:   record.ID,
+		Title:      record.Title,
+		Body:       record.Body,
+		URL:        "/" + p.sourceType + "/" + record.ID,
+		Locale:     "en",
+	}}, nil
 }
 
 type stubGenerationStore struct {
@@ -224,5 +305,134 @@ func TestIndexerRequiresRegistrationKeyWhenIndexHasMultipleRegistrations(t *test
 	}
 	if _, err := indexer.IndexRecord(context.Background(), "content", "video", record.ID); err != nil {
 		t.Fatalf("index record with registration key: %v", err)
+	}
+}
+
+func TestIndexerEmitsScopedRecordActivityContext(t *testing.T) {
+	record := activityUserRecord{
+		ID:       "00000000-0000-0000-0000-000000000111",
+		TenantID: "00000000-0000-0000-0000-000000000211",
+		OrgID:    "00000000-0000-0000-0000-000000000311",
+	}
+	registry := NewRegistry()
+	def := types.IndexDefinition{Name: "users"}
+	reg := NewRegistration("users", def, "user", activityUserSource{record: record}, activityUserProjector{}, func(r activityUserRecord) string { return r.ID })
+	if err := registry.Register(def, reg); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	provider := memory.New(memory.Config{})
+	if err := provider.EnsureIndex(context.Background(), def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	hook := &recordingActivityHook{}
+	indexer, err := NewIndexer(IndexerConfig{Registry: registry, Provider: provider, Activities: []types.ActivityHook{hook}})
+	if err != nil {
+		t.Fatalf("new indexer: %v", err)
+	}
+
+	if _, err := indexer.IndexRecord(context.Background(), "users", "", record.ID); err != nil {
+		t.Fatalf("index record: %v", err)
+	}
+	if err := indexer.DeleteRecord(context.Background(), "users", "", record.ID); err != nil {
+		t.Fatalf("delete record: %v", err)
+	}
+	if len(hook.events) != 2 {
+		t.Fatalf("events = %#v", hook.events)
+	}
+	for _, event := range hook.events {
+		if event.RecordID != record.ID {
+			t.Fatalf("record id = %#v", event)
+		}
+		if event.TenantID != record.TenantID || event.OrgID != record.OrgID {
+			t.Fatalf("scope context = %#v", event)
+		}
+		if event.ObjectType != "user" || event.ObjectID != record.ID {
+			t.Fatalf("object context = %#v", event)
+		}
+		if event.Metadata["user_id"] != record.ID {
+			t.Fatalf("metadata = %#v", event.Metadata)
+		}
+	}
+}
+
+func TestIndexerScopesSharedIndexReplacementAndDeleteByRegistrationKey(t *testing.T) {
+	registry := NewRegistry()
+	def := types.IndexDefinition{Name: "content_shared"}
+	videoRecord := sharedRegistrationRecord{
+		ID:    "shared-1",
+		Type:  types.DocumentTypeVideo,
+		Title: "Shared Video",
+		Body:  "architecture video",
+	}
+	documentRecord := sharedRegistrationRecord{
+		ID:    "shared-1",
+		Type:  types.DocumentTypeDocument,
+		Title: "Shared Document",
+		Body:  "architecture workbook",
+	}
+	videoReg := NewRegistrationWithKey(
+		def.Name,
+		def,
+		"video",
+		"video",
+		sharedRegistrationSource{record: videoRecord},
+		sharedRegistrationProjector{sourceType: "video"},
+		func(record sharedRegistrationRecord) string { return record.ID },
+	)
+	documentReg := NewRegistrationWithKey(
+		def.Name,
+		def,
+		"document",
+		"document",
+		sharedRegistrationSource{record: documentRecord},
+		sharedRegistrationProjector{sourceType: "document"},
+		func(record sharedRegistrationRecord) string { return record.ID },
+	)
+	if err := registry.Register(def, videoReg); err != nil {
+		t.Fatalf("register video: %v", err)
+	}
+	if err := registry.Register(def, documentReg); err != nil {
+		t.Fatalf("register document: %v", err)
+	}
+	provider := memory.New(memory.Config{})
+	if err := provider.EnsureIndex(context.Background(), def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	indexer, err := NewIndexer(IndexerConfig{Registry: registry, Provider: provider})
+	if err != nil {
+		t.Fatalf("new indexer: %v", err)
+	}
+	if _, err := indexer.IndexRecord(context.Background(), def.Name, "video", videoRecord.ID); err != nil {
+		t.Fatalf("index video: %v", err)
+	}
+	if _, err := indexer.IndexRecord(context.Background(), def.Name, "document", documentRecord.ID); err != nil {
+		t.Fatalf("index document: %v", err)
+	}
+	page, err := provider.Search(context.Background(), types.SearchRequest{
+		Indexes: []string{def.Name},
+		Query:   "architecture",
+		Page:    1,
+		PerPage: 10,
+	})
+	if err != nil {
+		t.Fatalf("search shared: %v", err)
+	}
+	if page.Total != 2 {
+		t.Fatalf("expected both registrations to survive shared ID collision, got %+v", page.Hits)
+	}
+	if err := indexer.DeleteRecord(context.Background(), def.Name, "video", videoRecord.ID); err != nil {
+		t.Fatalf("delete video: %v", err)
+	}
+	page, err = provider.Search(context.Background(), types.SearchRequest{
+		Indexes: []string{def.Name},
+		Query:   "architecture",
+		Page:    1,
+		PerPage: 10,
+	})
+	if err != nil {
+		t.Fatalf("search after delete: %v", err)
+	}
+	if page.Total != 1 || len(page.Hits) != 1 || page.Hits[0].Type != types.DocumentTypeDocument {
+		t.Fatalf("expected document registration to remain after scoped delete, got %+v", page.Hits)
 	}
 }

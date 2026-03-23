@@ -163,17 +163,24 @@ func TestCompileSearchParamsCompilesArchiveRangeAndHierarchyFilters(t *testing.T
 
 func TestCompileDocumentAddsExistsShadowFields(t *testing.T) {
 	doc := types.Document{
-		ID:     "segment-1",
-		Index:  "media",
-		Type:   types.DocumentTypeTranscriptSegment,
-		Title:  "Ocean Wind",
-		Locale: "en",
-		Facets: map[string][]string{"topic": {"archive"}},
+		ID:              "segment-1",
+		Index:           "media",
+		RegistrationKey: "transcript",
+		Type:            types.DocumentTypeTranscriptSegment,
+		Title:           "Ocean Wind",
+		Locale:          "en",
+		Facets:          map[string][]string{"topic": {"archive"}},
 	}
 	payload := compileDocument(types.IndexDefinition{
 		Name:             "media",
 		FilterableFields: []string{"topic", "locale"},
 	}, doc)
+	if payload["id"] != "transcript::segment-1" {
+		t.Fatalf("expected internal storage id, got %+v", payload["id"])
+	}
+	if payload["document_id"] != "segment-1" {
+		t.Fatalf("expected external document id field, got %+v", payload["document_id"])
+	}
 	if payload["__exists_topic"] != true {
 		t.Fatalf("expected topic exists shadow field, got %+v", payload["__exists_topic"])
 	}
@@ -182,6 +189,23 @@ func TestCompileDocumentAddsExistsShadowFields(t *testing.T) {
 	}
 	if payload["__exists_source_id"] != false {
 		t.Fatalf("expected empty source_id shadow field to be false, got %+v", payload["__exists_source_id"])
+	}
+}
+
+func TestMapDocumentPrefersExternalDocumentID(t *testing.T) {
+	doc := mapDocument(&map[string]any{
+		"id":               "video::shared-1",
+		"document_id":      "shared-1",
+		"registration_key": "video",
+		"type":             types.DocumentTypeVideo,
+		"title":            "Shared Video",
+		"source_id":        "shared-1",
+	})
+	if doc.ID != "shared-1" {
+		t.Fatalf("expected external document id, got %+v", doc)
+	}
+	if doc.RegistrationKey != "video" {
+		t.Fatalf("expected registration key, got %+v", doc)
 	}
 }
 

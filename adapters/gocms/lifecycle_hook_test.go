@@ -27,12 +27,20 @@ func TestLifecycleHookIndexesSearchableEvent(t *testing.T) {
 	indexer := &recordingIndexer{}
 	hook := NewLifecycleHook(LifecycleHookConfig{
 		Indexer: indexer,
-		Routes: []Route{{
-			ResourceType:    "content",
-			ContentTypeSlug: "article",
-			Index:           "content_shared",
-			RegistrationKey: "document",
-		}},
+		Routes: []Route{
+			{
+				ResourceType:    "content",
+				ContentTypeSlug: "article",
+				Index:           "content_shared",
+				RegistrationKey: "document",
+			},
+			{
+				ResourceType:    "content",
+				ContentTypeSlug: "article",
+				Index:           "documents",
+				RegistrationKey: "document",
+			},
+		},
 	})
 	err := hook.Notify(context.Background(), cmslifecycle.Event{
 		ResourceType:    "content",
@@ -44,7 +52,7 @@ func TestLifecycleHookIndexesSearchableEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("notify: %v", err)
 	}
-	if len(indexer.indexed) != 1 || indexer.indexed[0] != "content_shared:document:abc" {
+	if len(indexer.indexed) != 2 || indexer.indexed[0] != "content_shared:document:abc" || indexer.indexed[1] != "documents:document:abc" {
 		t.Fatalf("indexed = %#v", indexer.indexed)
 	}
 }
@@ -68,6 +76,35 @@ func TestLifecycleHookDeletesWhenSearchDisabled(t *testing.T) {
 		t.Fatalf("notify: %v", err)
 	}
 	if len(indexer.deleted) != 1 || indexer.deleted[0] != "pages::page-1" {
+		t.Fatalf("deleted = %#v", indexer.deleted)
+	}
+}
+
+func TestLifecycleHookReindexesTranslationDelete(t *testing.T) {
+	indexer := &recordingIndexer{}
+	hook := NewLifecycleHook(LifecycleHookConfig{
+		Indexer: indexer,
+		Routes: []Route{{
+			ResourceType:    "content",
+			ContentTypeSlug: "article",
+			Index:           "content_shared",
+			RegistrationKey: "document",
+		}},
+	})
+	err := hook.Notify(context.Background(), cmslifecycle.Event{
+		ResourceType:    "content",
+		RecordID:        "abc",
+		Transition:      "translation_delete",
+		ContentTypeSlug: "article",
+		SearchEnabled:   true,
+	})
+	if err != nil {
+		t.Fatalf("notify: %v", err)
+	}
+	if len(indexer.indexed) != 1 || indexer.indexed[0] != "content_shared:document:abc" {
+		t.Fatalf("indexed = %#v", indexer.indexed)
+	}
+	if len(indexer.deleted) != 0 {
 		t.Fatalf("deleted = %#v", indexer.deleted)
 	}
 }

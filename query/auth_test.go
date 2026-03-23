@@ -61,7 +61,7 @@ func (p *capturingSuggestProvider) UpsertDocuments(context.Context, string, []ty
 	return nil
 }
 
-func (p *capturingSuggestProvider) ReplaceDocuments(context.Context, string, []string, []types.Document) error {
+func (p *capturingSuggestProvider) ReplaceDocuments(context.Context, string, string, []string, []types.Document) error {
 	return nil
 }
 
@@ -69,7 +69,7 @@ func (p *capturingSuggestProvider) DeleteDocuments(context.Context, string, []st
 	return nil
 }
 
-func (p *capturingSuggestProvider) DeleteBySource(context.Context, string, []string) error {
+func (p *capturingSuggestProvider) DeleteBySource(context.Context, string, string, []string) error {
 	return nil
 }
 
@@ -100,7 +100,7 @@ func (p *capturingSearchProvider) UpsertDocuments(context.Context, string, []typ
 	return nil
 }
 
-func (p *capturingSearchProvider) ReplaceDocuments(context.Context, string, []string, []types.Document) error {
+func (p *capturingSearchProvider) ReplaceDocuments(context.Context, string, string, []string, []types.Document) error {
 	return nil
 }
 
@@ -108,7 +108,7 @@ func (p *capturingSearchProvider) DeleteDocuments(context.Context, string, []str
 	return nil
 }
 
-func (p *capturingSearchProvider) DeleteBySource(context.Context, string, []string) error {
+func (p *capturingSearchProvider) DeleteBySource(context.Context, string, string, []string) error {
 	return nil
 }
 
@@ -317,6 +317,90 @@ func TestSuggestUsesConfiguredScopeGuardOverfetch(t *testing.T) {
 	}
 	if provider.lastSuggest.Limit != 8 {
 		t.Fatalf("expected configured overfetch limit 8, got %d", provider.lastSuggest.Limit)
+	}
+}
+
+func TestSuggestAppliesEditorialHideAndPinRules(t *testing.T) {
+	registry := indexing.NewRegistry()
+	def := types.IndexDefinition{Name: "media"}
+	if err := registry.Register(def, nil); err != nil {
+		t.Fatalf("register index: %v", err)
+	}
+	provider := memory.New(memory.Config{})
+	if err := provider.EnsureIndex(context.Background(), def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	if err := provider.UpsertDocuments(context.Background(), "media", []types.Document{
+		{
+			ID:       "segment-1",
+			Index:    "media",
+			Type:     types.DocumentTypeTranscriptSegment,
+			ParentID: "video-1",
+			Title:    "Alpha Ocean",
+			Body:     "ocean text",
+			Locale:   "en",
+			Fields: map[string]any{
+				"parent_title": "Alpha Ocean",
+				"parent_url":   "https://example.org/video-1",
+			},
+		},
+		{
+			ID:       "segment-2",
+			Index:    "media",
+			Type:     types.DocumentTypeTranscriptSegment,
+			ParentID: "video-2",
+			Title:    "Ocean Wind",
+			Body:     "ocean text",
+			Locale:   "en",
+			Fields: map[string]any{
+				"parent_title": "Ocean Wind",
+				"parent_url":   "https://example.org/video-2",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("upsert docs: %v", err)
+	}
+	p, err := planner.New(planner.Config{Registry: registry})
+	if err != nil {
+		t.Fatalf("new planner: %v", err)
+	}
+	pinPosition := 0
+	suggest, err := NewSuggest(SuggestConfig{
+		Planner:  p,
+		Provider: provider,
+		Editorial: staticEditorialStore{rules: []types.EditorialRankRule{
+			{
+				ID:             "hide-video-1",
+				ParentTargetID: "video-1",
+				Action:         types.EditorialActionHide,
+				Enabled:        true,
+				Scope:          types.EditorialScope{Indexes: []string{"media"}, Query: "Ocean", Locale: "en"},
+			},
+			{
+				ID:             "pin-video-2",
+				ParentTargetID: "video-2",
+				Action:         types.EditorialActionPin,
+				Enabled:        true,
+				Position:       &pinPosition,
+				Scope:          types.EditorialScope{Indexes: []string{"media"}, Query: "Ocean", Locale: "en"},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("new suggest query: %v", err)
+	}
+	result, err := suggest.Query(context.Background(), types.SuggestRequest{
+		Indexes:      []string{"media"},
+		Query:        "Ocean",
+		Locale:       "en",
+		PreferParent: true,
+		Limit:        5,
+	})
+	if err != nil {
+		t.Fatalf("suggest: %v", err)
+	}
+	if len(result.Items) != 1 || result.Items[0].ID != "video-2" {
+		t.Fatalf("expected editorial suggest result to hide video-1 and keep pinned video-2 first, got %+v", result.Items)
 	}
 }
 
