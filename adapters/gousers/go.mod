@@ -4,7 +4,7 @@ go 1.26.1
 
 require (
 	github.com/goliatone/go-search v0.1.0
-	github.com/goliatone/go-users v0.17.0
+	github.com/goliatone/go-users v0.18.0
 	github.com/google/uuid v1.6.0
 )
 
@@ -15,7 +15,3 @@ require (
 )
 
 replace github.com/goliatone/go-search => ../..
-
-replace github.com/goliatone/go-i18n => ../../../go-i18n
-
-replace github.com/goliatone/go-users => ../../../go-users

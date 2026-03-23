@@ -3,7 +3,7 @@ module github.com/goliatone/go-search/adapters/gocms
 go 1.26.1
 
 require (
-	github.com/goliatone/go-cms v0.40.0
+	github.com/goliatone/go-cms v0.44.0
 	github.com/goliatone/go-search v0.1.0
 	github.com/google/uuid v1.6.0
 )
@@ -13,7 +13,7 @@ require (
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0 // indirect
 	github.com/goliatone/go-command v0.18.0 // indirect
 	github.com/goliatone/go-errors v0.10.0 // indirect
-	github.com/goliatone/go-i18n v0.4.0 // indirect
+	github.com/goliatone/go-i18n v0.5.0 // indirect
 	github.com/goliatone/go-slug v0.1.0 // indirect
 	github.com/goliatone/go-users v0.18.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
@@ -27,7 +27,5 @@ require (
 	golang.org/x/text v0.35.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/goliatone/go-cms => ../../../go-cms
 
 replace github.com/goliatone/go-search => ../..
