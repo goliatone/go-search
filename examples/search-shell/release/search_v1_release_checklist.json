@@ -1,0 +1,59 @@
+{
+  "release_id": "search-v1-2026.03.22-rc1",
+  "phase": "10",
+  "required_providers": {
+    "memory": true,
+    "typesense": true,
+    "postgres": true
+  },
+  "signoffs": {
+    "be": {
+      "approved": false,
+      "approver": "",
+      "approved_at": "",
+      "ticket": "REL-SEARCH-BE"
+    },
+    "fe": {
+      "approved": false,
+      "approver": "",
+      "approved_at": "",
+      "ticket": "REL-SEARCH-FE"
+    },
+    "qa": {
+      "approved": false,
+      "approver": "",
+      "approved_at": "",
+      "ticket": "REL-SEARCH-QA"
+    },
+    "ops": {
+      "approved": false,
+      "approver": "",
+      "approved_at": "",
+      "ticket": "REL-SEARCH-OPS"
+    }
+  },
+  "evidence": {
+    "go_i18n_ref": "",
+    "go_search_ref": "",
+    "example_ref": "",
+    "go_admin_ref": "",
+    "go_cms_ref": "",
+    "go_users_ref": "",
+    "runbook_ref": "",
+    "version_matrix_ref": "",
+    "compatibility_notes_ref": "",
+    "version_skew_ref": "",
+    "followups_ref": ""
+  },
+  "rollback": {
+    "provider_env": "APP_SEARCH_DEMO__PROVIDER",
+    "cache_env": "APP_SEARCH_DEMO__CACHE_ENABLED",
+    "editorial_env": "APP_SEARCH_DEMO__EDITORIAL_ENABLED",
+    "feature_flags_off": [
+      "search",
+      "cms",
+      "users"
+    ],
+    "notes": ""
+  }
+}

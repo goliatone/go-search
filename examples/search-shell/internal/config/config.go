@@ -52,10 +52,13 @@ type FeatureConfig struct {
 
 type SearchDemoConfig struct {
 	Provider                  string `json:"provider"`
+	CacheEnabled              bool   `json:"cache_enabled"`
+	EditorialEnabled          bool   `json:"editorial_enabled"`
 	SeedOnStart               bool   `json:"seed_on_start"`
 	IndexName                 string `json:"index_name"`
 	DefaultLocale             string `json:"default_locale"`
 	CultureDataPath           string `json:"culture_data_path"`
+	PostgresDSN               string `json:"postgres_dsn"`
 	TypesenseServerURL        string `json:"typesense_server_url"`
 	TypesenseAPIKey           string `json:"typesense_api_key"`
 	TypesenseCollectionPrefix string `json:"typesense_collection_prefix"`
@@ -93,6 +96,8 @@ func Defaults() AppConfig {
 		},
 		SearchDemo: SearchDemoConfig{
 			Provider:                  "memory",
+			CacheEnabled:              false,
+			EditorialEnabled:          true,
 			SeedOnStart:               true,
 			IndexName:                 "media_transcripts",
 			DefaultLocale:             "en",
@@ -191,10 +196,13 @@ func applyEnv(cfg *AppConfig) {
 	cfg.Features.Users = envBool("APP_FEATURES__USERS", cfg.Features.Users)
 
 	cfg.SearchDemo.Provider = envString("APP_SEARCH_DEMO__PROVIDER", cfg.SearchDemo.Provider)
+	cfg.SearchDemo.CacheEnabled = envBool("APP_SEARCH_DEMO__CACHE_ENABLED", cfg.SearchDemo.CacheEnabled)
+	cfg.SearchDemo.EditorialEnabled = envBool("APP_SEARCH_DEMO__EDITORIAL_ENABLED", cfg.SearchDemo.EditorialEnabled)
 	cfg.SearchDemo.SeedOnStart = envBool("APP_SEARCH_DEMO__SEED_ON_START", cfg.SearchDemo.SeedOnStart)
 	cfg.SearchDemo.IndexName = envString("APP_SEARCH_DEMO__INDEX_NAME", cfg.SearchDemo.IndexName)
 	cfg.SearchDemo.DefaultLocale = envString("APP_SEARCH_DEMO__DEFAULT_LOCALE", cfg.SearchDemo.DefaultLocale)
 	cfg.SearchDemo.CultureDataPath = envString("APP_SEARCH_DEMO__CULTURE_DATA_PATH", cfg.SearchDemo.CultureDataPath)
+	cfg.SearchDemo.PostgresDSN = envString("APP_SEARCH_DEMO__POSTGRES_DSN", cfg.SearchDemo.PostgresDSN)
 	cfg.SearchDemo.TypesenseServerURL = envString("APP_SEARCH_DEMO__TYPESENSE_SERVER_URL", cfg.SearchDemo.TypesenseServerURL)
 	cfg.SearchDemo.TypesenseAPIKey = envString("APP_SEARCH_DEMO__TYPESENSE_API_KEY", cfg.SearchDemo.TypesenseAPIKey)
 	cfg.SearchDemo.TypesenseCollectionPrefix = envString("APP_SEARCH_DEMO__TYPESENSE_COLLECTION_PREFIX", cfg.SearchDemo.TypesenseCollectionPrefix)
@@ -219,6 +227,7 @@ func normalize(cfg *AppConfig) {
 	cfg.SearchDemo.IndexName = firstNonEmpty(strings.TrimSpace(cfg.SearchDemo.IndexName), "media_transcripts")
 	cfg.SearchDemo.DefaultLocale = firstNonEmpty(strings.TrimSpace(cfg.SearchDemo.DefaultLocale), cfg.Admin.DefaultLocale)
 	cfg.SearchDemo.CultureDataPath = strings.TrimSpace(cfg.SearchDemo.CultureDataPath)
+	cfg.SearchDemo.PostgresDSN = strings.TrimSpace(cfg.SearchDemo.PostgresDSN)
 	cfg.SearchDemo.TypesenseServerURL = strings.TrimSpace(cfg.SearchDemo.TypesenseServerURL)
 	cfg.SearchDemo.TypesenseAPIKey = strings.TrimSpace(cfg.SearchDemo.TypesenseAPIKey)
 	cfg.SearchDemo.TypesenseCollectionPrefix = firstNonEmpty(strings.TrimSpace(cfg.SearchDemo.TypesenseCollectionPrefix), "search_shell_")

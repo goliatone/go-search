@@ -17,6 +17,7 @@ import (
 	"github.com/goliatone/go-search/examples/search-shell/internal/core"
 	"github.com/goliatone/go-search/examples/search-shell/internal/searchdemo"
 	"github.com/goliatone/go-search/pkg/types"
+	userstypes "github.com/goliatone/go-users/pkg/types"
 )
 
 var templateFuncs = template.FuncMap{
@@ -174,10 +175,18 @@ li{margin:5px 0}
       </ul>
       <pre>{{.DemoToken}}</pre>
     </section>
+    {{if .EditorialEnabled}}
     <section class="card">
       <h2>Editorial Snapshot</h2>
       <pre>{{.RulesJSON}}</pre>
     </section>
+    {{else}}
+    <section class="card">
+      <h2>Editorial Snapshot</h2>
+      <p>Editorial UI and API exposure are disabled by configuration.</p>
+      <pre>{{.RulesJSON}}</pre>
+    </section>
+    {{end}}
   </section>
 </main>
 </body>
@@ -319,7 +328,12 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
       <!-- Preserve other params -->
       <input type="hidden" name="surface" value="{{.Surface}}" />
       <input type="hidden" name="locale" value="{{.Locale}}" />
+      {{if .CacheDisabled}}<input type="hidden" name="cache_disabled" value="true" />{{end}}
       <input type="hidden" name="accept_language" value="{{.AcceptLanguage}}" />
+      <input type="hidden" name="tenant_id" value="{{.TenantID}}" />
+      <input type="hidden" name="org_id" value="{{.OrgID}}" />
+      <input type="hidden" name="actor_user_id" value="{{.ActorUserID}}" />
+      <input type="hidden" name="actor_role" value="{{.ActorRole}}" />
       <input type="hidden" name="group" value="{{if .Group}}true{{else}}false{{end}}" />
       {{if .LandingSlug}}<input type="hidden" name="landing_slug" value="{{.LandingSlug}}" />{{end}}
       {{if .Topics}}<input type="hidden" name="topics" value="{{join .Topics ","}}" />{{end}}
@@ -379,7 +393,8 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
           <select class="filter-select" id="filterSurface">
             <option value="content_shared" {{if eq .Surface "content_shared"}}selected{{end}}>Content shared index</option>
             <option value="content_split" {{if eq .Surface "content_split"}}selected{{end}}>Content split indexes</option>
-            <option value="media_grouped" {{if eq .Surface "media_grouped"}}selected{{end}}>Media grouped transcripts</option>
+            <option value="media_grouped" {{if eq .Surface "media_grouped"}}selected{{end}}>Media transcripts</option>
+            <option value="users" {{if eq .Surface "users"}}selected{{end}}>Users inventory</option>
           </select>
         </div>
 
@@ -389,8 +404,39 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
         </div>
 
         <div class="filter-group">
+          <label class="facet-item" style="padding:0">
+            <input type="checkbox" id="filterCacheDisabled" {{if .CacheDisabled}}checked{{end}} />
+            <span>Bypass query cache for this request</span>
+          </label>
+        </div>
+
+        <div class="filter-group">
           <label class="filter-label" for="filterAcceptLanguage">Accept-Language override</label>
           <input type="text" class="filter-input" id="filterAcceptLanguage" value="{{.AcceptLanguage}}" placeholder="fr-CA,fr;q=0.9,en;q=0.8" />
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label" for="filterTenantID">Tenant scope</label>
+          <input type="text" class="filter-input" id="filterTenantID" value="{{.TenantID}}" placeholder="tenant uuid" />
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label" for="filterOrgID">Org scope</label>
+          <input type="text" class="filter-input" id="filterOrgID" value="{{.OrgID}}" placeholder="org uuid" />
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label" for="filterActorUserID">Actor user</label>
+          <input type="text" class="filter-input" id="filterActorUserID" value="{{.ActorUserID}}" placeholder="user uuid" />
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label" for="filterActorRole">Actor role</label>
+          <select class="filter-select" id="filterActorRole">
+            <option value="" {{if eq .ActorRole ""}}selected{{end}}>None</option>
+            <option value="admin" {{if eq .ActorRole "admin"}}selected{{end}}>Admin</option>
+            <option value="support" {{if eq .ActorRole "support"}}selected{{end}}>Support</option>
+          </select>
         </div>
 
         <div class="filter-group">
@@ -514,6 +560,10 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
         <div class="result-meta">
           {{if .Parent}}<span>Parent: {{.Parent.Title}}</span>{{end}}
           {{if .Anchor}}<span>{{formatTimestampRange .Anchor}}</span>{{end}}
+          {{with index .Fields "tenant_id"}}<span>Tenant: {{.}}</span>{{end}}
+          {{with index .Fields "org_id"}}<span>Org: {{.}}</span>{{end}}
+          {{with index .Fields "status"}}<span>Status: {{.}}</span>{{end}}
+          {{with index .Fields "role"}}<span>Role: {{.}}</span>{{end}}
           {{if .Anchor}}<a href="{{.Anchor.URL}}">View</a>{{end}}
         </div>
       </div>
@@ -591,8 +641,13 @@ async function fetchSuggestions(query) {
   try {
     const surface = document.getElementById('filterSurface')?.value || '{{.Surface}}';
     const locale = document.getElementById('filterLocale')?.value || '';
+    const cacheDisabled = document.getElementById('filterCacheDisabled')?.checked ? 'true' : '';
     const acceptLanguage = document.getElementById('filterAcceptLanguage')?.value || '';
-    const resp = await fetch('{{.SuggestPath}}?q=' + encodeURIComponent(query) + '&surface=' + encodeURIComponent(surface) + '&locale=' + encodeURIComponent(locale) + '&accept_language=' + encodeURIComponent(acceptLanguage) + '&limit=5');
+    const tenantID = document.getElementById('filterTenantID')?.value || '';
+    const orgID = document.getElementById('filterOrgID')?.value || '';
+    const actorUserID = document.getElementById('filterActorUserID')?.value || '';
+    const actorRole = document.getElementById('filterActorRole')?.value || '';
+    const resp = await fetch('{{.SuggestPath}}?q=' + encodeURIComponent(query) + '&surface=' + encodeURIComponent(surface) + '&locale=' + encodeURIComponent(locale) + '&cache_disabled=' + encodeURIComponent(cacheDisabled) + '&accept_language=' + encodeURIComponent(acceptLanguage) + '&tenant_id=' + encodeURIComponent(tenantID) + '&org_id=' + encodeURIComponent(orgID) + '&actor_user_id=' + encodeURIComponent(actorUserID) + '&actor_role=' + encodeURIComponent(actorRole) + '&limit=5');
     const data = await resp.json();
     if (data.result && data.result.items && data.result.items.length > 0) {
       suggestions.innerHTML = data.result.items.map(item =>
@@ -633,9 +688,17 @@ function applyFilters() {
   if (locale) params.set('locale', locale);
   else params.delete('locale');
 
+  if (document.getElementById('filterCacheDisabled').checked) params.set('cache_disabled', 'true');
+  else params.delete('cache_disabled');
+
   const acceptLanguage = document.getElementById('filterAcceptLanguage').value.trim();
   if (acceptLanguage) params.set('accept_language', acceptLanguage);
   else params.delete('accept_language');
+
+  setOptionalParam(params, 'tenant_id', document.getElementById('filterTenantID').value);
+  setOptionalParam(params, 'org_id', document.getElementById('filterOrgID').value);
+  setOptionalParam(params, 'actor_user_id', document.getElementById('filterActorUserID').value);
+  setOptionalParam(params, 'actor_role', document.getElementById('filterActorRole').value);
 
   const topics = document.getElementById('filterTopic').value
     .split(',')
@@ -645,7 +708,7 @@ function applyFilters() {
   if (topics.length > 0) params.set('topics', topics.join(','));
   else params.delete('topics');
 
-  const group = surface === 'media_grouped' ? 'true' : document.getElementById('filterGroup').value;
+  const group = document.getElementById('filterGroup').value;
   params.set('group', group);
   setOptionalParam(params, 'published_year_gte', document.getElementById('publishedYearGTE').value);
   setOptionalParam(params, 'published_year_lte', document.getElementById('publishedYearLTE').value);
@@ -660,6 +723,7 @@ function clearFilters() {
   const params = new URLSearchParams(window.location.search);
   params.set('q', searchInput.value || '');
   params.delete('locale');
+  params.delete('cache_disabled');
   params.delete('accept_language');
   params.delete('topic');
   params.delete('topics');
@@ -667,6 +731,10 @@ function clearFilters() {
   params.delete('published_year_lte');
   params.delete('duration_seconds_gte');
   params.delete('duration_seconds_lte');
+  params.delete('tenant_id');
+  params.delete('org_id');
+  params.delete('actor_user_id');
+  params.delete('actor_role');
   Array.from(params.keys())
     .filter(key => key.startsWith('facet_'))
     .forEach(key => params.delete(key));
@@ -784,9 +852,13 @@ li{margin:4px 0}
     <ul>
       <li><code>POST /api/demo/ensure</code> re-ensures the index schema and registry.</li>
       <li><code>POST /api/demo/reindex</code> runs the indexer over the seeded transcript source.</li>
+      {{if .EditorialEnabled}}
       <li><code>GET /api/demo/editorial</code> lists editorial rules.</li>
       <li><code>POST /api/demo/editorial/upsert</code> upserts a rule.</li>
       <li><code>POST /api/demo/editorial/enable</code>, <code>/disable</code>, <code>/delete</code> mutate a rule by id.</li>
+      {{else}}
+      <li><code>APP_SEARCH_DEMO__EDITORIAL_ENABLED=false</code> disables editorial UI and API exposure for rollback or reduced-surface releases.</li>
+      {{end}}
     </ul>
   </section>
 
@@ -795,10 +867,27 @@ li{margin:4px 0}
       <h2>Status</h2>
       <pre>{{.StatusJSON}}</pre>
     </section>
+    {{if .EditorialEnabled}}
     <section class="card">
       <h2>Editorial Rules</h2>
       <pre>{{.RulesJSON}}</pre>
     </section>
+    {{else}}
+    <section class="card">
+      <h2>Editorial Rules</h2>
+      <p>Editorial rule endpoints are disabled in this runtime.</p>
+      <pre>{{.RulesJSON}}</pre>
+    </section>
+    {{end}}
+  </section>
+
+  <section class="card">
+    <h2>Smoke Flows</h2>
+    <ul>
+      {{range .SmokeFlows}}
+      <li><code>{{.Method}} {{.Path}}</code> {{.Description}}</li>
+      {{end}}
+    </ul>
   </section>
 
   <section class="grid">
@@ -806,6 +895,7 @@ li{margin:4px 0}
       <h2>Reindex Example</h2>
       <pre>curl -X POST {{.BaseURL}}/api/demo/reindex -H 'Content-Type: application/json' -d '{"batch_size":25}'</pre>
     </section>
+    {{if .EditorialEnabled}}
     <section class="card">
       <h2>Rule Upsert Example</h2>
       <pre>curl -X POST {{.BaseURL}}/api/demo/editorial/upsert -H 'Content-Type: application/json' -d '{
@@ -824,6 +914,12 @@ li{margin:4px 0}
   }
 }'</pre>
     </section>
+    {{else}}
+    <section class="card">
+      <h2>Editorial Rollback Lever</h2>
+      <pre>APP_SEARCH_DEMO__EDITORIAL_ENABLED=false go run ./cmd/demo</pre>
+    </section>
+    {{end}}
   </section>
 </main>
 </body>
@@ -836,19 +932,20 @@ type link struct {
 }
 
 type homeView struct {
-	Name          string                `json:"name"`
-	Env           string                `json:"env"`
-	Address       string                `json:"address"`
-	AdminBasePath string                `json:"admin_base_path"`
-	ConfigPath    string                `json:"config_path"`
-	StartedAt     string                `json:"started_at"`
-	DemoToken     string                `json:"demo_token"`
-	Provider      string                `json:"provider"`
-	Links         []link                `json:"links"`
-	Credentials   []core.DemoCredential `json:"credentials"`
-	Search        searchdemo.Status     `json:"search"`
-	SearchJSON    string                `json:"search_json"`
-	RulesJSON     string                `json:"rules_json"`
+	Name             string                `json:"name"`
+	Env              string                `json:"env"`
+	Address          string                `json:"address"`
+	AdminBasePath    string                `json:"admin_base_path"`
+	ConfigPath       string                `json:"config_path"`
+	StartedAt        string                `json:"started_at"`
+	DemoToken        string                `json:"demo_token"`
+	Provider         string                `json:"provider"`
+	Links            []link                `json:"links"`
+	Credentials      []core.DemoCredential `json:"credentials"`
+	Search           searchdemo.Status     `json:"search"`
+	SearchJSON       string                `json:"search_json"`
+	RulesJSON        string                `json:"rules_json"`
+	EditorialEnabled bool                  `json:"editorial_enabled"`
 }
 
 type searchView struct {
@@ -860,6 +957,7 @@ type searchView struct {
 	Query              string
 	Surface            string
 	Locale             string
+	CacheDisabled      bool
 	AcceptLanguage     string
 	LocaleSource       string
 	LocaleSupported    bool
@@ -873,6 +971,10 @@ type searchView struct {
 	PublishedYearLTE   *int
 	DurationSecondsGTE *int
 	DurationSecondsLTE *int
+	TenantID           string
+	OrgID              string
+	ActorUserID        string
+	ActorRole          string
 	Group              bool
 	SortField          string
 	SortDir            string
@@ -889,9 +991,11 @@ type searchView struct {
 }
 
 type opsView struct {
-	BaseURL    string
-	StatusJSON string
-	RulesJSON  string
+	BaseURL          string
+	StatusJSON       string
+	RulesJSON        string
+	SmokeFlows       []searchdemo.SmokeFlow
+	EditorialEnabled bool
 }
 
 type editorialUpsertPayload struct {
@@ -904,6 +1008,25 @@ type editorialIDPayload struct {
 
 type reindexPayload struct {
 	BatchSize int `json:"batch_size"`
+}
+
+type demoUserPayload struct {
+	User userstypes.AuthUser `json:"user"`
+}
+
+type demoUserLifecyclePayload struct {
+	UserID string `json:"user_id"`
+	Target string `json:"target"`
+}
+
+type demoUserProfilePayload struct {
+	UserID string                  `json:"user_id"`
+	Patch  userstypes.ProfilePatch `json:"patch"`
+}
+
+type demoUserRolePayload struct {
+	UserID string `json:"user_id"`
+	Role   string `json:"role"`
 }
 
 func Register(appCore *core.Core) error {
@@ -921,13 +1044,20 @@ func Register(appCore *core.Core) error {
 	appCore.Router.Get("/api/demo/stats", searchStatsAPIHandler(appCore)).SetName("shell.demo.stats")
 	appCore.Router.Get("/api/demo/search", searchAPIHandler(appCore)).SetName("shell.demo.search.api")
 	appCore.Router.Get("/api/demo/suggest", suggestAPIHandler(appCore)).SetName("shell.demo.suggest.api")
-	appCore.Router.Get("/api/demo/editorial", editorialListAPIHandler(appCore)).SetName("shell.demo.editorial.list")
-	appCore.Router.Post("/api/demo/editorial/upsert", editorialUpsertAPIHandler(appCore)).SetName("shell.demo.editorial.upsert")
-	appCore.Router.Post("/api/demo/editorial/enable", editorialToggleAPIHandler(appCore, true)).SetName("shell.demo.editorial.enable")
-	appCore.Router.Post("/api/demo/editorial/disable", editorialToggleAPIHandler(appCore, false)).SetName("shell.demo.editorial.disable")
-	appCore.Router.Post("/api/demo/editorial/delete", editorialDeleteAPIHandler(appCore)).SetName("shell.demo.editorial.delete")
+	if editorialEnabled(appCore) {
+		appCore.Router.Get("/api/demo/editorial", editorialListAPIHandler(appCore)).SetName("shell.demo.editorial.list")
+		appCore.Router.Post("/api/demo/editorial/upsert", editorialUpsertAPIHandler(appCore)).SetName("shell.demo.editorial.upsert")
+		appCore.Router.Post("/api/demo/editorial/enable", editorialToggleAPIHandler(appCore, true)).SetName("shell.demo.editorial.enable")
+		appCore.Router.Post("/api/demo/editorial/disable", editorialToggleAPIHandler(appCore, false)).SetName("shell.demo.editorial.disable")
+		appCore.Router.Post("/api/demo/editorial/delete", editorialDeleteAPIHandler(appCore)).SetName("shell.demo.editorial.delete")
+	}
 	appCore.Router.Post("/api/demo/ensure", ensureAPIHandler(appCore)).SetName("shell.demo.ensure")
 	appCore.Router.Post("/api/demo/reindex", reindexAPIHandler(appCore)).SetName("shell.demo.reindex")
+	appCore.Router.Post("/api/demo/users/create", userCreateAPIHandler(appCore)).SetName("shell.demo.users.create")
+	appCore.Router.Post("/api/demo/users/update", userUpdateAPIHandler(appCore)).SetName("shell.demo.users.update")
+	appCore.Router.Post("/api/demo/users/lifecycle", userLifecycleAPIHandler(appCore)).SetName("shell.demo.users.lifecycle")
+	appCore.Router.Post("/api/demo/users/profile", userProfileAPIHandler(appCore)).SetName("shell.demo.users.profile")
+	appCore.Router.Post("/api/demo/users/role", userRoleAPIHandler(appCore)).SetName("shell.demo.users.role")
 
 	return quicksite.RegisterSiteRoutes(
 		appCore.Router,
@@ -963,40 +1093,49 @@ func homeHandler(appCore *core.Core) router.HandlerFunc {
 		if err != nil {
 			return c.JSON(500, map[string]any{"error": err.Error()})
 		}
-		rules, err := appCore.Search.ListEditorialRules(c.Context(), nil)
-		if err != nil {
-			return c.JSON(500, map[string]any{"error": err.Error()})
+		rulesJSON := "editorial exposure disabled"
+		if editorialEnabled(appCore) {
+			rules, err := appCore.Search.ListEditorialRules(c.Context(), nil)
+			if err != nil {
+				return c.JSON(500, map[string]any{"error": err.Error()})
+			}
+			rulesJSON = prettyJSON(rules)
 		}
 
 		cfg := appCore.Config
+		links := []link{
+			{Label: "Demo media grouped", Href: "/demo/search?surface=media_grouped&group=true&q=transcript"},
+			{Label: "Demo shared content", Href: "/demo/search?surface=content_shared&q=search"},
+			{Label: "Demo split content", Href: "/demo/search?surface=content_split&q=search"},
+			{Label: "Demo users", Href: "/demo/search?surface=users&q=admin"},
+			{Label: "Architecture landing preset", Href: "/demo/topics/architecture"},
+			{Label: "Operations page", Href: "/demo/ops"},
+			{Label: "Demo search API", Href: "/api/demo/search?surface=content_shared&q=search"},
+			{Label: "Admin search API", Href: path.Join(cfg.Admin.BasePath, "api/search") + "?query=search&limit=5"},
+			{Label: "Site search page", Href: "/site/search?q=search&locale=en"},
+			{Label: "Site search API", Href: "/api/v1/site/search?q=search&locale=en"},
+			{Label: "Site suggest API", Href: "/api/v1/site/search/suggest?q=sea&locale=en"},
+			{Label: "Admin root", Href: cfg.Admin.BasePath},
+			{Label: "Admin login", Href: path.Join(cfg.Admin.BasePath, "login")},
+		}
+		if editorialEnabled(appCore) {
+			links = append(links, link{Label: "Demo editorial API", Href: "/api/demo/editorial"})
+		}
 		view := homeView{
-			Name:          cfg.Name,
-			Env:           cfg.Env,
-			Address:       normalizeAddress(cfg.Server.Address),
-			AdminBasePath: cfg.Admin.BasePath,
-			ConfigPath:    cfg.ConfigPath,
-			StartedAt:     appCore.StartedAt.Format(time.RFC3339),
-			DemoToken:     strings.TrimSpace(appCore.DemoToken),
-			Provider:      appCore.Search.ProviderName(),
-			Credentials:   appCore.DemoCredentials,
-			Search:        status,
-			SearchJSON:    prettyJSON(status),
-			RulesJSON:     prettyJSON(rules),
-			Links: []link{
-				{Label: "Demo media grouped", Href: "/demo/search?surface=media_grouped&group=true&q=transcript"},
-				{Label: "Demo shared content", Href: "/demo/search?surface=content_shared&q=search"},
-				{Label: "Demo split content", Href: "/demo/search?surface=content_split&q=search"},
-				{Label: "Architecture landing preset", Href: "/demo/topics/architecture"},
-				{Label: "Operations page", Href: "/demo/ops"},
-				{Label: "Demo search API", Href: "/api/demo/search?surface=content_shared&q=search"},
-				{Label: "Demo editorial API", Href: "/api/demo/editorial"},
-				{Label: "Admin search API", Href: path.Join(cfg.Admin.BasePath, "api/search") + "?query=search&limit=5"},
-				{Label: "Site search page", Href: "/site/search?surface=content_shared&q=search&locale=en"},
-				{Label: "Site search API", Href: "/api/v1/site/search?surface=content_shared&q=search&locale=en"},
-				{Label: "Site suggest API", Href: "/api/v1/site/search/suggest?surface=content_shared&q=sea&locale=en"},
-				{Label: "Admin root", Href: cfg.Admin.BasePath},
-				{Label: "Admin login", Href: path.Join(cfg.Admin.BasePath, "login")},
-			},
+			Name:             cfg.Name,
+			Env:              cfg.Env,
+			Address:          normalizeAddress(cfg.Server.Address),
+			AdminBasePath:    cfg.Admin.BasePath,
+			ConfigPath:       cfg.ConfigPath,
+			StartedAt:        appCore.StartedAt.Format(time.RFC3339),
+			DemoToken:        strings.TrimSpace(appCore.DemoToken),
+			Provider:         appCore.Search.ProviderName(),
+			Links:            links,
+			Credentials:      appCore.DemoCredentials,
+			Search:           status,
+			SearchJSON:       prettyJSON(status),
+			RulesJSON:        rulesJSON,
+			EditorialEnabled: editorialEnabled(appCore),
 		}
 		if view.DemoToken == "" {
 			view.DemoToken = "(token mint failed)"
@@ -1013,7 +1152,7 @@ func homeHandler(appCore *core.Core) router.HandlerFunc {
 
 func searchPageHandler(appCore *core.Core, title, actionPath, apiPath, suggestPath string) router.HandlerFunc {
 	return func(c router.Context) error {
-		request := appCore.Search.BindSearchRequest(parseSearchRequest(c))
+		request := parseSearchRequest(c)
 		return renderSearchPage(c, appCore, title, actionPath, apiPath, suggestPath, request)
 	}
 }
@@ -1032,8 +1171,6 @@ func topicLandingHandler(appCore *core.Core) router.HandlerFunc {
 				request.FacetFilters[field] = append([]string(nil), values...)
 			}
 		}
-		request = appCore.Search.BindSearchRequest(request)
-
 		title := "Topic Landing"
 		if preset, ok := media.TopicLandingPreset(request.LandingSlug); ok {
 			title = preset.Title
@@ -1043,13 +1180,7 @@ func topicLandingHandler(appCore *core.Core) router.HandlerFunc {
 }
 
 func renderSearchPage(c router.Context, appCore *core.Core, title, actionPath, apiPath, suggestPath string, request searchdemo.SearchRequest) error {
-	if strings.TrimSpace(request.Surface) == "" {
-		if request.Group {
-			request.Surface = searchdemo.SurfaceMediaGrouped
-		} else {
-			request.Surface = appCore.Search.DefaultSurface()
-		}
-	}
+	request = appCore.Search.NormalizeSearchRequest(request)
 	result, err := appCore.Search.Search(c.Context(), request)
 	if err != nil {
 		return c.JSON(500, map[string]any{"error": err.Error()})
@@ -1085,6 +1216,7 @@ func renderSearchPage(c router.Context, appCore *core.Core, title, actionPath, a
 		Query:              request.Query,
 		Surface:            request.Surface,
 		Locale:             request.Locale,
+		CacheDisabled:      request.CacheDisabled,
 		AcceptLanguage:     request.AcceptLanguage,
 		LocaleSource:       request.LocaleSource,
 		LocaleSupported:    request.LocaleSupported,
@@ -1098,6 +1230,10 @@ func renderSearchPage(c router.Context, appCore *core.Core, title, actionPath, a
 		PublishedYearLTE:   request.PublishedYearLTE,
 		DurationSecondsGTE: request.DurationSecondsGTE,
 		DurationSecondsLTE: request.DurationSecondsLTE,
+		TenantID:           request.TenantID,
+		OrgID:              request.OrgID,
+		ActorUserID:        request.ActorUserID,
+		ActorRole:          request.ActorRole,
 		Group:              request.Group,
 		SortField:          request.SortField,
 		SortDir:            request.SortDir,
@@ -1131,14 +1267,20 @@ func opsPageHandler(appCore *core.Core) router.HandlerFunc {
 		if err != nil {
 			return c.JSON(500, map[string]any{"error": err.Error()})
 		}
-		rules, err := appCore.Search.ListEditorialRules(c.Context(), nil)
-		if err != nil {
-			return c.JSON(500, map[string]any{"error": err.Error()})
+		rulesJSON := "editorial exposure disabled"
+		if editorialEnabled(appCore) {
+			rules, err := appCore.Search.ListEditorialRules(c.Context(), nil)
+			if err != nil {
+				return c.JSON(500, map[string]any{"error": err.Error()})
+			}
+			rulesJSON = prettyJSON(rules)
 		}
 		view := opsView{
-			BaseURL:    normalizeAddress(appCore.Config.Server.Address),
-			StatusJSON: prettyJSON(status),
-			RulesJSON:  prettyJSON(rules),
+			BaseURL:          normalizeAddress(appCore.Config.Server.Address),
+			StatusJSON:       prettyJSON(status),
+			RulesJSON:        rulesJSON,
+			SmokeFlows:       status.SmokeFlows,
+			EditorialEnabled: editorialEnabled(appCore),
 		}
 		var out bytes.Buffer
 		if err := opsTemplate.Execute(&out, view); err != nil {
@@ -1171,7 +1313,7 @@ func searchStatsAPIHandler(appCore *core.Core) router.HandlerFunc {
 
 func searchAPIHandler(appCore *core.Core) router.HandlerFunc {
 	return func(c router.Context) error {
-		request := appCore.Search.BindSearchRequest(parseSearchRequest(c))
+		request := appCore.Search.NormalizeSearchRequest(parseSearchRequest(c))
 		result, err := appCore.Search.Search(c.Context(), request)
 		if err != nil {
 			return c.JSON(500, map[string]any{"error": err.Error()})
@@ -1189,7 +1331,12 @@ func suggestAPIHandler(appCore *core.Core) router.HandlerFunc {
 			Query:          strings.TrimSpace(c.Query("q")),
 			Surface:        strings.TrimSpace(c.Query("surface")),
 			Locale:         strings.TrimSpace(c.Query("locale")),
+			CacheDisabled:  strings.EqualFold(strings.TrimSpace(c.Query("cache_disabled")), "true"),
 			AcceptLanguage: resolveAcceptLanguage(c.Query("accept_language"), c.Header("Accept-Language")),
+			TenantID:       strings.TrimSpace(c.Query("tenant_id")),
+			OrgID:          strings.TrimSpace(c.Query("org_id")),
+			ActorUserID:    strings.TrimSpace(c.Query("actor_user_id")),
+			ActorRole:      strings.TrimSpace(c.Query("actor_role")),
 			Limit:          atoiDefault(c.Query("limit"), 5),
 		})
 		result, err := appCore.Search.Suggest(c.Context(), request)
@@ -1263,6 +1410,13 @@ func editorialDeleteAPIHandler(appCore *core.Core) router.HandlerFunc {
 	}
 }
 
+func editorialEnabled(appCore *core.Core) bool {
+	if appCore == nil || appCore.Config == nil {
+		return false
+	}
+	return appCore.Config.SearchDemo.EditorialEnabled
+}
+
 func ensureAPIHandler(appCore *core.Core) router.HandlerFunc {
 	return func(c router.Context) error {
 		if err := appCore.Search.Ensure(c.Context()); err != nil {
@@ -1282,6 +1436,73 @@ func reindexAPIHandler(appCore *core.Core) router.HandlerFunc {
 		}
 		status, _ := appCore.Search.Status(c.Context())
 		return c.JSON(200, map[string]any{"ok": true, "status": status})
+	}
+}
+
+func userCreateAPIHandler(appCore *core.Core) router.HandlerFunc {
+	return func(c router.Context) error {
+		payload := demoUserPayload{}
+		if err := c.Bind(&payload); err != nil {
+			return c.JSON(400, map[string]any{"error": "invalid payload", "details": err.Error()})
+		}
+		user, err := appCore.Search.CreateUser(c.Context(), payload.User)
+		if err != nil {
+			return c.JSON(400, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(200, map[string]any{"ok": true, "user": user})
+	}
+}
+
+func userUpdateAPIHandler(appCore *core.Core) router.HandlerFunc {
+	return func(c router.Context) error {
+		payload := demoUserPayload{}
+		if err := c.Bind(&payload); err != nil {
+			return c.JSON(400, map[string]any{"error": "invalid payload", "details": err.Error()})
+		}
+		user, err := appCore.Search.UpdateUser(c.Context(), payload.User)
+		if err != nil {
+			return c.JSON(400, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(200, map[string]any{"ok": true, "user": user})
+	}
+}
+
+func userLifecycleAPIHandler(appCore *core.Core) router.HandlerFunc {
+	return func(c router.Context) error {
+		payload := demoUserLifecyclePayload{}
+		if err := c.Bind(&payload); err != nil {
+			return c.JSON(400, map[string]any{"error": "invalid payload", "details": err.Error()})
+		}
+		if err := appCore.Search.TransitionUser(c.Context(), payload.UserID, userstypes.LifecycleState(strings.TrimSpace(payload.Target))); err != nil {
+			return c.JSON(400, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(200, map[string]any{"ok": true})
+	}
+}
+
+func userProfileAPIHandler(appCore *core.Core) router.HandlerFunc {
+	return func(c router.Context) error {
+		payload := demoUserProfilePayload{}
+		if err := c.Bind(&payload); err != nil {
+			return c.JSON(400, map[string]any{"error": "invalid payload", "details": err.Error()})
+		}
+		if err := appCore.Search.UpdateUserProfile(c.Context(), payload.UserID, payload.Patch); err != nil {
+			return c.JSON(400, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(200, map[string]any{"ok": true})
+	}
+}
+
+func userRoleAPIHandler(appCore *core.Core) router.HandlerFunc {
+	return func(c router.Context) error {
+		payload := demoUserRolePayload{}
+		if err := c.Bind(&payload); err != nil {
+			return c.JSON(400, map[string]any{"error": "invalid payload", "details": err.Error()})
+		}
+		if err := appCore.Search.UpdateUserRole(c.Context(), payload.UserID, payload.Role); err != nil {
+			return c.JSON(400, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(200, map[string]any{"ok": true})
 	}
 }
 
@@ -1336,6 +1557,7 @@ func parseSearchRequest(c router.Context) searchdemo.SearchRequest {
 		Query:              strings.TrimSpace(c.Query("q")),
 		Surface:            strings.TrimSpace(c.Query("surface")),
 		Locale:             strings.TrimSpace(c.Query("locale")),
+		CacheDisabled:      strings.EqualFold(strings.TrimSpace(c.Query("cache_disabled")), "true"),
 		AcceptLanguage:     resolveAcceptLanguage(c.Query("accept_language"), c.Header("Accept-Language")),
 		Topic:              legacyTopic,
 		Topics:             topics,
@@ -1345,6 +1567,10 @@ func parseSearchRequest(c router.Context) searchdemo.SearchRequest {
 		PublishedYearLTE:   optionalInt(c.Query("published_year_lte")),
 		DurationSecondsGTE: optionalInt(c.Query("duration_seconds_gte")),
 		DurationSecondsLTE: optionalInt(c.Query("duration_seconds_lte")),
+		TenantID:           strings.TrimSpace(c.Query("tenant_id")),
+		OrgID:              strings.TrimSpace(c.Query("org_id")),
+		ActorUserID:        strings.TrimSpace(c.Query("actor_user_id")),
+		ActorRole:          strings.TrimSpace(c.Query("actor_role")),
 		Group:              strings.EqualFold(strings.TrimSpace(c.Query("group")), "true"),
 		Page:               atoiDefault(c.Query("page"), 1),
 		PerPage:            atoiDefault(c.Query("per_page"), 10),
@@ -1363,6 +1589,9 @@ func buildSearchURL(basePath string, state searchView, page int) string {
 	}
 	if locale := strings.TrimSpace(state.Locale); locale != "" {
 		params.Set("locale", locale)
+	}
+	if state.CacheDisabled {
+		params.Set("cache_disabled", "true")
 	}
 	if acceptLanguage := strings.TrimSpace(state.AcceptLanguage); acceptLanguage != "" {
 		params.Set("accept_language", acceptLanguage)
@@ -1389,6 +1618,18 @@ func buildSearchURL(basePath string, state searchView, page int) string {
 	}
 	if state.DurationSecondsLTE != nil {
 		params.Set("duration_seconds_lte", strconv.Itoa(*state.DurationSecondsLTE))
+	}
+	if tenantID := strings.TrimSpace(state.TenantID); tenantID != "" {
+		params.Set("tenant_id", tenantID)
+	}
+	if orgID := strings.TrimSpace(state.OrgID); orgID != "" {
+		params.Set("org_id", orgID)
+	}
+	if actorUserID := strings.TrimSpace(state.ActorUserID); actorUserID != "" {
+		params.Set("actor_user_id", actorUserID)
+	}
+	if actorRole := strings.TrimSpace(state.ActorRole); actorRole != "" {
+		params.Set("actor_role", actorRole)
 	}
 	params.Set("group", strconv.FormatBool(state.Group))
 	if page > 0 {

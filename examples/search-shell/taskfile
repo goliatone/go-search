@@ -44,6 +44,30 @@ function dev:tidy {
     )
 }
 
+function release:validate {
+    _ensure:go || return 1
+    (
+        cd "${EXAMPLE_DIR}" || exit 1
+        "${GO_BIN}" test ./release -run 'TestSearchV1ReleaseChecklistTemplateRemainsPending|TestApprovedSearchV1ReleaseChecklistSampleValidates|TestRunSearchV1RuntimeValidationProfileMemory|TestRunSearchV1RouteValidationProfileDefaultConfig|TestRunSearchV1RouteValidationProfileEditorialDisabled' -count=1
+    )
+}
+
+function release:validate:parity {
+    _ensure:go || return 1
+    (
+        cd "${EXAMPLE_DIR}" || exit 1
+        GO_SEARCH_RELEASE_REQUIRE_EXTERNAL=true "${GO_BIN}" test ./release -run 'TestRunSearchV1RuntimeValidationProfileExternalProviders' -count=1
+    )
+}
+
+function release:validate:full {
+    _ensure:go || return 1
+    (
+        cd "${EXAMPLE_DIR}" || exit 1
+        GO_SEARCH_RELEASE_REQUIRE_EXTERNAL=true "${GO_BIN}" test ./release -count=1
+    )
+}
+
 function help {
     echo ""
     echo "$0 <task>"
@@ -53,6 +77,9 @@ function help {
     echo "  dev:test"
     echo "  dev:fmt"
     echo "  dev:tidy"
+    echo "  release:validate"
+    echo "  release:validate:parity"
+    echo "  release:validate:full"
     echo ""
 }
 

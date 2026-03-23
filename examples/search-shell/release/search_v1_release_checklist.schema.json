@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goliatone.dev/schemas/search-v1-release-checklist.json",
+  "title": "Search V1 Release Checklist",
+  "type": "object",
+  "required": [
+    "release_id",
+    "phase",
+    "required_providers",
+    "signoffs",
+    "evidence",
+    "rollback"
+  ],
+  "properties": {
+    "release_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "phase": {
+      "const": "10"
+    },
+    "required_providers": {
+      "type": "object",
+      "required": [
+        "memory",
+        "typesense",
+        "postgres"
+      ],
+      "properties": {
+        "memory": { "type": "boolean" },
+        "typesense": { "type": "boolean" },
+        "postgres": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "signoffs": {
+      "type": "object",
+      "required": [
+        "be",
+        "fe",
+        "qa",
+        "ops"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "be": { "$ref": "#/$defs/signoff" },
+        "fe": { "$ref": "#/$defs/signoff" },
+        "qa": { "$ref": "#/$defs/signoff" },
+        "ops": { "$ref": "#/$defs/signoff" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": [
+        "go_i18n_ref",
+        "go_search_ref",
+        "example_ref",
+        "go_admin_ref",
+        "go_cms_ref",
+        "go_users_ref",
+        "runbook_ref",
+        "version_matrix_ref",
+        "compatibility_notes_ref",
+        "version_skew_ref",
+        "followups_ref"
+      ],
+      "properties": {
+        "go_i18n_ref": { "type": "string" },
+        "go_search_ref": { "type": "string" },
+        "example_ref": { "type": "string" },
+        "go_admin_ref": { "type": "string" },
+        "go_cms_ref": { "type": "string" },
+        "go_users_ref": { "type": "string" },
+        "runbook_ref": { "type": "string" },
+        "version_matrix_ref": { "type": "string" },
+        "compatibility_notes_ref": { "type": "string" },
+        "version_skew_ref": { "type": "string" },
+        "followups_ref": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "rollback": {
+      "type": "object",
+      "required": [
+        "provider_env",
+        "cache_env",
+        "editorial_env",
+        "feature_flags_off",
+        "notes"
+      ],
+      "properties": {
+        "provider_env": { "const": "APP_SEARCH_DEMO__PROVIDER" },
+        "cache_env": { "const": "APP_SEARCH_DEMO__CACHE_ENABLED" },
+        "editorial_env": { "const": "APP_SEARCH_DEMO__EDITORIAL_ENABLED" },
+        "feature_flags_off": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "notes": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "signoff": {
+      "type": "object",
+      "required": [
+        "approved",
+        "approver",
+        "approved_at",
+        "ticket"
+      ],
+      "properties": {
+        "approved": { "type": "boolean" },
+        "approver": { "type": "string" },
+        "approved_at": { "type": "string" },
+        "ticket": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -2,11 +2,19 @@ package apphttp
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 
+	commandregistry "github.com/goliatone/go-command/registry"
 	"github.com/goliatone/go-search/adapters/media"
+	"github.com/goliatone/go-search/examples/search-shell/internal/config"
+	"github.com/goliatone/go-search/examples/search-shell/internal/core"
+	"github.com/goliatone/go-search/examples/search-shell/internal/searchdemo"
 	"github.com/goliatone/go-search/pkg/types"
 )
 
@@ -30,12 +38,17 @@ func TestBuildSearchURLPreservesStateAndEscapesValues(t *testing.T) {
 		Query:              "a&b",
 		Surface:            "content_split",
 		Locale:             "en",
+		CacheDisabled:      true,
 		AcceptLanguage:     "fr-CA,fr;q=0.9,en;q=0.8",
 		Topics:             []string{"architecture", "ui"},
 		LandingSlug:        "architecture",
 		PublishedYearGTE:   ptrInt(2020),
 		PublishedYearLTE:   ptrInt(2024),
 		DurationSecondsGTE: ptrInt(900),
+		TenantID:           "tenant-1",
+		OrgID:              "org-1",
+		ActorUserID:        "user-1",
+		ActorRole:          "support",
 		Group:              false,
 		SortField:          media.FieldPublishedYear,
 		SortDir:            "desc",
@@ -57,6 +70,9 @@ func TestBuildSearchURLPreservesStateAndEscapesValues(t *testing.T) {
 	if params.Get("surface") != "content_split" {
 		t.Fatalf("surface = %q", params.Get("surface"))
 	}
+	if params.Get("cache_disabled") != "true" {
+		t.Fatalf("cache_disabled = %q", params.Get("cache_disabled"))
+	}
 	if params.Get("accept_language") != "fr-CA,fr;q=0.9,en;q=0.8" {
 		t.Fatalf("accept_language = %q", params.Get("accept_language"))
 	}
@@ -71,6 +87,12 @@ func TestBuildSearchURLPreservesStateAndEscapesValues(t *testing.T) {
 	}
 	if params.Get("duration_seconds_gte") != "900" {
 		t.Fatalf("duration_seconds_gte = %q", params.Get("duration_seconds_gte"))
+	}
+	if params.Get("tenant_id") != "tenant-1" || params.Get("org_id") != "org-1" {
+		t.Fatalf("scope params = %q/%q", params.Get("tenant_id"), params.Get("org_id"))
+	}
+	if params.Get("actor_user_id") != "user-1" || params.Get("actor_role") != "support" {
+		t.Fatalf("actor params = %q/%q", params.Get("actor_user_id"), params.Get("actor_role"))
 	}
 	if params.Get("group") != "false" {
 		t.Fatalf("group = %q", params.Get("group"))
@@ -147,14 +169,15 @@ func TestFormatTimestampRangeUsesFormattedBounds(t *testing.T) {
 
 func TestSearchTemplateRendersExplicitSurfaceModesAndMixedContentTypes(t *testing.T) {
 	view := searchView{
-		Title:       "Search",
-		ActionPath:  "/demo/search",
-		APIPath:     "/api/demo/search",
-		SuggestPath: "/api/demo/suggest",
-		Surface:     "content_shared",
-		Page:        1,
-		PerPage:     10,
-		TotalPages:  1,
+		Title:         "Search",
+		ActionPath:    "/demo/search",
+		APIPath:       "/api/demo/search",
+		SuggestPath:   "/api/demo/suggest",
+		Surface:       "content_shared",
+		CacheDisabled: true,
+		Page:          1,
+		PerPage:       10,
+		TotalPages:    1,
 		Result: types.SearchResultPage{
 			Page:    1,
 			PerPage: 10,
@@ -175,6 +198,9 @@ func TestSearchTemplateRendersExplicitSurfaceModesAndMixedContentTypes(t *testin
 		`value="content_shared" selected`,
 		`value="content_split"`,
 		`value="media_grouped"`,
+		`value="users"`,
+		`Media transcripts`,
+		`name="cache_disabled" value="true"`,
 		`badge badge-type">video<`,
 		`badge badge-type">document<`,
 		`badge badge-type">blog_article<`,
@@ -183,4 +209,107 @@ func TestSearchTemplateRendersExplicitSurfaceModesAndMixedContentTypes(t *testin
 			t.Fatalf("expected %q in rendered template", needle)
 		}
 	}
+	if strings.Contains(body, `surface === 'media_grouped' ? 'true'`) {
+		t.Fatalf("expected grouping toggle to be independent from the selected media surface")
+	}
+	if !strings.Contains(body, `const group = document.getElementById('filterGroup').value;`) {
+		t.Fatalf("expected template to submit the explicit group filter value")
+	}
+}
+
+func TestOpsTemplateRendersSmokeFlows(t *testing.T) {
+	view := opsView{
+		BaseURL:    "http://localhost:8484",
+		StatusJSON: "{}",
+		RulesJSON:  "[]",
+		SmokeFlows: []searchdemo.SmokeFlow{{
+			ID:          "cache_invalidation",
+			Label:       "Cache invalidation after rebuild",
+			Method:      "POST+GET",
+			Path:        "/api/demo/reindex then repeat /api/demo/search?surface=content_shared&locale=en&q=search",
+			Description: "Confirms generation-based cache invalidation after indexed writes or rebuilds.",
+		}},
+	}
+	var out bytes.Buffer
+	if err := opsTemplate.Execute(&out, view); err != nil {
+		t.Fatalf("render ops template: %v", err)
+	}
+	body := out.String()
+	for _, needle := range []string{
+		"Smoke Flows",
+		"generation-based cache invalidation",
+	} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("expected %q in rendered ops template", needle)
+		}
+	}
+}
+
+func TestDemoAPIsRoundTripCacheDisabledFlag(t *testing.T) {
+	commandregistry.WithTestRegistry(func() {
+		cfg := config.Defaults()
+		appCore, err := core.New(context.Background(), &cfg)
+		if err != nil {
+			t.Fatalf("new core: %v", err)
+		}
+		t.Cleanup(func() {
+			_ = appCore.Shutdown(context.Background())
+		})
+		if err := Register(appCore); err != nil {
+			t.Fatalf("register routes: %v", err)
+		}
+
+		for _, tc := range []struct {
+			name string
+			url  string
+		}{
+			{name: "search", url: "/api/demo/search?q=search&cache_disabled=true"},
+			{name: "suggest", url: "/api/demo/suggest?q=search&cache_disabled=true"},
+		} {
+			req := httptest.NewRequest(http.MethodGet, tc.url, nil)
+			resp, err := appCore.Fiber.Test(req)
+			if err != nil {
+				t.Fatalf("%s request: %v", tc.name, err)
+			}
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("%s status = %d", tc.name, resp.StatusCode)
+			}
+			var body struct {
+				Request map[string]any `json:"request"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+				t.Fatalf("%s decode: %v", tc.name, err)
+			}
+			if body.Request["cache_disabled"] != true {
+				t.Fatalf("%s cache_disabled = %#v", tc.name, body.Request["cache_disabled"])
+			}
+		}
+	})
+}
+
+func TestEditorialRoutesCanBeDisabledByConfig(t *testing.T) {
+	commandregistry.WithTestRegistry(func() {
+		cfg := config.Defaults()
+		cfg.SearchDemo.EditorialEnabled = false
+
+		appCore, err := core.New(context.Background(), &cfg)
+		if err != nil {
+			t.Fatalf("new core: %v", err)
+		}
+		t.Cleanup(func() {
+			_ = appCore.Shutdown(context.Background())
+		})
+		if err := Register(appCore); err != nil {
+			t.Fatalf("register routes: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/demo/editorial", nil)
+		resp, err := appCore.Fiber.Test(req)
+		if err != nil {
+			t.Fatalf("request: %v", err)
+		}
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+		}
+	})
 }

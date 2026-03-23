@@ -1,0 +1,59 @@
+{
+  "release_id": "search-v1-2026.03.22-ga",
+  "phase": "10",
+  "required_providers": {
+    "memory": true,
+    "typesense": true,
+    "postgres": true
+  },
+  "signoffs": {
+    "be": {
+      "approved": true,
+      "approver": "backend@example.com",
+      "approved_at": "2026-03-22T09:00:00Z",
+      "ticket": "REL-SEARCH-BE"
+    },
+    "fe": {
+      "approved": true,
+      "approver": "frontend@example.com",
+      "approved_at": "2026-03-22T09:30:00Z",
+      "ticket": "REL-SEARCH-FE"
+    },
+    "qa": {
+      "approved": true,
+      "approver": "qa@example.com",
+      "approved_at": "2026-03-22T10:00:00Z",
+      "ticket": "REL-SEARCH-QA"
+    },
+    "ops": {
+      "approved": true,
+      "approver": "ops@example.com",
+      "approved_at": "2026-03-22T10:30:00Z",
+      "ticket": "REL-SEARCH-OPS"
+    }
+  },
+  "evidence": {
+    "go_i18n_ref": "../../../go-i18n/docs/search_v1_release_gate.md",
+    "go_search_ref": "../../../README.md",
+    "example_ref": "../README.md",
+    "go_admin_ref": "../../../go-admin/SEARCH_V1_ADOPTION.md",
+    "go_cms_ref": "../../../go-cms/SEARCH_V1_ADOPTION.md",
+    "go_users_ref": "../../../go-users/SEARCH_V1_ADOPTION.md",
+    "runbook_ref": "./SEARCH_V1_RUNBOOK.md",
+    "version_matrix_ref": "../../../docs/phase10_version_matrix.md",
+    "compatibility_notes_ref": "../../../docs/phase10_release_runbook.md",
+    "version_skew_ref": "../../../docs/phase10_version_matrix.md#version-skew-check",
+    "followups_ref": "../../../docs/phase10_followups.md"
+  },
+  "rollback": {
+    "provider_env": "APP_SEARCH_DEMO__PROVIDER",
+    "cache_env": "APP_SEARCH_DEMO__CACHE_ENABLED",
+    "editorial_env": "APP_SEARCH_DEMO__EDITORIAL_ENABLED",
+    "feature_flags_off": [
+      "search",
+      "cms",
+      "users"
+    ],
+    "notes": "Roll back by switching APP_SEARCH_DEMO__PROVIDER to memory or the previous provider, setting APP_SEARCH_DEMO__CACHE_ENABLED=false, setting APP_SEARCH_DEMO__EDITORIAL_ENABLED=false, and disabling the broad host feature flags for search, cms, and users before reopening traffic."
+  }
+}

@@ -28,10 +28,13 @@
   },
   "search_demo": {
     "provider": "memory",
+    "cache_enabled": false,
+    "editorial_enabled": true,
     "seed_on_start": true,
     "index_name": "media_transcripts",
     "default_locale": "en",
     "culture_data_path": "",
+    "postgres_dsn": "",
     "typesense_server_url": "http://localhost:8108",
     "typesense_api_key": "xyz",
     "typesense_collection_prefix": "search_shell_",

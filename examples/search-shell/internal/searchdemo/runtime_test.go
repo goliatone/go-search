@@ -5,10 +5,24 @@ import (
 	"strings"
 	"testing"
 
+	cmscontent "github.com/goliatone/go-cms/content"
+	cmspages "github.com/goliatone/go-cms/pages"
 	"github.com/goliatone/go-search/adapters/media"
+	"github.com/goliatone/go-search/internal/testkit"
+	"github.com/goliatone/go-search/pkg/types"
+	userstypes "github.com/goliatone/go-users/pkg/types"
 )
 
 func intPtr(value int) *int { return &value }
+
+func hasHitType(result types.SearchResultPage, typ string) bool {
+	for _, hit := range result.Hits {
+		if hit.Type == typ {
+			return true
+		}
+	}
+	return false
+}
 
 func TestRuntimeBootstrapsSeededSearch(t *testing.T) {
 	runtime, err := New(Config{
@@ -25,11 +39,11 @@ func TestRuntimeBootstrapsSeededSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	if status.Documents != 45 {
-		t.Fatalf("expected 45 seeded documents across media and content indexes, got %d", status.Documents)
+	if status.Documents <= 45 {
+		t.Fatalf("expected cms-backed fixtures to increase seeded document count beyond 45, got %d", status.Documents)
 	}
-	if len(runtime.IndexNames()) != 5 {
-		t.Fatalf("expected five managed indexes, got %v", runtime.IndexNames())
+	if len(runtime.IndexNames()) != 7 {
+		t.Fatalf("expected seven managed indexes with users coverage, got %v", runtime.IndexNames())
 	}
 
 	result, err := runtime.Search(context.Background(), SearchRequest{
@@ -56,6 +70,79 @@ func TestRuntimeBootstrapsSeededSearch(t *testing.T) {
 	}
 	if suggest.Items[0].Type == "" {
 		t.Fatalf("expected typed suggestions, got %+v", suggest.Items[0])
+	}
+}
+
+func TestRuntimeUsersSurfaceFiltersByScopeAndSupportVisibility(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	tenantAResult, err := runtime.Search(context.Background(), SearchRequest{
+		Query:    "admin",
+		Surface:  SurfaceUsers,
+		TenantID: "00000000-0000-0000-0000-000000000101",
+	})
+	if err != nil {
+		t.Fatalf("tenant search: %v", err)
+	}
+	if tenantAResult.Total == 0 {
+		t.Fatalf("expected tenant scoped user results")
+	}
+	for _, hit := range tenantAResult.Hits {
+		if hit.Document == nil || hit.Document.Scope.TenantID != "00000000-0000-0000-0000-000000000101" {
+			t.Fatalf("unexpected tenant scoped hit %+v", hit)
+		}
+	}
+
+	supportResult, err := runtime.Search(context.Background(), SearchRequest{
+		Surface:     SurfaceUsers,
+		ActorRole:   "support",
+		ActorUserID: "00000000-0000-0000-0000-000000001002",
+	})
+	if err != nil {
+		t.Fatalf("support search: %v", err)
+	}
+	if supportResult.Total != 1 || len(supportResult.Hits) != 1 {
+		t.Fatalf("expected support actor to see only self, got %+v", supportResult.Hits)
+	}
+	if supportResult.Hits[0].ID != "00000000-0000-0000-0000-000000001002" {
+		t.Fatalf("unexpected support hit %+v", supportResult.Hits[0])
+	}
+}
+
+func TestRuntimeUserLifecycleDeletesArchivedUserFromSearch(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	if err := runtime.TransitionUser(context.Background(), "00000000-0000-0000-0000-000000001004", userstypes.LifecycleStateArchived); err != nil {
+		t.Fatalf("archive user: %v", err)
+	}
+
+	result, err := runtime.Search(context.Background(), SearchRequest{
+		Query:   "editor",
+		Surface: SurfaceUsers,
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	for _, hit := range result.Hits {
+		if hit.ID == "00000000-0000-0000-0000-000000001004" {
+			t.Fatalf("archived user should be removed from search %+v", hit)
+		}
 	}
 }
 
@@ -280,6 +367,33 @@ func TestRuntimeSearchCanDisableGrouping(t *testing.T) {
 	}
 	if !foundDocument || !foundBlog {
 		t.Fatalf("expected mixed whole-entity content hits, got %+v", result.Hits)
+	}
+}
+
+func TestRuntimeSearchRespectsUngroupedMediaSurface(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	result, err := runtime.Search(context.Background(), SearchRequest{
+		Query:   "transcript",
+		Surface: SurfaceMediaGrouped,
+		Group:   false,
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(result.Groups) != 0 {
+		t.Fatalf("expected explicit media surface to respect group=false, got groups: %+v", result.Groups)
+	}
+	if len(result.Hits) == 0 {
+		t.Fatalf("expected transcript hits, got none")
 	}
 }
 
@@ -543,5 +657,321 @@ func TestRuntimeContentSharedAndSplitSurfacesReturnEquivalentEntityTypes(t *test
 		if !splitTypes[typ] {
 			t.Fatalf("expected split surface to include %s hits, got %+v", typ, split.Hits)
 		}
+	}
+}
+
+func TestRuntimeCMSLifecyclePagePublishUnpublishUpdatesSharedAndSplit(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	fixture := runtime.cmsFixture
+	if fixture == nil || runtime.cmsModule == nil {
+		t.Fatalf("expected cms fixture runtime wiring")
+	}
+
+	assertPageVisible := func(surface string, want bool) {
+		t.Helper()
+		result, err := runtime.Search(context.Background(), SearchRequest{
+			Query:   fixture.pageQuery,
+			Locale:  fixture.defaultLocale,
+			Surface: surface,
+			PerPage: 50,
+		})
+		if err != nil {
+			t.Fatalf("search %s: %v", surface, err)
+		}
+		if got := hasHitType(result, "page"); got != want {
+			t.Fatalf("surface %s page visibility = %v, want %v; hits=%+v", surface, got, want, result.Hits)
+		}
+	}
+
+	assertPageVisible(SurfaceContentShared, true)
+	assertPageVisible(SurfaceContentSplit, true)
+
+	if _, err := runtime.cmsModule.Pages().Update(context.Background(), cmspages.UpdatePageRequest{
+		ID:                       fixture.pageID,
+		Status:                   "draft",
+		UpdatedBy:                fixture.actorID,
+		AllowMissingTranslations: true,
+	}); err != nil {
+		t.Fatalf("unpublish page: %v", err)
+	}
+
+	assertPageVisible(SurfaceContentShared, false)
+	assertPageVisible(SurfaceContentSplit, false)
+
+	if _, err := runtime.cmsModule.Pages().Update(context.Background(), cmspages.UpdatePageRequest{
+		ID:                       fixture.pageID,
+		Status:                   "published",
+		UpdatedBy:                fixture.actorID,
+		AllowMissingTranslations: true,
+	}); err != nil {
+		t.Fatalf("publish page: %v", err)
+	}
+
+	assertPageVisible(SurfaceContentShared, true)
+	assertPageVisible(SurfaceContentSplit, true)
+}
+
+func TestRuntimeCMSLifecycleTranslationAndDeleteFlowsUpdateSharedAndSplit(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	fixture := runtime.cmsFixture
+	if fixture == nil || runtime.cmsModule == nil {
+		t.Fatalf("expected cms fixture runtime wiring")
+	}
+
+	assertHitType := func(surface, locale, query, typ string, want bool) {
+		t.Helper()
+		result, err := runtime.Search(context.Background(), SearchRequest{
+			Query:   query,
+			Locale:  locale,
+			Surface: surface,
+			PerPage: 50,
+		})
+		if err != nil {
+			t.Fatalf("search %s/%s/%s: %v", surface, locale, query, err)
+		}
+		if got := hasHitType(result, typ); got != want {
+			t.Fatalf("surface %s locale %s query %s %s visibility=%v want=%v hits=%+v", surface, locale, query, typ, got, want, result.Hits)
+		}
+	}
+
+	assertHitType(SurfaceContentShared, fixture.secondaryLocale, fixture.blogQuery, "blog_article", true)
+	assertHitType(SurfaceContentSplit, fixture.secondaryLocale, fixture.blogQuery, "blog_article", true)
+
+	if _, err := runtime.cmsModule.Content().UpdateTranslation(context.Background(), cmscontent.UpdateContentTranslationRequest{
+		ContentID: fixture.blogID,
+		Locale:    fixture.secondaryLocale,
+		Title:     "Notas actualizadas de busqueda",
+		Content: map[string]any{
+			"headline": fixture.blogUpdatedESQuery,
+			"body":     "Actualizacion de traduccion para verificar reindexado en busqueda.",
+		},
+		UpdatedBy: fixture.actorID,
+	}); err != nil {
+		t.Fatalf("update blog translation: %v", err)
+	}
+
+	assertHitType(SurfaceContentShared, fixture.secondaryLocale, fixture.blogUpdatedESQuery, "blog_article", true)
+	assertHitType(SurfaceContentSplit, fixture.secondaryLocale, fixture.blogUpdatedESQuery, "blog_article", true)
+
+	if err := runtime.cmsModule.Content().DeleteTranslation(context.Background(), cmscontent.DeleteContentTranslationRequest{
+		ContentID: fixture.documentID,
+		Locale:    fixture.secondaryLocale,
+		DeletedBy: fixture.actorID,
+	}); err != nil {
+		t.Fatalf("delete document translation: %v", err)
+	}
+
+	assertHitType(SurfaceContentShared, fixture.secondaryLocale, fixture.documentDeletedESQuery, "document", false)
+	assertHitType(SurfaceContentSplit, fixture.secondaryLocale, fixture.documentDeletedESQuery, "document", false)
+	assertHitType(SurfaceContentShared, fixture.defaultLocale, fixture.documentQuery, "document", true)
+	assertHitType(SurfaceContentSplit, fixture.defaultLocale, fixture.documentQuery, "document", true)
+
+	if err := runtime.cmsModule.Content().Delete(context.Background(), cmscontent.DeleteContentRequest{
+		ID:         fixture.blogID,
+		DeletedBy:  fixture.actorID,
+		HardDelete: true,
+	}); err != nil {
+		t.Fatalf("delete blog content: %v", err)
+	}
+
+	assertHitType(SurfaceContentShared, fixture.defaultLocale, fixture.blogQuery, "blog_article", false)
+	assertHitType(SurfaceContentSplit, fixture.defaultLocale, fixture.blogQuery, "blog_article", false)
+	assertHitType(SurfaceContentShared, fixture.secondaryLocale, fixture.blogUpdatedESQuery, "blog_article", false)
+	assertHitType(SurfaceContentSplit, fixture.secondaryLocale, fixture.blogUpdatedESQuery, "blog_article", false)
+}
+
+func TestRuntimeStatusReportsCacheAndSmokeFlows(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		CacheEnabled:  true,
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	status, err := runtime.Status(context.Background())
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !status.CacheEnabled {
+		t.Fatalf("expected cache to be enabled in status")
+	}
+	if !status.CacheWrappers.Search || !status.CacheWrappers.Suggest || !status.CacheWrappers.ProviderMetadata {
+		t.Fatalf("expected cache wrapper status, got %+v", status.CacheWrappers)
+	}
+	if status.GenerationBackend != generationBackendMemory {
+		t.Fatalf("generation backend = %q", status.GenerationBackend)
+	}
+	if len(status.SmokeFlows) < 4 {
+		t.Fatalf("expected smoke flows in status, got %+v", status.SmokeFlows)
+	}
+}
+
+func TestRuntimeCacheDisabledBypassesSearchAndSuggestCaches(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		CacheEnabled:  true,
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	ctx := context.Background()
+	searchReq := SearchRequest{Query: "search", Locale: "en"}
+	if _, err := runtime.Search(ctx, searchReq); err != nil {
+		t.Fatalf("search 1: %v", err)
+	}
+	if _, err := runtime.Search(ctx, searchReq); err != nil {
+		t.Fatalf("search 2: %v", err)
+	}
+	status, err := runtime.Status(ctx)
+	if err != nil {
+		t.Fatalf("status after cached search: %v", err)
+	}
+	searchHits := status.Cache.Search.Hits
+	if searchHits == 0 {
+		t.Fatalf("expected cached search hit, got %+v", status.Cache.Search)
+	}
+	if _, err := runtime.Search(ctx, SearchRequest{Query: "search", Locale: "en", CacheDisabled: true}); err != nil {
+		t.Fatalf("search cache disabled: %v", err)
+	}
+	afterSearchBypass, err := runtime.Status(ctx)
+	if err != nil {
+		t.Fatalf("status after uncached search: %v", err)
+	}
+	if afterSearchBypass.Cache.Search.Hits != searchHits {
+		t.Fatalf("expected cache-disabled search to bypass cache hits, before=%d after=%d", searchHits, afterSearchBypass.Cache.Search.Hits)
+	}
+
+	suggestReq := SuggestRequest{Query: "search", Locale: "en", Limit: 5}
+	if _, err := runtime.Suggest(ctx, suggestReq); err != nil {
+		t.Fatalf("suggest 1: %v", err)
+	}
+	if _, err := runtime.Suggest(ctx, suggestReq); err != nil {
+		t.Fatalf("suggest 2: %v", err)
+	}
+	status, err = runtime.Status(ctx)
+	if err != nil {
+		t.Fatalf("status after cached suggest: %v", err)
+	}
+	suggestHits := status.Cache.Suggest.Hits
+	if suggestHits == 0 {
+		t.Fatalf("expected cached suggest hit, got %+v", status.Cache.Suggest)
+	}
+	if _, err := runtime.Suggest(ctx, SuggestRequest{Query: "search", Locale: "en", Limit: 5, CacheDisabled: true}); err != nil {
+		t.Fatalf("suggest cache disabled: %v", err)
+	}
+	afterSuggestBypass, err := runtime.Status(ctx)
+	if err != nil {
+		t.Fatalf("status after uncached suggest: %v", err)
+	}
+	if afterSuggestBypass.Cache.Suggest.Hits != suggestHits {
+		t.Fatalf("expected cache-disabled suggest to bypass cache hits, before=%d after=%d", suggestHits, afterSuggestBypass.Cache.Suggest.Hits)
+	}
+}
+
+func TestRuntimeReindexBumpsGenerationAndInvalidatesSearchCache(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		CacheEnabled:  true,
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	ctx := context.Background()
+	req := SearchRequest{Query: "search", Locale: "en"}
+	if _, err := runtime.Search(ctx, req); err != nil {
+		t.Fatalf("search 1: %v", err)
+	}
+	if _, err := runtime.Search(ctx, req); err != nil {
+		t.Fatalf("search 2: %v", err)
+	}
+	before, err := runtime.Status(ctx)
+	if err != nil {
+		t.Fatalf("status before reindex: %v", err)
+	}
+	if before.Cache.Search.Hits == 0 {
+		t.Fatalf("expected cache hit before reindex, got %+v", before.Cache.Search)
+	}
+	if err := runtime.Reindex(ctx, 10); err != nil {
+		t.Fatalf("reindex: %v", err)
+	}
+	if _, err := runtime.Search(ctx, req); err != nil {
+		t.Fatalf("search after reindex: %v", err)
+	}
+	after, err := runtime.Status(ctx)
+	if err != nil {
+		t.Fatalf("status after reindex: %v", err)
+	}
+	if after.Generation <= before.Generation {
+		t.Fatalf("expected generation bump, before=%d after=%d", before.Generation, after.Generation)
+	}
+	if after.Cache.Search.Misses <= before.Cache.Search.Misses {
+		t.Fatalf("expected reindex to force a fresh cache lookup, before=%+v after=%+v", before.Cache.Search, after.Cache.Search)
+	}
+}
+
+func TestRuntimePostgresUsesBunGenerationStore(t *testing.T) {
+	if testkit.Integration.Postgres.DSN == "" {
+		t.Skip("testkit.Integration.Postgres.DSN is not set")
+	}
+	runtime, err := New(Config{
+		Provider:      "postgres",
+		CacheEnabled:  true,
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts_pg",
+		DefaultLocale: "en",
+		PostgresDSN:   testkit.Integration.Postgres.DSN,
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = runtime.Close()
+	})
+
+	status, err := runtime.Status(context.Background())
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if status.Provider != "postgres" {
+		t.Fatalf("provider = %q", status.Provider)
+	}
+	if status.GenerationBackend != generationBackendBunPostgres {
+		t.Fatalf("generation backend = %q", status.GenerationBackend)
+	}
+	if !status.CacheEnabled || !status.CacheWrappers.ProviderMetadata {
+		t.Fatalf("expected postgres runtime cache wrappers, got %+v", status.CacheWrappers)
+	}
+	if status.Documents == 0 {
+		t.Fatalf("expected seeded postgres demo documents")
 	}
 }

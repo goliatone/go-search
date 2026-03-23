@@ -2,6 +2,7 @@ package searchdemo
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -11,8 +12,15 @@ import (
 	"sync"
 	"time"
 
+	cms "github.com/goliatone/go-cms"
+	cmscontent "github.com/goliatone/go-cms/content"
+	cmspages "github.com/goliatone/go-cms/pages"
+	cmslifecycle "github.com/goliatone/go-cms/pkg/lifecycle"
 	"github.com/goliatone/go-search/adapters/content"
+	cmsgosearch "github.com/goliatone/go-search/adapters/gocms"
+	usersgosearch "github.com/goliatone/go-search/adapters/gousers"
 	"github.com/goliatone/go-search/adapters/media"
+	"github.com/goliatone/go-search/cache"
 	"github.com/goliatone/go-search/command"
 	"github.com/goliatone/go-search/indexing"
 	"github.com/goliatone/go-search/locale"
@@ -20,16 +28,25 @@ import (
 	"github.com/goliatone/go-search/planner"
 	"github.com/goliatone/go-search/providers"
 	"github.com/goliatone/go-search/providers/memory"
+	providerpostgres "github.com/goliatone/go-search/providers/postgres"
 	providertypesense "github.com/goliatone/go-search/providers/typesense"
 	"github.com/goliatone/go-search/query"
+	generationbunstore "github.com/goliatone/go-search/stores/generation/bun"
+	userstypes "github.com/goliatone/go-users/pkg/types"
+	"github.com/google/uuid"
+	_ "github.com/lib/pq"
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect/pgdialect"
 )
 
 type Config struct {
 	Provider                  string
+	CacheEnabled              bool
 	SeedOnStart               bool
 	IndexName                 string
 	DefaultLocale             string
 	CultureDataPath           string
+	PostgresDSN               string
 	TypesenseServerURL        string
 	TypesenseAPIKey           string
 	TypesenseCollectionPrefix string
@@ -62,56 +79,88 @@ type ReindexCommander interface {
 }
 
 type Runtime struct {
-	provider         providers.Provider
-	registry         *indexing.Registry
-	planner          *planner.Planner
-	localeRuntime    *locale.I18nRuntime
-	generationStore  *memoryGenerationStore
-	editorialStore   *memoryEditorialStore
-	metrics          *runtimeMetricsHook
-	activities       *memoryActivityHook
-	logger           types.Logger
-	ensureIndex      *command.EnsureIndex
-	indexer          *indexing.Indexer
-	reindex          *command.ReindexIndex
-	search           *query.Search
-	suggest          *query.Suggest
-	health           *query.Health
-	stats            *query.Stats
-	editorialRules   *query.EditorialRules
-	upsertRule       *command.UpsertEditorialRule
-	deleteRule       *command.DeleteEditorialRule
-	setRuleEnabled   *command.SetEditorialRuleEnabled
-	mediaIndex       types.IndexDefinition
-	contentShared    types.IndexDefinition
-	contentVideo     types.IndexDefinition
-	contentDocument  types.IndexDefinition
-	contentBlog      types.IndexDefinition
-	cultureDataPath  string
-	defaultLocale    string
-	reindexBatchSize int
-	seedRecords      []media.TranscriptRecord
+	provider          providers.Provider
+	registry          *indexing.Registry
+	planner           *planner.Planner
+	localeRuntime     *locale.I18nRuntime
+	generationStore   types.GenerationStore
+	generationBackend string
+	editorialStore    *memoryEditorialStore
+	metrics           *runtimeMetricsHook
+	activities        *memoryActivityHook
+	cacheEnabled      bool
+	cacheWrappers     cacheWrapperStatus
+	cacheStores       *runtimeCacheStores
+	logger            types.Logger
+	ensureIndex       *command.EnsureIndex
+	indexer           *indexing.Indexer
+	reindex           *command.ReindexIndex
+	search            SearchQuerier
+	suggest           SuggestQuerier
+	health            *query.Health
+	stats             *query.Stats
+	editorialRules    *query.EditorialRules
+	upsertRule        *command.UpsertEditorialRule
+	deleteRule        *command.DeleteEditorialRule
+	setRuleEnabled    *command.SetEditorialRuleEnabled
+	mediaIndex        types.IndexDefinition
+	contentShared     types.IndexDefinition
+	contentPage       types.IndexDefinition
+	contentVideo      types.IndexDefinition
+	contentDocument   types.IndexDefinition
+	contentBlog       types.IndexDefinition
+	usersIndex        types.IndexDefinition
+	cmsModule         *cms.Module
+	cmsFixture        *cmsFixture
+	userStore         *demoUserStore
+	cultureDataPath   string
+	defaultLocale     string
+	reindexBatchSize  int
+	seedRecords       []media.TranscriptRecord
+	closeProvider     func() error
+}
+
+type cmsFixture struct {
+	actorID                uuid.UUID
+	templateID             uuid.UUID
+	pageContentID          uuid.UUID
+	pageID                 uuid.UUID
+	documentID             uuid.UUID
+	blogID                 uuid.UUID
+	defaultLocale          string
+	secondaryLocale        string
+	pageQuery              string
+	documentQuery          string
+	blogQuery              string
+	blogUpdatedESQuery     string
+	documentDeletedESQuery string
 }
 
 type Status struct {
-	Provider         string                 `json:"provider"`
-	IndexName        string                 `json:"index_name"`
-	DefaultLocale    string                 `json:"default_locale"`
-	CultureDataPath  string                 `json:"culture_data_path,omitempty"`
-	Documents        int                    `json:"documents"`
-	Generation       int64                  `json:"generation"`
-	EditorialRules   int                    `json:"editorial_rules"`
-	Capabilities     types.CapabilitySet    `json:"capabilities"`
-	Health           types.HealthStatus     `json:"health"`
-	Stats            types.StatsResult      `json:"stats"`
-	Metrics          runtimeMetricsSnapshot `json:"metrics"`
-	RecentActivities []types.ActivityEvent  `json:"recent_activities,omitempty"`
+	Provider          string                 `json:"provider"`
+	IndexName         string                 `json:"index_name"`
+	DefaultLocale     string                 `json:"default_locale"`
+	CultureDataPath   string                 `json:"culture_data_path,omitempty"`
+	GenerationBackend string                 `json:"generation_backend"`
+	CacheEnabled      bool                   `json:"cache_enabled"`
+	CacheWrappers     cacheWrapperStatus     `json:"cache_wrappers"`
+	Cache             runtimeCacheSnapshot   `json:"cache"`
+	SmokeFlows        []SmokeFlow            `json:"smoke_flows,omitempty"`
+	Documents         int                    `json:"documents"`
+	Generation        int64                  `json:"generation"`
+	EditorialRules    int                    `json:"editorial_rules"`
+	Capabilities      types.CapabilitySet    `json:"capabilities"`
+	Health            types.HealthStatus     `json:"health"`
+	Stats             types.StatsResult      `json:"stats"`
+	Metrics           runtimeMetricsSnapshot `json:"metrics"`
+	RecentActivities  []types.ActivityEvent  `json:"recent_activities,omitempty"`
 }
 
 type SearchRequest struct {
 	Query              string              `json:"query"`
 	Surface            string              `json:"surface,omitempty"`
 	Locale             string              `json:"locale"`
+	CacheDisabled      bool                `json:"cache_disabled,omitempty"`
 	AcceptLanguage     string              `json:"accept_language,omitempty"`
 	LocaleSource       string              `json:"locale_source,omitempty"`
 	LocaleSupported    bool                `json:"locale_supported,omitempty"`
@@ -123,6 +172,10 @@ type SearchRequest struct {
 	PublishedYearLTE   *int                `json:"published_year_lte,omitempty"`
 	DurationSecondsGTE *int                `json:"duration_seconds_gte,omitempty"`
 	DurationSecondsLTE *int                `json:"duration_seconds_lte,omitempty"`
+	TenantID           string              `json:"tenant_id,omitempty"`
+	OrgID              string              `json:"org_id,omitempty"`
+	ActorUserID        string              `json:"actor_user_id,omitempty"`
+	ActorRole          string              `json:"actor_role,omitempty"`
 	Group              bool                `json:"group"`
 	Page               int                 `json:"page"`
 	PerPage            int                 `json:"per_page"`
@@ -134,9 +187,14 @@ type SuggestRequest struct {
 	Query           string `json:"query"`
 	Surface         string `json:"surface,omitempty"`
 	Locale          string `json:"locale"`
+	CacheDisabled   bool   `json:"cache_disabled,omitempty"`
 	AcceptLanguage  string `json:"accept_language,omitempty"`
 	LocaleSource    string `json:"locale_source,omitempty"`
 	LocaleSupported bool   `json:"locale_supported,omitempty"`
+	TenantID        string `json:"tenant_id,omitempty"`
+	OrgID           string `json:"org_id,omitempty"`
+	ActorUserID     string `json:"actor_user_id,omitempty"`
+	ActorRole       string `json:"actor_role,omitempty"`
 	Limit           int    `json:"limit"`
 }
 
@@ -144,7 +202,32 @@ const (
 	SurfaceMediaGrouped  = "media_grouped"
 	SurfaceContentShared = "content_shared"
 	SurfaceContentSplit  = "content_split"
+	SurfaceUsers         = "users"
+
+	generationBackendMemory      = "memory"
+	generationBackendBunPostgres = "bun_postgres"
 )
+
+type cacheWrapperStatus struct {
+	Search           bool `json:"search"`
+	Suggest          bool `json:"suggest"`
+	ProviderMetadata bool `json:"provider_metadata"`
+}
+
+type SmokeFlow struct {
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Method      string `json:"method"`
+	Path        string `json:"path"`
+	Description string `json:"description"`
+}
+
+type providerBootstrap struct {
+	provider          providers.Provider
+	generationStore   types.GenerationStore
+	generationBackend string
+	closeProvider     func() error
+}
 
 func New(cfg Config) (*Runtime, error) {
 	cfg = normalizeConfig(cfg)
@@ -154,23 +237,48 @@ func New(cfg Config) (*Runtime, error) {
 		return nil, err
 	}
 
-	provider, err := newProvider(cfg)
+	bootstrap, err := newProviderBootstrap(cfg)
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err != nil && bootstrap.closeProvider != nil {
+			_ = bootstrap.closeProvider()
+		}
+	}()
 
 	logger := newSlogSearchLogger(cfg.Logger)
 	metrics := newRuntimeMetricsHook()
 	activities := newMemoryActivityHook(32)
-	generationStore := newMemoryGenerationStore()
+	generationStore := bootstrap.generationStore
 	editorialStore := newMemoryEditorialStore()
+	provider := bootstrap.provider
+	cacheStores := &runtimeCacheStores{}
+	cacheWrappers := cacheWrapperStatus{}
+	if cfg.CacheEnabled {
+		cacheStores.capabilities = newRuntimeTTLStore[types.CapabilitySet]()
+		cacheStores.health = newRuntimeTTLStore[types.HealthStatus]()
+		wrappedProvider, wrapErr := cache.NewCachedProviderMetadata(cache.CachedProviderMetadataConfig{
+			Provider:        provider,
+			CapabilityCache: cacheStores.capabilities,
+			HealthCache:     cacheStores.health,
+		})
+		if wrapErr != nil {
+			return nil, wrapErr
+		}
+		provider = wrappedProvider
+		cacheWrappers.ProviderMetadata = true
+	}
 	registry := indexing.NewRegistry()
 
 	mediaIndex := media.DefaultArchiveIndexDefinition(cfg.IndexName)
 	sharedContentIndex := content.DefaultIndexDefinition(contentSharedIndexName(cfg.IndexName))
+	pageContentIndex := content.DefaultIndexDefinition(contentPageIndexName(cfg.IndexName))
 	videoContentIndex := content.DefaultIndexDefinition(contentVideoIndexName(cfg.IndexName))
 	documentContentIndex := content.DefaultIndexDefinition(contentDocumentIndexName(cfg.IndexName))
 	blogContentIndex := content.DefaultIndexDefinition(contentBlogIndexName(cfg.IndexName))
+	usersIndex := userIndexDefinition(cfg.IndexName)
+	userStore := newDemoUserStore(cfg.DefaultLocale)
 
 	transcriptRecords := seedTranscriptRecords(cfg.DefaultLocale)
 	videoRecords, documentRecords, blogRecords := seedContentRecords(cfg.DefaultLocale)
@@ -260,26 +368,42 @@ func New(cfg Config) (*Runtime, error) {
 		return nil, err
 	}
 
-	pln, err := planner.New(planner.Config{
-		Registry:      registry,
-		LocaleRuntime: localeRuntime,
-		LocalePolicy: planner.LocalePolicy{
-			MatchStrategy:   locale.MatchExactOrParent,
-			Scope:           locale.ScopeActiveOnly,
-			ExpandParents:   true,
-			ExpandFallbacks: true,
-			IncludeDefault:  true,
+	userLoader, err := usersgosearch.NewRepositoryLoader(usersgosearch.RepositoryLoaderConfig{
+		Users:     userStore,
+		Inventory: userStore,
+		Profiles:  userStore,
+		Actor: userstypes.ActorRef{
+			ID:   demoUserIndexerActorID(),
+			Type: "system",
 		},
-		Defaults: planner.Defaults{
-			DisableIndexGroupByDefault: true,
-		},
+		ResolveScope: demoUserScopeResolver,
+		Logger:       logger,
 	})
 	if err != nil {
 		return nil, err
 	}
+	if err := registry.Register(usersIndex, indexing.NewRegistration(
+		usersIndex.Name,
+		usersIndex,
+		"user",
+		usersgosearch.NewSource(userLoader),
+		usersgosearch.NewUserProjector(usersgosearch.UserProjectorConfig{
+			Index:      usersIndex.Name,
+			SourceType: "user",
+		}),
+		func(record usersgosearch.UserRecord) string {
+			return record.User.ID.String()
+		},
+	)); err != nil {
+		return nil, err
+	}
 
 	metricHooks := []types.MetricsHook{metrics}
-	activityHooks := []types.ActivityHook{activities}
+	activityHooks := []types.ActivityHook{activities, usersgosearch.ActivitySinkHook{
+		Sink:    userStore,
+		Logger:  logger,
+		Metrics: []types.MetricsHook{metrics},
+	}}
 
 	ensureIndex, err := command.NewEnsureIndex(command.EnsureIndexConfig{
 		Provider:   provider,
@@ -303,6 +427,40 @@ func New(cfg Config) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	userStore.SetHooks(usersgosearch.NewLifecycleHooks(usersgosearch.LifecycleHooksConfig{
+		Indexer:         indexer,
+		Index:           usersIndex.Name,
+		RegistrationKey: "user",
+		Logger:          logger,
+		Metrics:         metricHooks,
+	}).Hooks())
+
+	cmsModule, cmsFixture, err := newCMSDemo(cfg, indexer, logger, metricHooks, sharedContentIndex, pageContentIndex, documentContentIndex, blogContentIndex)
+	if err != nil {
+		return nil, err
+	}
+	if err := registerCMSDemoSearch(registry, cmsModule, sharedContentIndex, pageContentIndex, documentContentIndex, blogContentIndex); err != nil {
+		return nil, err
+	}
+
+	pln, err := planner.New(planner.Config{
+		Registry:      registry,
+		LocaleRuntime: localeRuntime,
+		LocalePolicy: planner.LocalePolicy{
+			MatchStrategy:   locale.MatchExactOrParent,
+			Scope:           locale.ScopeActiveOnly,
+			ExpandParents:   true,
+			ExpandFallbacks: true,
+			IncludeDefault:  true,
+		},
+		ScopeGuard: demoScopeGuard{},
+		Defaults: planner.Defaults{
+			DisableIndexGroupByDefault: true,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	reindexCmd, err := command.NewReindexIndex(command.ReindexIndexConfig{Indexer: indexer})
 	if err != nil {
@@ -321,11 +479,41 @@ func New(cfg Config) (*Runtime, error) {
 	}
 
 	suggestQuery, err := query.NewSuggest(query.SuggestConfig{
-		Planner:  pln,
-		Provider: provider,
+		Editorial: editorialStore,
+		Planner:   pln,
+		Provider:  provider,
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	var searchDelegate SearchQuerier = searchQuery
+	var suggestDelegate SuggestQuerier = suggestQuery
+	if cfg.CacheEnabled {
+		cacheStores.search = newRuntimeTTLStore[types.SearchResultPage]()
+		cacheStores.suggest = newRuntimeTTLStore[types.SuggestResult]()
+		cachedSearch, cacheErr := cache.NewCachedSearch(cache.CachedSearchConfig{
+			Delegate:        searchQuery,
+			Cache:           cacheStores.search,
+			GenerationStore: generationStore,
+			ProviderName:    provider.Name(),
+		})
+		if cacheErr != nil {
+			return nil, cacheErr
+		}
+		cachedSuggest, cacheErr := cache.NewCachedSuggest(cache.CachedSuggestConfig{
+			Delegate:        suggestQuery,
+			Cache:           cacheStores.suggest,
+			GenerationStore: generationStore,
+			ProviderName:    provider.Name(),
+		})
+		if cacheErr != nil {
+			return nil, cacheErr
+		}
+		searchDelegate = cachedSearch
+		suggestDelegate = cachedSuggest
+		cacheWrappers.Search = true
+		cacheWrappers.Suggest = true
 	}
 
 	healthQuery, err := query.NewHealth(query.HealthConfig{Provider: provider})
@@ -378,35 +566,45 @@ func New(cfg Config) (*Runtime, error) {
 	}
 
 	runtime := &Runtime{
-		provider:         provider,
-		registry:         registry,
-		planner:          pln,
-		localeRuntime:    localeRuntime,
-		generationStore:  generationStore,
-		editorialStore:   editorialStore,
-		metrics:          metrics,
-		activities:       activities,
-		logger:           logger,
-		ensureIndex:      ensureIndex,
-		indexer:          indexer,
-		reindex:          reindexCmd,
-		search:           searchQuery,
-		suggest:          suggestQuery,
-		health:           healthQuery,
-		stats:            statsQuery,
-		editorialRules:   editorialRulesQuery,
-		upsertRule:       upsertRuleCmd,
-		deleteRule:       deleteRuleCmd,
-		setRuleEnabled:   setRuleEnabledCmd,
-		mediaIndex:       mediaIndex,
-		contentShared:    sharedContentIndex,
-		contentVideo:     videoContentIndex,
-		contentDocument:  documentContentIndex,
-		contentBlog:      blogContentIndex,
-		cultureDataPath:  cfg.CultureDataPath,
-		defaultLocale:    cfg.DefaultLocale,
-		reindexBatchSize: cfg.ReindexBatchSize,
-		seedRecords:      transcriptRecords,
+		provider:          provider,
+		registry:          registry,
+		planner:           pln,
+		localeRuntime:     localeRuntime,
+		generationStore:   generationStore,
+		generationBackend: bootstrap.generationBackend,
+		editorialStore:    editorialStore,
+		metrics:           metrics,
+		activities:        activities,
+		cacheEnabled:      cfg.CacheEnabled,
+		cacheWrappers:     cacheWrappers,
+		cacheStores:       cacheStores,
+		logger:            logger,
+		ensureIndex:       ensureIndex,
+		indexer:           indexer,
+		reindex:           reindexCmd,
+		search:            searchDelegate,
+		suggest:           suggestDelegate,
+		health:            healthQuery,
+		stats:             statsQuery,
+		editorialRules:    editorialRulesQuery,
+		upsertRule:        upsertRuleCmd,
+		deleteRule:        deleteRuleCmd,
+		setRuleEnabled:    setRuleEnabledCmd,
+		mediaIndex:        mediaIndex,
+		contentShared:     sharedContentIndex,
+		contentPage:       pageContentIndex,
+		contentVideo:      videoContentIndex,
+		contentDocument:   documentContentIndex,
+		contentBlog:       blogContentIndex,
+		usersIndex:        usersIndex,
+		cmsModule:         cmsModule,
+		cmsFixture:        cmsFixture,
+		userStore:         userStore,
+		cultureDataPath:   cfg.CultureDataPath,
+		defaultLocale:     cfg.DefaultLocale,
+		reindexBatchSize:  cfg.ReindexBatchSize,
+		seedRecords:       transcriptRecords,
+		closeProvider:     bootstrap.closeProvider,
 	}
 
 	if err := runtime.Ensure(context.Background()); err != nil {
@@ -431,6 +629,15 @@ func (r *Runtime) ProviderName() string {
 	return r.provider.Name()
 }
 
+func (r *Runtime) Close() error {
+	if r == nil || r.closeProvider == nil {
+		return nil
+	}
+	closeFn := r.closeProvider
+	r.closeProvider = nil
+	return closeFn()
+}
+
 func (r *Runtime) IndexName() string {
 	if r == nil {
 		return ""
@@ -452,9 +659,11 @@ func (r *Runtime) IndexNames() []string {
 	return []string{
 		r.mediaIndex.Name,
 		r.contentShared.Name,
+		r.contentPage.Name,
 		r.contentVideo.Name,
 		r.contentDocument.Name,
 		r.contentBlog.Name,
+		r.usersIndex.Name,
 	}
 }
 
@@ -466,7 +675,9 @@ func (r *Runtime) SurfaceIndexes(surface string) []string {
 	case SurfaceMediaGrouped:
 		return []string{r.mediaIndex.Name}
 	case SurfaceContentSplit:
-		return []string{r.contentVideo.Name, r.contentDocument.Name, r.contentBlog.Name}
+		return []string{r.contentPage.Name, r.contentVideo.Name, r.contentDocument.Name, r.contentBlog.Name}
+	case SurfaceUsers:
+		return []string{r.usersIndex.Name}
 	default:
 		return []string{r.contentShared.Name}
 	}
@@ -520,18 +731,23 @@ func (r *Runtime) Status(ctx context.Context) (Status, error) {
 		}
 	}
 	return Status{
-		Provider:         r.provider.Name(),
-		IndexName:        r.contentShared.Name,
-		DefaultLocale:    r.defaultLocale,
-		CultureDataPath:  r.cultureDataPath,
-		Documents:        documents,
-		Generation:       generation,
-		EditorialRules:   len(rules),
-		Capabilities:     caps,
-		Health:           health,
-		Stats:            stats,
-		Metrics:          r.metrics.Snapshot(),
-		RecentActivities: r.activities.Snapshot(),
+		Provider:          r.provider.Name(),
+		IndexName:         r.contentShared.Name,
+		DefaultLocale:     r.defaultLocale,
+		CultureDataPath:   r.cultureDataPath,
+		GenerationBackend: r.generationBackend,
+		CacheEnabled:      r.cacheEnabled,
+		CacheWrappers:     r.cacheWrappers,
+		Cache:             r.cacheStores.Snapshot(),
+		SmokeFlows:        r.smokeFlows(),
+		Documents:         documents,
+		Generation:        generation,
+		EditorialRules:    len(rules),
+		Capabilities:      caps,
+		Health:            health,
+		Stats:             stats,
+		Metrics:           r.metrics.Snapshot(),
+		RecentActivities:  r.activities.Snapshot(),
 	}, nil
 }
 
@@ -546,7 +762,7 @@ func (r *Runtime) Ensure(ctx context.Context) error {
 	if r == nil || r.ensureIndex == nil {
 		return fmt.Errorf("search runtime is not initialized")
 	}
-	for _, def := range []types.IndexDefinition{r.mediaIndex, r.contentShared, r.contentVideo, r.contentDocument, r.contentBlog} {
+	for _, def := range []types.IndexDefinition{r.mediaIndex, r.contentShared, r.contentPage, r.contentVideo, r.contentDocument, r.contentBlog, r.usersIndex} {
 		if err := r.ensureIndex.Execute(ctx, types.EnsureIndexInput{Definition: def}); err != nil {
 			return err
 		}
@@ -613,6 +829,55 @@ func (r *Runtime) DisableEditorialRule(ctx context.Context, id string) error {
 	return r.setRuleEnabled.Execute(ctx, types.SetEditorialRuleEnabledInput{ID: id, Enabled: false})
 }
 
+func (r *Runtime) CreateUser(ctx context.Context, user userstypes.AuthUser) (*userstypes.AuthUser, error) {
+	if r == nil || r.userStore == nil {
+		return nil, fmt.Errorf("user demo store is not initialized")
+	}
+	return r.userStore.Create(ctx, &user)
+}
+
+func (r *Runtime) UpdateUser(ctx context.Context, user userstypes.AuthUser) (*userstypes.AuthUser, error) {
+	if r == nil || r.userStore == nil {
+		return nil, fmt.Errorf("user demo store is not initialized")
+	}
+	return r.userStore.Update(ctx, &user)
+}
+
+func (r *Runtime) TransitionUser(ctx context.Context, userID string, target userstypes.LifecycleState) error {
+	if r == nil || r.userStore == nil {
+		return fmt.Errorf("user demo store is not initialized")
+	}
+	uid, err := uuid.Parse(strings.TrimSpace(userID))
+	if err != nil {
+		return err
+	}
+	_, err = r.userStore.UpdateStatus(ctx, userstypes.ActorRef{ID: demoUserIndexerActorID(), Type: "system"}, uid, target)
+	return err
+}
+
+func (r *Runtime) UpdateUserProfile(ctx context.Context, userID string, patch userstypes.ProfilePatch) error {
+	if r == nil || r.userStore == nil {
+		return fmt.Errorf("user demo store is not initialized")
+	}
+	uid, err := uuid.Parse(strings.TrimSpace(userID))
+	if err != nil {
+		return err
+	}
+	patch.CanonicalizeLocale()
+	return r.userStore.UpdateProfile(ctx, demoUserIndexerActorID(), uid, patch)
+}
+
+func (r *Runtime) UpdateUserRole(ctx context.Context, userID string, role string) error {
+	if r == nil || r.userStore == nil {
+		return fmt.Errorf("user demo store is not initialized")
+	}
+	uid, err := uuid.Parse(strings.TrimSpace(userID))
+	if err != nil {
+		return err
+	}
+	return r.userStore.UpdateRole(ctx, demoUserIndexerActorID(), uid, role)
+}
+
 func (r *Runtime) BindSearchRequest(req SearchRequest) SearchRequest {
 	bound := locale.BindSearchRequest(r.localeRuntime, types.SearchRequest{
 		Locale: req.Locale,
@@ -643,13 +908,33 @@ func (r *Runtime) BindLocale(requestedLocale, acceptLanguage string) locale.Boun
 	})
 }
 
+func (r *Runtime) NormalizeSearchRequest(req SearchRequest) SearchRequest {
+	req = r.BindSearchRequest(req)
+
+	switch strings.TrimSpace(req.Surface) {
+	case "":
+		req.Surface = normalizeSurface("", req.Group)
+	default:
+		req.Surface = normalizeSurface(req.Surface, false)
+	}
+
+	switch req.Surface {
+	case SurfaceUsers:
+		req.Group = false
+	case SurfaceContentShared, SurfaceContentSplit:
+		if req.Group {
+			req.Surface = SurfaceMediaGrouped
+		}
+	}
+
+	return req
+}
+
 func (r *Runtime) Search(ctx context.Context, req SearchRequest) (types.SearchResultPage, error) {
 	if r == nil || r.search == nil {
 		return types.SearchResultPage{}, fmt.Errorf("search runtime is not initialized")
 	}
-	req = r.BindSearchRequest(req)
-	req.Surface = normalizeSurface(req.Surface, req.Group)
-	req.Group = req.Surface == SurfaceMediaGrouped
+	req = r.NormalizeSearchRequest(req)
 	sortField, sortDir := normalizeSearchSort(req.SortField, req.SortDir)
 	request := types.SearchRequest{
 		Indexes: r.SurfaceIndexes(req.Surface),
@@ -658,8 +943,21 @@ func (r *Runtime) Search(ctx context.Context, req SearchRequest) (types.SearchRe
 		Page:    positiveOr(req.Page, 1),
 		PerPage: positiveOr(req.PerPage, 10),
 		Facets:  surfaceFacetRequests(req.Surface),
+		Scope: types.Scope{
+			TenantID: strings.TrimSpace(req.TenantID),
+			OrgID:    strings.TrimSpace(req.OrgID),
+		},
+		Actor: types.ActorRef{
+			UserID:   strings.TrimSpace(req.ActorUserID),
+			TenantID: strings.TrimSpace(req.TenantID),
+			OrgID:    strings.TrimSpace(req.OrgID),
+			Metadata: actorMetadata(req.ActorRole),
+		},
 	}
-	if req.Surface == SurfaceMediaGrouped {
+	if req.CacheDisabled {
+		request.Metadata = map[string]any{"cache_disabled": true}
+	}
+	if req.Surface == SurfaceMediaGrouped && req.Group {
 		request.GroupBy = "parent_id"
 	}
 
@@ -689,6 +987,7 @@ func (r *Runtime) Search(ctx context.Context, req SearchRequest) (types.SearchRe
 		}
 	}
 	request.Filters = searchFiltersExpr(
+		req.Surface,
 		facetFilters,
 		req.PublishedYearGTE,
 		req.PublishedYearLTE,
@@ -705,12 +1004,26 @@ func (r *Runtime) Suggest(ctx context.Context, req SuggestRequest) (types.Sugges
 	}
 	req = r.BindSuggestRequest(req)
 	req.Surface = normalizeSurface(req.Surface, false)
-	return r.suggest.Query(ctx, types.SuggestRequest{
+	request := types.SuggestRequest{
 		Indexes: r.SurfaceIndexes(req.Surface),
 		Query:   strings.TrimSpace(req.Query),
 		Locale:  firstNonEmpty(strings.TrimSpace(req.Locale), r.defaultLocale),
 		Limit:   positiveOr(req.Limit, 5),
-	})
+		Scope: types.Scope{
+			TenantID: strings.TrimSpace(req.TenantID),
+			OrgID:    strings.TrimSpace(req.OrgID),
+		},
+		Actor: types.ActorRef{
+			UserID:   strings.TrimSpace(req.ActorUserID),
+			TenantID: strings.TrimSpace(req.TenantID),
+			OrgID:    strings.TrimSpace(req.OrgID),
+			Metadata: actorMetadata(req.ActorRole),
+		},
+	}
+	if req.CacheDisabled {
+		request.Metadata = map[string]any{"cache_disabled": true}
+	}
+	return r.suggest.Query(ctx, request)
 }
 
 func (r *Runtime) seedEditorialRules(ctx context.Context) error {
@@ -771,9 +1084,42 @@ func normalizeConfig(cfg Config) Config {
 	return cfg
 }
 
+func (r *Runtime) smokeFlows() []SmokeFlow {
+	return []SmokeFlow{
+		{
+			ID:          "archive_grouped",
+			Label:       "Grouped archive search",
+			Method:      "GET",
+			Path:        "/api/demo/search?surface=media_grouped&group=true&locale=en&landing_slug=architecture&q=search",
+			Description: "Validates grouped transcript results with hierarchical and disjunctive archive facets.",
+		},
+		{
+			ID:          "heterogeneous_flat",
+			Label:       "Flat heterogeneous content search",
+			Method:      "GET",
+			Path:        "/api/demo/search?surface=content_shared&locale=en&q=search",
+			Description: "Checks unified search across video, document, and blog article content.",
+		},
+		{
+			ID:          "shared_reindex",
+			Label:       "Shared-index multi-registration rebuild",
+			Method:      "POST",
+			Path:        "/api/demo/reindex",
+			Description: "Rebuilds all demo indexes so shared-index registration coverage can be revalidated with the search smoke flows.",
+		},
+		{
+			ID:          "cache_invalidation",
+			Label:       "Cache invalidation after rebuild",
+			Method:      "POST+GET",
+			Path:        "/api/demo/reindex then repeat /api/demo/search?surface=content_shared&locale=en&q=search",
+			Description: "Confirms generation-based cache invalidation after indexed writes or rebuilds.",
+		},
+	}
+}
+
 func normalizeSurface(surface string, grouped bool) string {
 	switch strings.TrimSpace(surface) {
-	case SurfaceMediaGrouped, SurfaceContentShared, SurfaceContentSplit:
+	case SurfaceMediaGrouped, SurfaceContentShared, SurfaceContentSplit, SurfaceUsers:
 		return strings.TrimSpace(surface)
 	}
 	if grouped {
@@ -783,6 +1129,12 @@ func normalizeSurface(surface string, grouped bool) string {
 }
 
 func surfaceFacetRequests(surface string) []types.FacetRequest {
+	if normalizeSurface(surface, false) == SurfaceUsers {
+		return []types.FacetRequest{
+			{Field: "status", Limit: 10, Disjunctive: true},
+			{Field: "role", Limit: 10, Disjunctive: true},
+		}
+	}
 	requests := media.DefaultArchiveFacetRequests()
 	if normalizeSurface(surface, false) == SurfaceMediaGrouped {
 		return requests
@@ -792,6 +1144,9 @@ func surfaceFacetRequests(surface string) []types.FacetRequest {
 
 func contentSharedIndexName(mediaIndex string) string {
 	return strings.TrimSpace(mediaIndex) + "_content_shared"
+}
+func contentPageIndexName(mediaIndex string) string {
+	return strings.TrimSpace(mediaIndex) + "_pages"
 }
 func contentVideoIndexName(mediaIndex string) string {
 	return strings.TrimSpace(mediaIndex) + "_videos"
@@ -803,18 +1158,373 @@ func contentBlogIndexName(mediaIndex string) string {
 	return strings.TrimSpace(mediaIndex) + "_blog_articles"
 }
 
-func newProvider(cfg Config) (providers.Provider, error) {
+func usersIndexName(mediaIndex string) string {
+	return strings.TrimSpace(mediaIndex) + "_users"
+}
+
+func newProviderBootstrap(cfg Config) (providerBootstrap, error) {
 	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
 	case "memory":
-		return memory.New(memory.Config{}), nil
+		return providerBootstrap{
+			provider:          memory.New(memory.Config{}),
+			generationStore:   newMemoryGenerationStore(),
+			generationBackend: generationBackendMemory,
+		}, nil
+	case "postgres":
+		if strings.TrimSpace(cfg.PostgresDSN) == "" {
+			return providerBootstrap{}, fmt.Errorf("postgres provider requires PostgresDSN")
+		}
+		sqlDB, err := sql.Open("postgres", strings.TrimSpace(cfg.PostgresDSN))
+		if err != nil {
+			return providerBootstrap{}, err
+		}
+		db := bun.NewDB(sqlDB, pgdialect.New())
+		closeFn := db.Close
+		if err := generationbunstore.Migrations().Migrate(context.Background(), db); err != nil {
+			_ = closeFn()
+			return providerBootstrap{}, err
+		}
+		provider, err := providerpostgres.New(providerpostgres.Config{DB: db})
+		if err != nil {
+			_ = closeFn()
+			return providerBootstrap{}, err
+		}
+		return providerBootstrap{
+			provider:          provider,
+			generationStore:   generationbunstore.New(generationbunstore.Config{DB: db}),
+			generationBackend: generationBackendBunPostgres,
+			closeProvider:     closeFn,
+		}, nil
 	case "typesense":
-		return providertypesense.New(providertypesense.Config{
+		provider, err := providertypesense.New(providertypesense.Config{
 			ServerURL:        strings.TrimSpace(cfg.TypesenseServerURL),
 			APIKey:           strings.TrimSpace(cfg.TypesenseAPIKey),
 			CollectionPrefix: strings.TrimSpace(cfg.TypesenseCollectionPrefix),
 		})
+		if err != nil {
+			return providerBootstrap{}, err
+		}
+		return providerBootstrap{
+			provider:          provider,
+			generationStore:   newMemoryGenerationStore(),
+			generationBackend: generationBackendMemory,
+		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported search demo provider %q", cfg.Provider)
+		return providerBootstrap{}, fmt.Errorf("unsupported search demo provider %q", cfg.Provider)
+	}
+}
+
+func newCMSDemo(cfg Config, indexer *indexing.Indexer, logger types.Logger, metrics []types.MetricsHook, sharedIndex, pageIndex, documentIndex, blogIndex types.IndexDefinition) (*cms.Module, *cmsFixture, error) {
+	cmsCfg := cms.DefaultConfig()
+	cmsCfg.DefaultLocale = cfg.DefaultLocale
+	cmsCfg.I18N.Locales = demoCMSLocales(cfg.DefaultLocale)
+	cmsCfg.I18N.RequireTranslations = true
+	cmsCfg.I18N.DefaultLocaleRequired = true
+	cmsCfg.Activity.Enabled = false
+
+	lifecycleHook := cmsgosearch.NewLifecycleHook(cmsgosearch.LifecycleHookConfig{
+		Indexer: indexer,
+		Routes: []cmsgosearch.Route{
+			{ResourceType: "page", ContentTypeSlug: "landing-page", Index: sharedIndex.Name, RegistrationKey: "cms_page"},
+			{ResourceType: "page", ContentTypeSlug: "landing-page", Index: pageIndex.Name, RegistrationKey: "cms_page"},
+			{ResourceType: "content", ContentTypeSlug: "document", Index: sharedIndex.Name, RegistrationKey: "cms_document"},
+			{ResourceType: "content", ContentTypeSlug: "document", Index: documentIndex.Name, RegistrationKey: "cms_document"},
+			{ResourceType: "content", ContentTypeSlug: "blog-article", Index: sharedIndex.Name, RegistrationKey: "cms_blog_article"},
+			{ResourceType: "content", ContentTypeSlug: "blog-article", Index: blogIndex.Name, RegistrationKey: "cms_blog_article"},
+		},
+		Logger:  logger,
+		Metrics: metrics,
+	})
+
+	module, err := cms.New(cmsCfg, cms.WithLifecycleHooks(cmslifecycle.Hooks{lifecycleHook}))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	fixture, err := seedCMSDemo(context.Background(), module, cfg.DefaultLocale, sharedIndex.Name)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return module, fixture, nil
+}
+
+func registerCMSDemoSearch(registry *indexing.Registry, module *cms.Module, sharedIndex, pageIndex, documentIndex, blogIndex types.IndexDefinition) error {
+	if registry == nil || module == nil {
+		return fmt.Errorf("cms demo registry requires runtime and module")
+	}
+
+	pageSource := cmsgosearch.NewPageSource(cmsgosearch.PageSourceConfig{
+		Service: module.Pages(),
+	})
+	documentSource := cmsgosearch.NewContentSource(cmsgosearch.ContentSourceConfig{
+		Service:          module.Content(),
+		ContentTypeSlugs: []string{"document"},
+	})
+	blogSource := cmsgosearch.NewContentSource(cmsgosearch.ContentSourceConfig{
+		Service:          module.Content(),
+		ContentTypeSlugs: []string{"blog-article"},
+	})
+
+	pageID := func(record *cmspages.Page) string {
+		if record == nil {
+			return ""
+		}
+		return record.ID.String()
+	}
+	contentID := func(record *cmscontent.Content) string {
+		if record == nil {
+			return ""
+		}
+		return record.ID.String()
+	}
+
+	if err := registry.Register(sharedIndex, indexing.NewRegistrationWithKey(
+		sharedIndex.Name,
+		sharedIndex,
+		"cms_page",
+		"page",
+		pageSource,
+		cmsgosearch.NewPageProjector(cmsgosearch.ProjectorConfig{
+			Index:           sharedIndex.Name,
+			RegistrationKey: "cms_page",
+			SourceType:      "page",
+		}),
+		pageID,
+	)); err != nil {
+		return err
+	}
+
+	if err := registry.Register(pageIndex, indexing.NewRegistrationWithKey(
+		pageIndex.Name,
+		pageIndex,
+		"cms_page",
+		"page",
+		pageSource,
+		cmsgosearch.NewPageProjector(cmsgosearch.ProjectorConfig{
+			Index:           pageIndex.Name,
+			RegistrationKey: "cms_page",
+			SourceType:      "page",
+		}),
+		pageID,
+	)); err != nil {
+		return err
+	}
+
+	if err := registry.Register(sharedIndex, indexing.NewRegistrationWithKey(
+		sharedIndex.Name,
+		sharedIndex,
+		"cms_document",
+		"document",
+		documentSource,
+		cmsgosearch.NewDocumentProjector(cmsgosearch.ProjectorConfig{
+			Index:           sharedIndex.Name,
+			RegistrationKey: "cms_document",
+			SourceType:      "document",
+		}),
+		contentID,
+	)); err != nil {
+		return err
+	}
+
+	if err := registry.Register(documentIndex, indexing.NewRegistrationWithKey(
+		documentIndex.Name,
+		documentIndex,
+		"cms_document",
+		"document",
+		documentSource,
+		cmsgosearch.NewDocumentProjector(cmsgosearch.ProjectorConfig{
+			Index:           documentIndex.Name,
+			RegistrationKey: "cms_document",
+			SourceType:      "document",
+		}),
+		contentID,
+	)); err != nil {
+		return err
+	}
+
+	if err := registry.Register(sharedIndex, indexing.NewRegistrationWithKey(
+		sharedIndex.Name,
+		sharedIndex,
+		"cms_blog_article",
+		"blog_article",
+		blogSource,
+		cmsgosearch.NewBlogArticleProjector(cmsgosearch.ProjectorConfig{
+			Index:           sharedIndex.Name,
+			RegistrationKey: "cms_blog_article",
+			SourceType:      "blog_article",
+		}),
+		contentID,
+	)); err != nil {
+		return err
+	}
+
+	return registry.Register(blogIndex, indexing.NewRegistrationWithKey(
+		blogIndex.Name,
+		blogIndex,
+		"cms_blog_article",
+		"blog_article",
+		blogSource,
+		cmsgosearch.NewBlogArticleProjector(cmsgosearch.ProjectorConfig{
+			Index:           blogIndex.Name,
+			RegistrationKey: "cms_blog_article",
+			SourceType:      "blog_article",
+		}),
+		contentID,
+	))
+}
+
+func seedCMSDemo(ctx context.Context, module *cms.Module, defaultLocale, sharedIndex string) (*cmsFixture, error) {
+	if module == nil {
+		return nil, fmt.Errorf("cms demo module is required")
+	}
+
+	actorID := uuid.New()
+	templateID := uuid.New()
+	secondaryLocale := demoSecondaryLocale(defaultLocale)
+
+	pageType, err := module.ContentTypes().Create(ctx, cmscontent.CreateContentTypeRequest{
+		Name:         "Landing Page",
+		Slug:         "landing-page",
+		Schema:       demoCMSContentTypeSchema(),
+		Status:       "active",
+		CreatedBy:    actorID,
+		UpdatedBy:    actorID,
+		Capabilities: demoSearchCapabilities(sharedIndex),
+	})
+	if err != nil {
+		return nil, err
+	}
+	documentType, err := module.ContentTypes().Create(ctx, cmscontent.CreateContentTypeRequest{
+		Name:         "Document",
+		Slug:         "document",
+		Schema:       demoCMSContentTypeSchema(),
+		Status:       "active",
+		CreatedBy:    actorID,
+		UpdatedBy:    actorID,
+		Capabilities: demoSearchCapabilities(sharedIndex),
+	})
+	if err != nil {
+		return nil, err
+	}
+	blogType, err := module.ContentTypes().Create(ctx, cmscontent.CreateContentTypeRequest{
+		Name:         "Blog Article",
+		Slug:         "blog-article",
+		Schema:       demoCMSContentTypeSchema(),
+		Status:       "active",
+		CreatedBy:    actorID,
+		UpdatedBy:    actorID,
+		Capabilities: demoSearchCapabilities(sharedIndex),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	pageContent, err := module.Content().Create(ctx, cmscontent.CreateContentRequest{
+		ContentTypeID: pageType.ID,
+		Slug:          "phase-seven-home-content",
+		Status:        "published",
+		CreatedBy:     actorID,
+		UpdatedBy:     actorID,
+		Translations: []cmscontent.ContentTranslationInput{
+			{Locale: defaultLocale, Title: "Phase Seven Home Content", Content: map[string]any{"headline": "phasesevenpage", "body": "Phase seven page content for lifecycle search checks."}},
+			{Locale: secondaryLocale, Title: "Contenido Inicio Fase Siete", Content: map[string]any{"headline": "phasesevenpage", "body": "Contenido de pagina para comprobar ciclo de vida en busqueda."}},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	pageRecord, err := module.Pages().Create(ctx, cmspages.CreatePageRequest{
+		ContentID:  pageContent.ID,
+		TemplateID: templateID,
+		Slug:       "phase-seven-home",
+		Status:     "published",
+		CreatedBy:  actorID,
+		UpdatedBy:  actorID,
+		Translations: []cmspages.PageTranslationInput{
+			{Locale: defaultLocale, Title: "PhaseSevenHome Search", Path: "/phase-seven-home"},
+			{Locale: secondaryLocale, Title: "PhaseSevenHome Inicio", Path: "/es/phase-seven-home"},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	documentRecord, err := module.Content().Create(ctx, cmscontent.CreateContentRequest{
+		ContentTypeID: documentType.ID,
+		Slug:          "phase-seven-handbook",
+		Status:        "published",
+		CreatedBy:     actorID,
+		UpdatedBy:     actorID,
+		Translations: []cmscontent.ContentTranslationInput{
+			{Locale: defaultLocale, Title: "Phase Seven Search Handbook", Content: map[string]any{"headline": "phasesevendocument", "body": "Search handbook for lifecycle indexing checks."}},
+			{Locale: secondaryLocale, Title: "Manual de Busqueda Fase Siete", Content: map[string]any{"headline": "phasesevendocumentes", "body": "Manual para verificar eliminacion de traducciones."}},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	blogRecord, err := module.Content().Create(ctx, cmscontent.CreateContentRequest{
+		ContentTypeID: blogType.ID,
+		Slug:          "phase-seven-notes",
+		Status:        "published",
+		CreatedBy:     actorID,
+		UpdatedBy:     actorID,
+		Translations: []cmscontent.ContentTranslationInput{
+			{Locale: defaultLocale, Title: "Phase Seven Search Notes", Content: map[string]any{"headline": "phasesevenblog", "body": "Blog article used for lifecycle search smoke coverage."}},
+			{Locale: secondaryLocale, Title: "Notas de Busqueda Fase Siete", Content: map[string]any{"headline": "phasesevenblog", "body": "Articulo para comprobar actualizacion de traducciones."}},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &cmsFixture{
+		actorID:                actorID,
+		templateID:             templateID,
+		pageContentID:          pageContent.ID,
+		pageID:                 pageRecord.ID,
+		documentID:             documentRecord.ID,
+		blogID:                 blogRecord.ID,
+		defaultLocale:          defaultLocale,
+		secondaryLocale:        secondaryLocale,
+		pageQuery:              "PhaseSevenHome",
+		documentQuery:          "phasesevendocument",
+		blogQuery:              "phasesevenblog",
+		blogUpdatedESQuery:     "phasesevenblogesupdated",
+		documentDeletedESQuery: "phasesevendocumentes",
+	}, nil
+}
+
+func demoCMSLocales(defaultLocale string) []string {
+	secondary := demoSecondaryLocale(defaultLocale)
+	if secondary == defaultLocale {
+		return []string{defaultLocale}
+	}
+	return []string{defaultLocale, secondary}
+}
+
+func demoSecondaryLocale(defaultLocale string) string {
+	if strings.EqualFold(strings.TrimSpace(defaultLocale), "es") {
+		return "en"
+	}
+	return "es"
+}
+
+func demoCMSContentTypeSchema() map[string]any {
+	return map[string]any{
+		"fields": []any{"headline", "body"},
+	}
+}
+
+func demoSearchCapabilities(indexName string) map[string]any {
+	return map[string]any{
+		"search": map[string]any{
+			"enabled": true,
+			"index":   indexName,
+		},
 	}
 }
 
@@ -845,7 +1555,7 @@ func cloneFacetFilters(in map[string][]string) map[string][]string {
 	return out
 }
 
-func searchFiltersExpr(filters map[string][]string, publishedYearGTE, publishedYearLTE, durationSecondsGTE, durationSecondsLTE *int) types.FilterExpr {
+func searchFiltersExpr(surface string, filters map[string][]string, publishedYearGTE, publishedYearLTE, durationSecondsGTE, durationSecondsLTE *int) types.FilterExpr {
 	terms := make([]types.FilterExpr, 0, len(filters))
 	for field, values := range filters {
 		values = compact(values)
@@ -857,6 +1567,9 @@ func searchFiltersExpr(filters map[string][]string, publishedYearGTE, publishedY
 		default:
 			terms = append(terms, types.TermExpr{Field: field, Op: types.FilterOpIn, Value: values})
 		}
+	}
+	if normalizeSurface(surface, false) == SurfaceUsers {
+		return collapseFilterTerms(terms)
 	}
 	if publishedYearGTE != nil || publishedYearLTE != nil {
 		terms = append(terms, types.RangeExpr{
@@ -1838,4 +2551,439 @@ func normalizeSearchSort(field, dir string) (string, string) {
 		return field, "desc"
 	}
 	return field, "asc"
+}
+
+type demoScopeGuard struct{}
+
+func (demoScopeGuard) AllowSearch(context.Context, types.ActorRef, types.SearchRequest) bool {
+	return true
+}
+func (demoScopeGuard) AllowSuggest(context.Context, types.ActorRef, types.SuggestRequest) bool {
+	return true
+}
+
+func (demoScopeGuard) AllowDocument(_ context.Context, actor types.ActorRef, doc types.Document) bool {
+	if !strings.EqualFold(strings.TrimSpace(doc.Type), "user") {
+		return true
+	}
+	role := strings.TrimSpace(fmt.Sprint(actor.Metadata["role"]))
+	if strings.EqualFold(role, "support") {
+		return strings.TrimSpace(actor.UserID) != "" && strings.EqualFold(strings.TrimSpace(actor.UserID), strings.TrimSpace(doc.SourceID))
+	}
+	return true
+}
+
+func actorMetadata(role string) map[string]any {
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return nil
+	}
+	return map[string]any{"role": role}
+}
+
+func userIndexDefinition(mediaIndex string) types.IndexDefinition {
+	return types.IndexDefinition{
+		Name:               usersIndexName(mediaIndex),
+		Label:              "Users",
+		DefaultQueryFields: []string{"title", "summary", "body"},
+		SearchableFields:   []string{"title", "summary", "body"},
+		FacetFields:        []string{"role", "status"},
+		SortableFields:     []string{"title"},
+		FilterableFields:   []string{"role", "status"},
+		HighlightFields:    []string{"title", "body"},
+		DefaultSort:        []types.Sort{{Field: "title", Direction: types.SortAsc}},
+	}
+}
+
+func demoUserIndexerActorID() uuid.UUID {
+	return uuid.MustParse("00000000-0000-0000-0000-000000000900")
+}
+
+func demoUserScopeResolver(_ context.Context, user userstypes.AuthUser, profile *userstypes.UserProfile) (userstypes.ScopeFilter, error) {
+	if profile != nil {
+		scope := profile.Scope.Clone()
+		if scope.TenantID != uuid.Nil || scope.OrgID != uuid.Nil || len(scope.Labels) > 0 {
+			return scope, nil
+		}
+	}
+	scope := userstypes.ScopeFilter{}
+	if raw, ok := user.Metadata["tenant_id"].(string); ok {
+		scope.TenantID = parseUUID(raw)
+	}
+	if raw, ok := user.Metadata["org_id"].(string); ok {
+		scope.OrgID = parseUUID(raw)
+	}
+	return scope, nil
+}
+
+type demoUserStore struct {
+	mu         sync.RWMutex
+	users      map[uuid.UUID]userstypes.AuthUser
+	order      []uuid.UUID
+	profiles   map[string]userstypes.UserProfile
+	activities []userstypes.ActivityRecord
+	hooks      userstypes.Hooks
+}
+
+func newDemoUserStore(defaultLocale string) *demoUserStore {
+	store := &demoUserStore{
+		users:    map[uuid.UUID]userstypes.AuthUser{},
+		profiles: map[string]userstypes.UserProfile{},
+	}
+	for _, fixture := range demoUserFixtures(defaultLocale) {
+		store.users[fixture.user.ID] = fixture.user
+		store.order = append(store.order, fixture.user.ID)
+		store.profiles[userProfileKey(fixture.profile.UserID, fixture.profile.Scope)] = fixture.profile
+	}
+	return store
+}
+
+func (s *demoUserStore) SetHooks(hooks userstypes.Hooks) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hooks = hooks
+}
+
+func (s *demoUserStore) GetByID(_ context.Context, id uuid.UUID) (*userstypes.AuthUser, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	user, ok := s.users[id]
+	if !ok {
+		return nil, nil
+	}
+	copy := user
+	return &copy, nil
+}
+
+func (s *demoUserStore) GetByIdentifier(_ context.Context, identifier string) (*userstypes.AuthUser, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	identifier = strings.TrimSpace(identifier)
+	for _, user := range s.users {
+		if strings.EqualFold(user.Email, identifier) || strings.EqualFold(user.Username, identifier) || strings.EqualFold(user.ID.String(), identifier) {
+			copy := user
+			return &copy, nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *demoUserStore) Create(ctx context.Context, input *userstypes.AuthUser) (*userstypes.AuthUser, error) {
+	if input == nil {
+		return nil, fmt.Errorf("user is required")
+	}
+	user := *input
+	if user.ID == uuid.Nil {
+		user.ID = uuid.New()
+	}
+	s.mu.Lock()
+	s.users[user.ID] = user
+	if !containsUUID(s.order, user.ID) {
+		s.order = append(s.order, user.ID)
+	}
+	hooks := s.hooks
+	s.mu.Unlock()
+	s.emitActivity(ctx, hooks, user, "user.created")
+	copy := user
+	return &copy, nil
+}
+
+func (s *demoUserStore) Update(ctx context.Context, input *userstypes.AuthUser) (*userstypes.AuthUser, error) {
+	if input == nil || input.ID == uuid.Nil {
+		return nil, fmt.Errorf("user id is required")
+	}
+	user := *input
+	s.mu.Lock()
+	s.users[user.ID] = user
+	hooks := s.hooks
+	s.mu.Unlock()
+	s.emitActivity(ctx, hooks, user, "user.updated")
+	copy := user
+	return &copy, nil
+}
+
+func (s *demoUserStore) UpdateStatus(ctx context.Context, actor userstypes.ActorRef, id uuid.UUID, next userstypes.LifecycleState, _ ...userstypes.TransitionOption) (*userstypes.AuthUser, error) {
+	s.mu.Lock()
+	user, ok := s.users[id]
+	if !ok {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("user %s not found", id)
+	}
+	prev := user.Status
+	user.Status = next
+	s.users[id] = user
+	hooks := s.hooks
+	s.mu.Unlock()
+	if hooks.AfterLifecycle != nil {
+		scope, _ := demoUserScopeResolver(ctx, user, nil)
+		hooks.AfterLifecycle(ctx, userstypes.LifecycleEvent{
+			UserID:     id,
+			ActorID:    actor.ID,
+			FromState:  prev,
+			ToState:    next,
+			Scope:      scope,
+			OccurredAt: time.Now().UTC(),
+		})
+	}
+	copy := user
+	return &copy, nil
+}
+
+func (s *demoUserStore) AllowedTransitions(context.Context, uuid.UUID) ([]userstypes.LifecycleTransition, error) {
+	return nil, nil
+}
+
+func (s *demoUserStore) ResetPassword(context.Context, uuid.UUID, string) error { return nil }
+
+func (s *demoUserStore) ListUsers(_ context.Context, filter userstypes.UserInventoryFilter) (userstypes.UserInventoryPage, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := make([]userstypes.AuthUser, 0, len(s.order))
+	for _, id := range s.order {
+		user := s.users[id]
+		if len(filter.UserIDs) > 0 && !containsUUID(filter.UserIDs, user.ID) {
+			continue
+		}
+		if len(filter.Statuses) > 0 && !containsLifecycle(filter.Statuses, user.Status) {
+			continue
+		}
+		if strings.TrimSpace(filter.Role) != "" && !strings.EqualFold(strings.TrimSpace(filter.Role), strings.TrimSpace(user.Role)) {
+			continue
+		}
+		scope, _ := demoUserScopeResolver(context.Background(), user, nil)
+		if filter.Scope.TenantID != uuid.Nil && scope.TenantID != filter.Scope.TenantID {
+			continue
+		}
+		if filter.Scope.OrgID != uuid.Nil && scope.OrgID != filter.Scope.OrgID {
+			continue
+		}
+		items = append(items, user)
+	}
+	start := filter.Pagination.Offset
+	if start < 0 {
+		start = 0
+	}
+	if start > len(items) {
+		start = len(items)
+	}
+	limit := filter.Pagination.Limit
+	if limit <= 0 || start+limit > len(items) {
+		limit = len(items) - start
+	}
+	pageItems := append([]userstypes.AuthUser(nil), items[start:start+limit]...)
+	next := start + limit
+	return userstypes.UserInventoryPage{
+		Users:      pageItems,
+		Total:      len(items),
+		NextOffset: next,
+		HasMore:    next < len(items),
+	}, nil
+}
+
+func (s *demoUserStore) GetProfile(_ context.Context, userID uuid.UUID, scope userstypes.ScopeFilter) (*userstypes.UserProfile, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	profile, ok := s.profiles[userProfileKey(userID, scope)]
+	if !ok {
+		return nil, nil
+	}
+	copy := profile
+	return &copy, nil
+}
+
+func (s *demoUserStore) UpsertProfile(_ context.Context, profile userstypes.UserProfile) (*userstypes.UserProfile, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.profiles[userProfileKey(profile.UserID, profile.Scope)] = profile
+	copy := profile
+	return &copy, nil
+}
+
+func (s *demoUserStore) Log(_ context.Context, record userstypes.ActivityRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.activities = append(s.activities, record)
+	return nil
+}
+
+func (s *demoUserStore) UpdateProfile(ctx context.Context, actorID, userID uuid.UUID, patch userstypes.ProfilePatch) error {
+	scope, err := s.userScope(ctx, userID)
+	if err != nil {
+		return err
+	}
+	current, _ := s.GetProfile(ctx, userID, scope)
+	profile := userstypes.UserProfile{
+		UserID: userID,
+		Scope:  scope,
+	}
+	if current != nil {
+		profile = *current
+	}
+	if patch.DisplayName != nil {
+		profile.DisplayName = *patch.DisplayName
+	}
+	if patch.AvatarURL != nil {
+		profile.AvatarURL = *patch.AvatarURL
+	}
+	if patch.Locale != nil {
+		profile.Locale = *patch.Locale
+	}
+	if patch.Timezone != nil {
+		profile.Timezone = *patch.Timezone
+	}
+	if patch.Bio != nil {
+		profile.Bio = *patch.Bio
+	}
+	if patch.Contact != nil {
+		profile.Contact = cloneAnyMap(patch.Contact)
+	}
+	if patch.Metadata != nil {
+		profile.Metadata = cloneAnyMap(patch.Metadata)
+	}
+	if _, err := s.UpsertProfile(ctx, profile); err != nil {
+		return err
+	}
+	s.mu.RLock()
+	hooks := s.hooks
+	s.mu.RUnlock()
+	if hooks.AfterProfileChange != nil {
+		hooks.AfterProfileChange(ctx, userstypes.ProfileEvent{
+			UserID:     userID,
+			Scope:      scope,
+			ActorID:    actorID,
+			OccurredAt: time.Now().UTC(),
+			Profile:    profile,
+		})
+	}
+	return nil
+}
+
+func (s *demoUserStore) UpdateRole(ctx context.Context, actorID, userID uuid.UUID, role string) error {
+	s.mu.Lock()
+	user, ok := s.users[userID]
+	if !ok {
+		s.mu.Unlock()
+		return fmt.Errorf("user %s not found", userID)
+	}
+	user.Role = strings.TrimSpace(role)
+	s.users[userID] = user
+	hooks := s.hooks
+	s.mu.Unlock()
+	if hooks.AfterRoleChange != nil {
+		scope, _ := s.userScope(ctx, userID)
+		hooks.AfterRoleChange(ctx, userstypes.RoleEvent{
+			UserID:     userID,
+			Action:     "role.assigned",
+			ActorID:    actorID,
+			Scope:      scope,
+			OccurredAt: time.Now().UTC(),
+		})
+	}
+	return nil
+}
+
+func (s *demoUserStore) userScope(ctx context.Context, userID uuid.UUID) (userstypes.ScopeFilter, error) {
+	user, err := s.GetByID(ctx, userID)
+	if err != nil || user == nil {
+		return userstypes.ScopeFilter{}, err
+	}
+	return demoUserScopeResolver(ctx, *user, nil)
+}
+
+func (s *demoUserStore) emitActivity(ctx context.Context, hooks userstypes.Hooks, user userstypes.AuthUser, verb string) {
+	if hooks.AfterActivity == nil {
+		return
+	}
+	scope, _ := demoUserScopeResolver(ctx, user, nil)
+	hooks.AfterActivity(ctx, userstypes.ActivityRecord{
+		ID:         uuid.New(),
+		UserID:     user.ID,
+		Verb:       verb,
+		ObjectType: "user",
+		ObjectID:   user.ID.String(),
+		Channel:    "users",
+		TenantID:   scope.TenantID,
+		OrgID:      scope.OrgID,
+		OccurredAt: time.Now().UTC(),
+	})
+}
+
+type demoUserFixture struct {
+	user    userstypes.AuthUser
+	profile userstypes.UserProfile
+}
+
+func demoUserFixtures(defaultLocale string) []demoUserFixture {
+	tenantA := uuid.MustParse("00000000-0000-0000-0000-000000000101")
+	orgA := uuid.MustParse("00000000-0000-0000-0000-000000000201")
+	tenantB := uuid.MustParse("00000000-0000-0000-0000-000000000102")
+	orgB := uuid.MustParse("00000000-0000-0000-0000-000000000202")
+	return []demoUserFixture{
+		newDemoUserFixture("00000000-0000-0000-0000-000000001001", "tenant-admin@example.com", "tenant-admin", "Tenant", "Admin", "admin", userstypes.LifecycleStateActive, tenantA, orgA, defaultLocale, "Tenant Admin", "Handles tenant scoped search rollouts and operational checks."),
+		newDemoUserFixture("00000000-0000-0000-0000-000000001002", "support@example.com", "support-agent", "Support", "Agent", "support", userstypes.LifecycleStateActive, tenantA, orgA, defaultLocale, "Support Agent", "Support-only user for self-visibility guard checks."),
+		newDemoUserFixture("00000000-0000-0000-0000-000000001003", "ops@example.com", "ops-manager", "Ops", "Manager", "manager", userstypes.LifecycleStateSuspended, tenantB, orgB, defaultLocale, "Ops Manager", "Suspended user fixture for lifecycle filtering and tenant isolation."),
+		newDemoUserFixture("00000000-0000-0000-0000-000000001004", "editor@example.com", "content-editor", "Content", "Editor", "editor", userstypes.LifecycleStateDisabled, tenantA, orgA, defaultLocale, "Content Editor", "Disabled user retained in search for admin inventory checks."),
+	}
+}
+
+func newDemoUserFixture(id, email, username, firstName, lastName, role string, status userstypes.LifecycleState, tenantID, orgID uuid.UUID, locale, displayName, bio string) demoUserFixture {
+	userID := uuid.MustParse(id)
+	metadata := map[string]any{
+		"tenant_id": tenantID.String(),
+		"org_id":    orgID.String(),
+	}
+	scope := userstypes.ScopeFilter{TenantID: tenantID, OrgID: orgID}
+	return demoUserFixture{
+		user: userstypes.AuthUser{
+			ID:        userID,
+			Role:      role,
+			Status:    status,
+			Email:     email,
+			Username:  username,
+			FirstName: firstName,
+			LastName:  lastName,
+			Metadata:  metadata,
+		},
+		profile: userstypes.UserProfile{
+			UserID:      userID,
+			DisplayName: displayName,
+			Locale:      locale,
+			Bio:         bio,
+			Scope:       scope,
+		},
+	}
+}
+
+func userProfileKey(userID uuid.UUID, scope userstypes.ScopeFilter) string {
+	return userID.String() + ":" + scope.TenantID.String() + ":" + scope.OrgID.String()
+}
+
+func containsUUID(values []uuid.UUID, needle uuid.UUID) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func containsLifecycle(values []userstypes.LifecycleState, needle userstypes.LifecycleState) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func parseUUID(raw string) uuid.UUID {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return uuid.Nil
+	}
+	parsed, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil
+	}
+	return parsed
 }

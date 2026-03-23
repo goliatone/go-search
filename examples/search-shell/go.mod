@@ -7,9 +7,17 @@ require (
 	github.com/goliatone/go-admin v0.26.0
 	github.com/goliatone/go-admin/quickstart v0.0.0
 	github.com/goliatone/go-auth v0.36.0
+	github.com/goliatone/go-cms v0.42.0
 	github.com/goliatone/go-featuregate v0.6.0
 	github.com/goliatone/go-router v0.54.0
 	github.com/goliatone/go-search v0.0.0
+	github.com/goliatone/go-search/adapters/gocms v0.0.0
+	github.com/goliatone/go-search/adapters/gousers v0.0.0
+	github.com/goliatone/go-users v0.18.0
+	github.com/google/uuid v1.6.0
+	github.com/lib/pq v1.12.0
+	github.com/uptrace/bun v1.2.18
+	github.com/uptrace/bun/dialect/pgdialect v1.2.18
 )
 
 require (
@@ -85,7 +93,6 @@ require (
 	github.com/gofiber/utils v1.2.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/goliatone/go-auth/adapters/featuregate v0.36.0 // indirect
-	github.com/goliatone/go-cms v0.42.0 // indirect
 	github.com/goliatone/go-command v0.18.0 // indirect
 	github.com/goliatone/go-composite-fs v0.3.0 // indirect
 	github.com/goliatone/go-config v0.13.0 // indirect
@@ -112,12 +119,10 @@ require (
 	github.com/goliatone/go-theme v0.3.0 // indirect
 	github.com/goliatone/go-uploader v0.4.0 // indirect
 	github.com/goliatone/go-urlkit v0.6.0 // indirect
-	github.com/goliatone/go-users v0.18.0 // indirect
 	github.com/goliatone/hashid v0.2.0 // indirect
 	github.com/goodsign/monday v1.0.2 // indirect
 	github.com/google/cel-go v0.26.1 // indirect
 	github.com/google/pprof v0.0.0-20251208000136-3d256cb9ff16 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/css v1.0.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
@@ -134,7 +139,6 @@ require (
 	github.com/knadh/koanf/providers/posflag v0.1.0 // indirect
 	github.com/knadh/koanf/providers/structs v0.1.0 // indirect
 	github.com/knadh/koanf/v2 v2.1.2 // indirect
-	github.com/lib/pq v1.12.0 // indirect
 	github.com/lithammer/shortuuid v3.0.0+incompatible // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
@@ -173,9 +177,7 @@ require (
 	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect
 	github.com/traefik/yaegi v0.16.1 // indirect
 	github.com/typesense/typesense-go/v3 v3.2.0 // indirect
-	github.com/uptrace/bun v1.2.18 // indirect
 	github.com/uptrace/bun/dbfixture v1.2.18 // indirect
-	github.com/uptrace/bun/dialect/pgdialect v1.2.18 // indirect
 	github.com/uptrace/bun/dialect/sqlitedialect v1.2.18 // indirect
 	github.com/uptrace/bun/driver/sqliteshim v1.2.18 // indirect
 	github.com/uptrace/bun/extra/bundebug v1.2.18 // indirect
@@ -259,6 +261,10 @@ replace github.com/goliatone/go-repository-bun => ../../../go-repository-bun
 replace github.com/goliatone/go-router => ../../../go-router
 
 replace github.com/goliatone/go-search => ../..
+
+replace github.com/goliatone/go-search/adapters/gocms => ../../adapters/gocms
+
+replace github.com/goliatone/go-search/adapters/gousers => ../../adapters/gousers
 
 replace github.com/goliatone/go-template => ../../../go-template
 

@@ -132,10 +132,12 @@ func New(ctx context.Context, cfg *config.AppConfig) (*Core, error) {
 
 	searchRuntime, err := searchdemo.New(searchdemo.Config{
 		Provider:                  cfg.SearchDemo.Provider,
+		CacheEnabled:              cfg.SearchDemo.CacheEnabled,
 		SeedOnStart:               cfg.SearchDemo.SeedOnStart,
 		IndexName:                 cfg.SearchDemo.IndexName,
 		DefaultLocale:             cfg.SearchDemo.DefaultLocale,
 		CultureDataPath:           cfg.SearchDemo.CultureDataPath,
+		PostgresDSN:               cfg.SearchDemo.PostgresDSN,
 		TypesenseServerURL:        cfg.SearchDemo.TypesenseServerURL,
 		TypesenseAPIKey:           cfg.SearchDemo.TypesenseAPIKey,
 		TypesenseCollectionPrefix: cfg.SearchDemo.TypesenseCollectionPrefix,
@@ -206,13 +208,19 @@ func (c *Core) Serve() error {
 }
 
 func (c *Core) Shutdown(ctx context.Context) error {
-	if c == nil || c.Server == nil {
-		return nil
-	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return c.Server.Shutdown(ctx)
+	var shutdownErr error
+	if c != nil && c.Server != nil {
+		shutdownErr = c.Server.Shutdown(ctx)
+	}
+	if c != nil && c.Search != nil {
+		if err := c.Search.Close(); err != nil && shutdownErr == nil {
+			shutdownErr = err
+		}
+	}
+	return shutdownErr
 }
 
 func (c *Core) Features() []FeatureStatus {
