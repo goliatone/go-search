@@ -1,0 +1,6 @@
+examples/search-shell/internal/config/config.go:123:16: [CWE-22] Potential file inclusion via variable (Rule:G304, Severity:MEDIUM, Confidence:HIGH)
+examples/search-shell/internal/config/config.go:123:27: [CWE-22] Path traversal via taint analysis (Rule:G703, Severity:HIGH, Confidence:HIGH)
+examples/search-shell/internal/http/routes.go:104:9: [CWE-79] The used method does not auto-escape HTML. This can potentially lead to 'Cross-site Scripting' vulnerabilities, in case the attacker controls the input. (Rule:G203, Severity:MEDIUM, Confidence:LOW)
+examples/search-shell/internal/http/routes.go:25:10: [CWE-79] The used method does not auto-escape HTML. This can potentially lead to 'Cross-site Scripting' vulnerabilities, in case the attacker controls the input. (Rule:G203, Severity:MEDIUM, Confidence:LOW)
+examples/search-shell/internal/http/routes.go:97:9: [CWE-79] The used method does not auto-escape HTML. This can potentially lead to 'Cross-site Scripting' vulnerabilities, in case the attacker controls the input. (Rule:G203, Severity:MEDIUM, Confidence:LOW)
+examples/search-shell/release/checklist.go:143:14: [CWE-22] Potential file inclusion via variable (Rule:G304, Severity:MEDIUM, Confidence:HIGH)
