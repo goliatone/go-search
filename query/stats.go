@@ -50,7 +50,7 @@ func (q *Stats) Query(ctx context.Context, req types.StatsRequest) (types.StatsR
 	if err != nil {
 		return types.StatsResult{}, err
 	}
-	health, err := q.provider.Health(ctx, types.HealthRequest{Indexes: req.Indexes})
+	health, err := q.provider.Health(ctx, types.HealthRequest(req))
 	if err != nil {
 		return types.StatsResult{}, err
 	}
