@@ -67,20 +67,22 @@ func (h *LifecycleHook) Notify(ctx context.Context, event cmslifecycle.Event) er
 	if h == nil || h.indexer == nil {
 		return nil
 	}
-	route, ok := h.routeFor(event)
-	if !ok {
+	routes := h.routesFor(event)
+	if len(routes) == 0 {
 		return nil
 	}
 	recordID := strings.TrimSpace(event.RecordID)
 	if recordID == "" {
 		return nil
 	}
-	if shouldDelete(event) {
-		observe.Count(ctx, h.metrics, h.logger, "search.adapter.gocms.delete.count", 1, map[string]string{"index": route.Index})
-		if err := h.indexer.DeleteRecord(ctx, route.Index, route.RegistrationKey, recordID); err != nil {
-			return err
+	for _, route := range routes {
+		if shouldDelete(event) {
+			observe.Count(ctx, h.metrics, h.logger, "search.adapter.gocms.delete.count", 1, map[string]string{"index": route.Index})
+			if err := h.indexer.DeleteRecord(ctx, route.Index, route.RegistrationKey, recordID); err != nil {
+				return err
+			}
+			continue
 		}
-	} else {
 		observe.Count(ctx, h.metrics, h.logger, "search.adapter.gocms.index.count", 1, map[string]string{"index": route.Index})
 		if _, err := h.indexer.IndexRecord(ctx, route.Index, route.RegistrationKey, recordID); err != nil {
 			return err
@@ -94,10 +96,11 @@ func (h *LifecycleHook) Notify(ctx context.Context, event cmslifecycle.Event) er
 	return nil
 }
 
-func (h *LifecycleHook) routeFor(event cmslifecycle.Event) (Route, bool) {
+func (h *LifecycleHook) routesFor(event cmslifecycle.Event) []Route {
 	resourceType := strings.TrimSpace(event.ResourceType)
 	contentTypeSlug := strings.TrimSpace(event.ContentTypeSlug)
 	searchIndex := strings.TrimSpace(event.SearchIndex)
+	var routes []Route
 	for _, route := range h.routes {
 		if route.ResourceType != "" && route.ResourceType != resourceType {
 			continue
@@ -108,14 +111,14 @@ func (h *LifecycleHook) routeFor(event cmslifecycle.Event) (Route, bool) {
 		if route.SearchIndex != "" && route.SearchIndex != searchIndex {
 			continue
 		}
-		return route, true
+		routes = append(routes, route)
 	}
-	return Route{}, false
+	return routes
 }
 
 func shouldDelete(event cmslifecycle.Event) bool {
 	switch strings.TrimSpace(event.Transition) {
-	case "delete", "unpublish", "translation_delete":
+	case "delete", "unpublish":
 		return true
 	}
 	return !event.SearchEnabled
