@@ -18,16 +18,30 @@ type generationLookup interface {
 	Get(ctx context.Context, index string) (int64, error)
 }
 
+type cacheKeyDetails struct {
+	Key                   string
+	BaseKey               string
+	Indexes               []string
+	GenerationFingerprint string
+}
+
 func searchCacheKey(ctx context.Context, provider string, req types.SearchRequest, generations generationLookup) (string, error) {
+	details, err := searchCacheDetails(ctx, provider, req, generations)
+	if err != nil {
+		return "", err
+	}
+	return details.Key, nil
+}
+
+func searchCacheDetails(ctx context.Context, provider string, req types.SearchRequest, generations generationLookup) (cacheKeyDetails, error) {
 	indexes := normalizeIndexes(req.Indexes)
 	generationMap, err := indexGenerations(ctx, indexes, generations)
 	if err != nil {
-		return "", err
+		return cacheKeyDetails{}, err
 	}
 	payload := map[string]any{
 		"provider":        strings.TrimSpace(provider),
 		"indexes":         indexes,
-		"generations":     generationMap,
 		"query":           normalizeQuery(req.Query),
 		"locale":          locale.Normalize(req.Locale),
 		"locales":         locale.NormalizeAndSort(req.Locales),
@@ -46,19 +60,45 @@ func searchCacheKey(ctx context.Context, provider string, req types.SearchReques
 		"actor":           normalizeActor(req.Actor),
 		"scope":           normalizeScope(req.Scope),
 	}
-	return hashPayload("search", payload)
+	baseKey, err := hashPayload("search-base", payload)
+	if err != nil {
+		return cacheKeyDetails{}, err
+	}
+	payloadWithGeneration := maps.Clone(payload)
+	payloadWithGeneration["generations"] = generationMap
+	key, err := hashPayload("search", payloadWithGeneration)
+	if err != nil {
+		return cacheKeyDetails{}, err
+	}
+	fingerprint, err := generationFingerprint(generationMap)
+	if err != nil {
+		return cacheKeyDetails{}, err
+	}
+	return cacheKeyDetails{
+		Key:                   key,
+		BaseKey:               baseKey,
+		Indexes:               indexes,
+		GenerationFingerprint: fingerprint,
+	}, nil
 }
 
 func suggestCacheKey(ctx context.Context, provider string, req types.SuggestRequest, generations generationLookup) (string, error) {
+	details, err := suggestCacheDetails(ctx, provider, req, generations)
+	if err != nil {
+		return "", err
+	}
+	return details.Key, nil
+}
+
+func suggestCacheDetails(ctx context.Context, provider string, req types.SuggestRequest, generations generationLookup) (cacheKeyDetails, error) {
 	indexes := normalizeIndexes(req.Indexes)
 	generationMap, err := indexGenerations(ctx, indexes, generations)
 	if err != nil {
-		return "", err
+		return cacheKeyDetails{}, err
 	}
 	payload := map[string]any{
 		"provider":      strings.TrimSpace(provider),
 		"indexes":       indexes,
-		"generations":   generationMap,
 		"query":         normalizeQuery(req.Query),
 		"locale":        locale.Normalize(req.Locale),
 		"limit":         req.Limit,
@@ -67,7 +107,26 @@ func suggestCacheKey(ctx context.Context, provider string, req types.SuggestRequ
 		"actor":         normalizeActor(req.Actor),
 		"scope":         normalizeScope(req.Scope),
 	}
-	return hashPayload("suggest", payload)
+	baseKey, err := hashPayload("suggest-base", payload)
+	if err != nil {
+		return cacheKeyDetails{}, err
+	}
+	payloadWithGeneration := maps.Clone(payload)
+	payloadWithGeneration["generations"] = generationMap
+	key, err := hashPayload("suggest", payloadWithGeneration)
+	if err != nil {
+		return cacheKeyDetails{}, err
+	}
+	fingerprint, err := generationFingerprint(generationMap)
+	if err != nil {
+		return cacheKeyDetails{}, err
+	}
+	return cacheKeyDetails{
+		Key:                   key,
+		BaseKey:               baseKey,
+		Indexes:               indexes,
+		GenerationFingerprint: fingerprint,
+	}, nil
 }
 
 func metadataCacheKey(provider, kind string, indexes []string) (string, error) {
@@ -101,6 +160,13 @@ func indexGenerations(ctx context.Context, indexes []string, store generationLoo
 		out[index] = generation
 	}
 	return out, nil
+}
+
+func generationFingerprint(generationMap map[string]int64) (string, error) {
+	if len(generationMap) == 0 {
+		return "", nil
+	}
+	return hashPayload("generation", generationMap)
 }
 
 func normalizeIndexes(indexes []string) []string {

@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +18,8 @@ type CachedProviderMetadataConfig struct {
 	CapabilityTTL   time.Duration
 	HealthTTL       time.Duration
 	Strict          bool
+	Logger          types.Logger
+	Metrics         []types.MetricsHook
 }
 
 type CachedProviderMetadata struct {
@@ -26,6 +29,7 @@ type CachedProviderMetadata struct {
 	capabilityTTL   time.Duration
 	healthTTL       time.Duration
 	strict          bool
+	observer        cacheObserver
 
 	mu         sync.Mutex
 	healthKeys map[string]struct{}
@@ -51,6 +55,7 @@ func NewCachedProviderMetadata(cfg CachedProviderMetadataConfig) (*CachedProvide
 		capabilityTTL:   cfg.CapabilityTTL,
 		healthTTL:       cfg.HealthTTL,
 		strict:          cfg.Strict,
+		observer:        newCacheObserver(cfg.Logger, cfg.Metrics),
 		healthKeys:      map[string]struct{}{},
 	}, nil
 }
@@ -63,22 +68,32 @@ func (p *CachedProviderMetadata) Capabilities(ctx context.Context) (types.Capabi
 	}
 	key, err := metadataCacheKey(p.provider.Name(), "capabilities", nil)
 	if err != nil {
+		p.observer.bypass(ctx, "provider_capabilities", p.provider.Name(), "key_build_failed", nil)
 		if p.strict {
 			return types.CapabilitySet{}, err
 		}
 		return p.provider.Capabilities(ctx)
 	}
 	if cached, ok, err := p.capabilityCache.Get(ctx, key); err == nil && ok {
+		p.observer.hit(ctx, "provider_capabilities", p.provider.Name(), nil)
 		return cached, nil
 	} else if err != nil && p.strict {
+		p.observer.lookupFailure(ctx, "provider_capabilities", p.provider.Name(), err, nil)
 		return types.CapabilitySet{}, err
+	} else if err != nil {
+		p.observer.lookupFailure(ctx, "provider_capabilities", p.provider.Name(), err, nil)
+	} else {
+		p.observer.miss(ctx, "provider_capabilities", p.provider.Name(), nil)
 	}
 	result, err := p.provider.Capabilities(ctx)
 	if err != nil {
 		return types.CapabilitySet{}, err
 	}
-	if err := p.capabilityCache.Set(ctx, key, result, p.capabilityTTL); err != nil && p.strict {
-		return types.CapabilitySet{}, err
+	if err := p.capabilityCache.Set(ctx, key, result, p.capabilityTTL); err != nil {
+		p.observer.writeFailure(ctx, "provider_capabilities", p.provider.Name(), err, nil)
+		if p.strict {
+			return types.CapabilitySet{}, err
+		}
 	}
 	return result, nil
 }
@@ -131,12 +146,28 @@ func (p *CachedProviderMetadata) DeleteBySource(ctx context.Context, index, regi
 	return err
 }
 
+func (p *CachedProviderMetadata) ResetRegistration(ctx context.Context, index, registrationKey string) error {
+	resetter, ok := p.provider.(providers.RegistrationResetter)
+	if !ok {
+		return errs.ConfigurationError("cached metadata provider does not support registration reset", map[string]any{
+			"index":            index,
+			"registration_key": registrationKey,
+		})
+	}
+	err := resetter.ResetRegistration(ctx, index, registrationKey)
+	if err == nil {
+		p.invalidateHealth(ctx)
+	}
+	return err
+}
+
 func (p *CachedProviderMetadata) Health(ctx context.Context, req types.HealthRequest) (types.HealthStatus, error) {
 	if p.healthCache == nil {
 		return p.provider.Health(ctx, req)
 	}
 	key, err := metadataCacheKey(p.provider.Name(), "health", req.Indexes)
 	if err != nil {
+		p.observer.bypass(ctx, "provider_health", p.provider.Name(), "key_build_failed", map[string]any{"indexes": normalizeIndexes(req.Indexes)})
 		if p.strict {
 			return types.HealthStatus{}, err
 		}
@@ -144,16 +175,25 @@ func (p *CachedProviderMetadata) Health(ctx context.Context, req types.HealthReq
 	}
 	p.recordHealthKey(key)
 	if cached, ok, err := p.healthCache.Get(ctx, key); err == nil && ok {
+		p.observer.hit(ctx, "provider_health", p.provider.Name(), map[string]any{"indexes": normalizeIndexes(req.Indexes)})
 		return cached, nil
 	} else if err != nil && p.strict {
+		p.observer.lookupFailure(ctx, "provider_health", p.provider.Name(), err, map[string]any{"indexes": normalizeIndexes(req.Indexes)})
 		return types.HealthStatus{}, err
+	} else if err != nil {
+		p.observer.lookupFailure(ctx, "provider_health", p.provider.Name(), err, map[string]any{"indexes": normalizeIndexes(req.Indexes)})
+	} else {
+		p.observer.miss(ctx, "provider_health", p.provider.Name(), map[string]any{"indexes": normalizeIndexes(req.Indexes)})
 	}
 	result, err := p.provider.Health(ctx, req)
 	if err != nil {
 		return types.HealthStatus{}, err
 	}
-	if err := p.healthCache.Set(ctx, key, result, p.healthTTL); err != nil && p.strict {
-		return types.HealthStatus{}, err
+	if err := p.healthCache.Set(ctx, key, result, p.healthTTL); err != nil {
+		p.observer.writeFailure(ctx, "provider_health", p.provider.Name(), err, map[string]any{"indexes": normalizeIndexes(req.Indexes)})
+		if p.strict {
+			return types.HealthStatus{}, err
+		}
 	}
 	return result, nil
 }
@@ -191,14 +231,35 @@ func (p *CachedProviderMetadata) invalidateHealth(ctx context.Context) {
 	p.healthKeys = map[string]struct{}{}
 	p.mu.Unlock()
 	for _, key := range keys {
-		_ = p.healthCache.Delete(ctx, key)
+		if err := p.healthCache.Delete(ctx, key); err != nil {
+			p.observer.invalidateFailure(ctx, "provider_health", p.provider.Name(), err, nil)
+		}
 	}
 }
 
-func cacheDisabled(metadata map[string]any) bool {
+func cacheBypassReason(metadata map[string]any) (string, bool) {
 	if len(metadata) == 0 {
-		return false
+		return "", false
+	}
+	if reason, ok := metadata["cache_disabled_reason"].(string); ok && strings.TrimSpace(reason) != "" {
+		return strings.TrimSpace(reason), true
 	}
 	disabled, _ := metadata["cache_disabled"].(bool)
-	return disabled
+	if disabled {
+		return "request_disabled", true
+	}
+	return "", false
+}
+
+func actorSensitive(actor types.ActorRef) bool {
+	if strings.TrimSpace(actor.UserID) != "" {
+		return true
+	}
+	if strings.TrimSpace(actor.TenantID) != "" {
+		return true
+	}
+	if strings.TrimSpace(actor.OrgID) != "" {
+		return true
+	}
+	return len(actor.Metadata) > 0
 }
