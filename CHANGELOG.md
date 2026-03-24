@@ -1,5 +1,34 @@
 # Changelog
 
+# [0.2.0](https://github.com/goliatone/go-search/compare/v0.1.0...v0.2.0) - (2026-03-24)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Code quality and static checker feedback ([bc7fbe0](https://github.com/goliatone/go-search/commit/bc7fbe04cd80c6a95e1e66295686bf206a5f60e7))  - (goliatone)
+- Code quality ([ef837bb](https://github.com/goliatone/go-search/commit/ef837bb8fc4837806478d0a600c8d40b6f33fca3))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.2.0 ([076caac](https://github.com/goliatone/go-search/commit/076caac1b1e31b77e6807fd0fdd634c4532a2304))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Filter validate ([8833817](https://github.com/goliatone/go-search/commit/88338178043c29880e8af91d69c31c27b839216e))  - (goliatone)
+- Cache provider setup ([cc19aed](https://github.com/goliatone/go-search/commit/cc19aed143c08b92f695b3bbc0fa47b9c6252671))  - (goliatone)
+- Tools for static analysis ([de59a04](https://github.com/goliatone/go-search/commit/de59a046017cf013d29362e7f7ab37e55d17ba79))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.1.0 ([bd014ad](https://github.com/goliatone/go-search/commit/bd014ad88234230a863f6844d73dce1cb0cab916))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Fix code ([99dd0cd](https://github.com/goliatone/go-search/commit/99dd0cde49bcf2081bdb261d436f24067643006d))  - (goliatone)
+- Update example ([ddc3dd3](https://github.com/goliatone/go-search/commit/ddc3dd3af544af7722b86b00e92191bbb6ade567))  - (goliatone)
+- Update CI/CD setup ([10b69d4](https://github.com/goliatone/go-search/commit/10b69d4b560c6430e1b2c7eb95eaac592607b78a))  - (goliatone)
+- Update deps ([cdf033e](https://github.com/goliatone/go-search/commit/cdf033e3e991d16ee4832e1b33605ab5aaa15a9c))  - (goliatone)
+- Update tests ([513b472](https://github.com/goliatone/go-search/commit/513b4728fa3ca5aacc43bbdd56ecd547e49eebd3))  - (goliatone)
+
 # [0.1.0](https://github.com/goliatone/go-search/tree/v0.1.0) - (2026-03-23)
 
 ## <!-- 13 -->📦 Bumps
