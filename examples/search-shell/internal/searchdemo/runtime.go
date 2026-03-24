@@ -262,6 +262,8 @@ func New(cfg Config) (*Runtime, error) {
 			Provider:        provider,
 			CapabilityCache: cacheStores.capabilities,
 			HealthCache:     cacheStores.health,
+			Logger:          logger,
+			Metrics:         []types.MetricsHook{metrics},
 		})
 		if wrapErr != nil {
 			return nil, wrapErr
@@ -497,6 +499,8 @@ func New(cfg Config) (*Runtime, error) {
 			Cache:           cacheStores.search,
 			GenerationStore: generationStore,
 			ProviderName:    provider.Name(),
+			Logger:          logger,
+			Metrics:         []types.MetricsHook{metrics},
 		})
 		if cacheErr != nil {
 			return nil, cacheErr
@@ -506,6 +510,8 @@ func New(cfg Config) (*Runtime, error) {
 			Cache:           cacheStores.suggest,
 			GenerationStore: generationStore,
 			ProviderName:    provider.Name(),
+			Logger:          logger,
+			Metrics:         []types.MetricsHook{metrics},
 		})
 		if cacheErr != nil {
 			return nil, cacheErr

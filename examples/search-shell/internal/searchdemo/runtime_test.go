@@ -892,6 +892,152 @@ func TestRuntimeCacheDisabledBypassesSearchAndSuggestCaches(t *testing.T) {
 	if afterSuggestBypass.Cache.Suggest.Hits != suggestHits {
 		t.Fatalf("expected cache-disabled suggest to bypass cache hits, before=%d after=%d", suggestHits, afterSuggestBypass.Cache.Suggest.Hits)
 	}
+	if afterSuggestBypass.Metrics.Counts["search.cache.bypass.count"] < 2 {
+		t.Fatalf("expected cache bypass metrics for search and suggest, got %+v", afterSuggestBypass.Metrics.Counts)
+	}
+}
+
+func TestRuntimeLocaleNormalizationReusesSearchCacheKey(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		CacheEnabled:  true,
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	ctx := context.Background()
+	reqUpper := SearchRequest{Query: "search", Locale: "EN"}
+	reqLower := SearchRequest{Query: "search", Locale: "en"}
+	if _, err := runtime.Search(ctx, reqUpper); err != nil {
+		t.Fatalf("search upper: %v", err)
+	}
+	if _, err := runtime.Search(ctx, reqLower); err != nil {
+		t.Fatalf("search lower: %v", err)
+	}
+	status, err := runtime.Status(ctx)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if status.Cache.Search.Hits == 0 {
+		t.Fatalf("expected locale-normalized search cache hit, got %+v", status.Cache.Search)
+	}
+}
+
+func TestRuntimeActorSensitiveSearchBypassesCache(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		CacheEnabled:  true,
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	ctx := context.Background()
+	req := SearchRequest{
+		Query:       "support",
+		Surface:     SurfaceUsers,
+		ActorRole:   "support",
+		ActorUserID: "00000000-0000-0000-0000-000000001002",
+	}
+	if _, err := runtime.Search(ctx, req); err != nil {
+		t.Fatalf("search 1: %v", err)
+	}
+	if _, err := runtime.Search(ctx, req); err != nil {
+		t.Fatalf("search 2: %v", err)
+	}
+	status, err := runtime.Status(ctx)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if status.Cache.Search.Hits != 0 {
+		t.Fatalf("expected actor-sensitive requests to bypass search cache, got %+v", status.Cache.Search)
+	}
+	if status.Metrics.Counts["search.cache.bypass.count"] < 2 {
+		t.Fatalf("expected actor-sensitive bypass metrics, got %+v", status.Metrics.Counts)
+	}
+}
+
+func TestRuntimeUserWriteBumpsGenerationAndInvalidatesSearchCache(t *testing.T) {
+	runtime, err := New(Config{
+		Provider:      "memory",
+		CacheEnabled:  true,
+		SeedOnStart:   true,
+		IndexName:     "media_transcripts",
+		DefaultLocale: "en",
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	ctx := context.Background()
+	req := SearchRequest{Query: "editor", Surface: SurfaceUsers, Locale: "en"}
+	if _, err := runtime.Search(ctx, req); err != nil {
+		t.Fatalf("search 1: %v", err)
+	}
+	if _, err := runtime.Search(ctx, req); err != nil {
+		t.Fatalf("search 2: %v", err)
+	}
+	beforeStatus, err := runtime.Status(ctx)
+	if err != nil {
+		t.Fatalf("status before write: %v", err)
+	}
+	if beforeStatus.Cache.Search.Hits == 0 {
+		t.Fatalf("expected cached search hit before user write, got %+v", beforeStatus.Cache.Search)
+	}
+	beforeStats, err := runtime.Stats(ctx)
+	if err != nil {
+		t.Fatalf("stats before write: %v", err)
+	}
+	beforeGeneration := int64(0)
+	for _, item := range beforeStats.Indexes {
+		if item.Name == runtime.usersIndex.Name {
+			beforeGeneration = item.Generation
+			break
+		}
+	}
+	if err := runtime.TransitionUser(ctx, "00000000-0000-0000-0000-000000001004", userstypes.LifecycleStateArchived); err != nil {
+		t.Fatalf("archive user: %v", err)
+	}
+	page, err := runtime.Search(ctx, req)
+	if err != nil {
+		t.Fatalf("search after write: %v", err)
+	}
+	for _, hit := range page.Hits {
+		if hit.ID == "00000000-0000-0000-0000-000000001004" {
+			t.Fatalf("archived user should be removed after cache invalidation %+v", hit)
+		}
+	}
+	afterStats, err := runtime.Stats(ctx)
+	if err != nil {
+		t.Fatalf("stats after write: %v", err)
+	}
+	afterGeneration := int64(0)
+	for _, item := range afterStats.Indexes {
+		if item.Name == runtime.usersIndex.Name {
+			afterGeneration = item.Generation
+			break
+		}
+	}
+	if afterGeneration <= beforeGeneration {
+		t.Fatalf("expected users index generation bump, before=%d after=%d", beforeGeneration, afterGeneration)
+	}
+	afterStatus, err := runtime.Status(ctx)
+	if err != nil {
+		t.Fatalf("status after write: %v", err)
+	}
+	if afterStatus.Cache.Search.Misses <= beforeStatus.Cache.Search.Misses {
+		t.Fatalf("expected user write to force cache miss, before=%+v after=%+v", beforeStatus.Cache.Search, afterStatus.Cache.Search)
+	}
+	if afterStatus.Metrics.Counts["search.cache.stale_generation_fallback.count"] == 0 {
+		t.Fatalf("expected stale generation fallback metric after write, got %+v", afterStatus.Metrics.Counts)
+	}
 }
 
 func TestRuntimeReindexBumpsGenerationAndInvalidatesSearchCache(t *testing.T) {
@@ -936,6 +1082,9 @@ func TestRuntimeReindexBumpsGenerationAndInvalidatesSearchCache(t *testing.T) {
 	}
 	if after.Cache.Search.Misses <= before.Cache.Search.Misses {
 		t.Fatalf("expected reindex to force a fresh cache lookup, before=%+v after=%+v", before.Cache.Search, after.Cache.Search)
+	}
+	if after.Metrics.Counts["search.cache.stale_generation_fallback.count"] == 0 {
+		t.Fatalf("expected stale generation fallback metric after reindex, got %+v", after.Metrics.Counts)
 	}
 }
 
