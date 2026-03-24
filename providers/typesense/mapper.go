@@ -411,6 +411,8 @@ func documentScore(hit tsapi.SearchResultHit) float64 {
 
 func localeMatchLabel(requested, got string) string {
 	switch {
+	case strings.TrimSpace(got) == "":
+		return "any"
 	case requested == "":
 		return "none"
 	case isExactLocaleMatch(requested, got):

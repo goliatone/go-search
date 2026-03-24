@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/goliatone/go-search/internal/errs"
+	"github.com/goliatone/go-search/internal/filtervalidate"
 	"github.com/goliatone/go-search/locale"
 	"github.com/goliatone/go-search/pkg/types"
 )
@@ -271,40 +272,7 @@ func (p *Planner) ValidateSearchCapabilities(ctx context.Context, req types.Sear
 }
 
 func ValidateFilter(expr types.FilterExpr) error {
-	if expr == nil {
-		return nil
-	}
-	switch v := expr.(type) {
-	case types.AndExpr:
-		for _, term := range v.Terms {
-			if err := ValidateFilter(term); err != nil {
-				return err
-			}
-		}
-	case types.OrExpr:
-		for _, term := range v.Terms {
-			if err := ValidateFilter(term); err != nil {
-				return err
-			}
-		}
-	case types.NotExpr:
-		return ValidateFilter(v.Term)
-	case types.TermExpr:
-		if strings.TrimSpace(v.Field) == "" {
-			return errs.InvalidFilter("filter field is required", nil)
-		}
-	case types.RangeExpr:
-		if strings.TrimSpace(v.Field) == "" {
-			return errs.InvalidFilter("range field is required", nil)
-		}
-	case types.ExistsExpr:
-		if strings.TrimSpace(v.Field) == "" {
-			return errs.InvalidFilter("exists field is required", nil)
-		}
-	default:
-		return errs.InvalidFilter("unsupported filter expression", map[string]any{"type": expr})
-	}
-	return nil
+	return filtervalidate.Validate(expr)
 }
 
 func (p *Planner) resolveIndexes(indexes []string) ([]types.IndexDefinition, error) {

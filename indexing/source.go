@@ -27,13 +27,22 @@ type Registration[T any] struct {
 	source          Source[T]
 	projector       Projector[T]
 	idGetter        func(T) string
+	deleteSourceIDs func(context.Context, string) ([]string, error)
 }
 
 func NewRegistration[T any](indexName string, definition types.IndexDefinition, sourceType string, source Source[T], projector Projector[T], idGetter func(T) string) *Registration[T] {
-	return NewRegistrationWithKey(indexName, definition, sourceType, sourceType, source, projector, idGetter)
+	return NewRegistrationWithOptions(indexName, definition, sourceType, sourceType, source, projector, idGetter, RegistrationOptions{})
 }
 
 func NewRegistrationWithKey[T any](indexName string, definition types.IndexDefinition, registrationKey string, sourceType string, source Source[T], projector Projector[T], idGetter func(T) string) *Registration[T] {
+	return NewRegistrationWithOptions(indexName, definition, registrationKey, sourceType, source, projector, idGetter, RegistrationOptions{})
+}
+
+type RegistrationOptions struct {
+	DeleteSourceIDs func(context.Context, string) ([]string, error)
+}
+
+func NewRegistrationWithOptions[T any](indexName string, definition types.IndexDefinition, registrationKey string, sourceType string, source Source[T], projector Projector[T], idGetter func(T) string, opts RegistrationOptions) *Registration[T] {
 	return &Registration[T]{
 		indexName:       indexName,
 		definition:      definition,
@@ -42,6 +51,7 @@ func NewRegistrationWithKey[T any](indexName string, definition types.IndexDefin
 		source:          source,
 		projector:       projector,
 		idGetter:        idGetter,
+		deleteSourceIDs: opts.DeleteSourceIDs,
 	}
 }
 
@@ -86,8 +96,20 @@ func (r *Registration[T]) IndexRecord(ctx context.Context, recordID string) ([]t
 	return docs, nil
 }
 
-func (r *Registration[T]) DeleteSourceIDs(_ context.Context, recordID string) ([]string, error) {
-	return []string{recordID}, nil
+func (r *Registration[T]) DeleteSourceIDs(ctx context.Context, recordID string) ([]string, error) {
+	if r.deleteSourceIDs != nil {
+		return r.deleteSourceIDs(ctx, recordID)
+	}
+	if r.idGetter == nil {
+		return []string{recordID}, nil
+	}
+	record, err := r.source.Get(ctx, recordID)
+	if err != nil {
+		// Delete hooks may run after the upstream record is already gone.
+		// Fall back to the provided record ID so legacy registrations still work.
+		return []string{recordID}, nil
+	}
+	return []string{firstActivityValue(r.idGetter(record), recordID)}, nil
 }
 
 func (r *Registration[T]) ResolveActivityEvent(ctx context.Context, verb, recordID string, docs []types.Document, metadata map[string]any) (types.ActivityEvent, error) {

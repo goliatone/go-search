@@ -104,7 +104,8 @@ func compileSuggestParams(cfg Config, def types.IndexDefinition, req types.Sugge
 	}
 
 	if req.Locale != "" {
-		filter := fmt.Sprintf("locale:=%s", encodeFilterValue(req.Locale))
+		values := localeConstraintValues(req.Locale)
+		filter := fmt.Sprintf("locale:=[%s]", strings.Join(values, ","))
 		params.FilterBy = &filter
 		sortBy := fmt.Sprintf("_eval(locale:=%s):desc,_text_match:desc", encodeFilterValue(req.Locale))
 		params.SortBy = &sortBy
@@ -141,16 +142,9 @@ func compileCombinedFilter(def types.IndexDefinition, req types.SearchRequest) (
 		}
 	}
 
-	locales := localeCandidates(req.Locale, req.Locales)
-	if len(locales) == 1 {
-		parts = append(parts, fmt.Sprintf("locale:=%s", encodeFilterValue(locales[0])))
-	}
-	if len(locales) > 1 {
-		values := make([]string, 0, len(locales))
-		for _, locale := range locales {
-			values = append(values, encodeFilterValue(locale))
-		}
-		parts = append(parts, fmt.Sprintf("locale:=[%s]", strings.Join(values, ",")))
+	locales := localeConstraintValues(localeCandidates(req.Locale, req.Locales)...)
+	if len(locales) > 0 {
+		parts = append(parts, fmt.Sprintf("locale:=[%s]", strings.Join(locales, ",")))
 	}
 	if scopeFilter := compileScopeFilter(req.Scope); scopeFilter != "" {
 		parts = append(parts, scopeFilter)
@@ -370,6 +364,22 @@ func localeCandidates(locale string, fallbacks []string) []string {
 		out = append(out, item)
 	}
 	return out
+}
+
+func localeConstraintValues(locales ...string) []string {
+	values := make([]string, 0, len(locales)+1)
+	for _, locale := range locales {
+		locale = strings.TrimSpace(locale)
+		if locale == "" {
+			continue
+		}
+		values = append(values, encodeFilterValue(locale))
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	values = append(values, encodeStringValue(""))
+	return values
 }
 
 func encodeFilterValue(value any) string {

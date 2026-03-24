@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/goliatone/go-search/internal/errs"
+	"github.com/goliatone/go-search/internal/filtervalidate"
 	"github.com/goliatone/go-search/pkg/types"
 	"github.com/goliatone/go-search/ranking"
 	"github.com/uptrace/bun"
@@ -231,6 +232,19 @@ func (p *Provider) DeleteBySource(ctx context.Context, index, registrationKey st
 		Where("index_name = ?", index).
 		Where("registration_key = ?", registrationKey).
 		Where("source_id IN (?)", bun.List(sourceIDs)).
+		Exec(ctx)
+	return err
+}
+
+func (p *Provider) ResetRegistration(ctx context.Context, index, registrationKey string) error {
+	if err := p.ensureSchema(ctx); err != nil {
+		return err
+	}
+	registrationKey = strings.TrimSpace(registrationKey)
+	_, err := p.db.NewDelete().
+		Model((*documentModel)(nil)).
+		Where("index_name = ?", index).
+		Where("registration_key = ?", registrationKey).
 		Exec(ctx)
 	return err
 }
@@ -514,7 +528,7 @@ func scoredDocument(row documentModel, query string, doc types.Document) (float6
 func validateSearchRequest(req types.SearchRequest) error {
 	switch req.Mode {
 	case "", types.SearchModeLexical:
-		return nil
+		return filtervalidate.Validate(req.Filters)
 	case types.SearchModeSemantic:
 		return errs.UnsupportedCapability("semantic_search", map[string]any{"mode": req.Mode})
 	case types.SearchModeHybrid:

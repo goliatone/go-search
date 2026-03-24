@@ -86,25 +86,21 @@ func (i *Indexer) ReindexIndex(ctx context.Context, index, registrationKey strin
 	}
 	total := 0
 	for _, registration := range registrations {
-		cursor := ""
-		for {
-			ids, next, err := registration.Indexer.ListRecordIDs(ctx, batchSize, cursor)
-			if err != nil {
+		ids, err := listRegistrationRecordIDs(ctx, registration.Indexer, batchSize)
+		if err != nil {
+			return err
+		}
+		if err := i.resetRegistration(ctx, index, registration.RegistrationKey); err != nil {
+			return err
+		}
+		for _, id := range ids {
+			if _, err := i.indexRecord(ctx, index, registration.RegistrationKey, id, false, false); err != nil {
 				return err
 			}
-			for _, id := range ids {
-				if _, err := i.indexRecord(ctx, index, registration.RegistrationKey, id, false, false); err != nil {
-					return err
-				}
-				total++
-				if i.progress != nil {
-					i.progress.Report(ctx, types.ProgressUpdate{Index: index, Completed: total, Message: "reindexed"})
-				}
+			total++
+			if i.progress != nil {
+				i.progress.Report(ctx, types.ProgressUpdate{Index: index, Completed: total, Message: "reindexed"})
 			}
-			if next == "" || len(ids) == 0 {
-				break
-			}
-			cursor = next
 		}
 	}
 	if err := i.bumpGeneration(ctx, index); err != nil {
@@ -129,6 +125,37 @@ func (i *Indexer) ReindexIndex(ctx context.Context, index, registrationKey strin
 	observe.Count(ctx, i.metrics, i.logger, "search.reindex.count", int64(total), map[string]string{"index": index})
 	observe.ObserveDuration(ctx, i.metrics, i.logger, "search.reindex.duration_ms", startedAt, map[string]string{"index": index})
 	return nil
+}
+
+func listRegistrationRecordIDs(ctx context.Context, indexer RecordIndexer, batchSize int) ([]string, error) {
+	if indexer == nil {
+		return nil, nil
+	}
+	cursor := ""
+	out := []string{}
+	for {
+		ids, next, err := indexer.ListRecordIDs(ctx, batchSize, cursor)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ids...)
+		if next == "" || len(ids) == 0 {
+			return out, nil
+		}
+		cursor = next
+	}
+}
+
+func (i *Indexer) resetRegistration(ctx context.Context, index, registrationKey string) error {
+	resetter, ok := i.provider.(providers.RegistrationResetter)
+	if !ok {
+		return errs.ConfigurationError("provider does not support convergent registration reset required by reindex", map[string]any{
+			"index":            index,
+			"provider":         i.provider.Name(),
+			"registration_key": registrationKey,
+		})
+	}
+	return resetter.ResetRegistration(ctx, index, registrationKey)
 }
 
 func (i *Indexer) indexRecord(ctx context.Context, index, registrationKey, recordID string, emitActivity bool, bumpGeneration bool) ([]types.Document, error) {

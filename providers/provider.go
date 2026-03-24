@@ -22,3 +22,7 @@ type Provider interface {
 type SearchBatcher interface {
 	SearchBatch(ctx context.Context, requests []types.SearchRequest) ([]types.SearchResultPage, error)
 }
+
+type RegistrationResetter interface {
+	ResetRegistration(ctx context.Context, index, registrationKey string) error
+}

@@ -93,7 +93,7 @@ func TestCompileSearchParamsAddsLocaleFilterGroupingAndSortBoost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile search params: %v", err)
 	}
-	if params.FilterBy == nil || *params.FilterBy != "locale:=[en,bo]" {
+	if params.FilterBy == nil || *params.FilterBy != "locale:=[en,bo,``]" {
 		t.Fatalf("expected locale filter, got %+v", params.FilterBy)
 	}
 	if params.GroupBy == nil || *params.GroupBy != "parent_id" {
@@ -192,7 +192,6 @@ func TestCompileSearchParamsCompilesArchiveRangeAndHierarchyFilters(t *testing.T
 		"topic_hierarchy:=`Teaching Topics > Architecture`",
 		"published_year:>=2024",
 		"duration_seconds:[1800..3600]",
-		"locale:=en",
 	} {
 		if !strings.Contains(filter, fragment) {
 			t.Fatalf("expected filter fragment %q in %q", fragment, filter)
@@ -200,6 +199,29 @@ func TestCompileSearchParamsCompilesArchiveRangeAndHierarchyFilters(t *testing.T
 	}
 	if params.SortBy == nil || *params.SortBy != "_eval(locale:=en):desc,published_year:desc" {
 		t.Fatalf("unexpected sort_by: %+v", params.SortBy)
+	}
+	if !strings.Contains(filter, "locale:=[en,``]") {
+		t.Fatalf("expected locale-agnostic documents to remain eligible, got %q", filter)
+	}
+}
+
+func TestCompileSuggestParamsIncludesLocaleAgnosticDocuments(t *testing.T) {
+	def := types.IndexDefinition{
+		Name: "media",
+	}
+	params, err := compileSuggestParams(Config{
+		SuggestDocumentFields: []string{"title"},
+	}, def, types.SuggestRequest{
+		Indexes: []string{"media"},
+		Query:   "ocean",
+		Locale:  "en",
+		Limit:   5,
+	})
+	if err != nil {
+		t.Fatalf("compile suggest params: %v", err)
+	}
+	if params.FilterBy == nil || *params.FilterBy != "locale:=[en,``]" {
+		t.Fatalf("expected locale filter to include locale-agnostic docs, got %+v", params.FilterBy)
 	}
 }
 
@@ -276,6 +298,21 @@ func TestMapDocumentRestoresScopeAndVisibility(t *testing.T) {
 	}
 	if len(doc.Visibility.Roles) != 1 || doc.Visibility.Roles[0] != "editor" {
 		t.Fatalf("expected visibility roles, got %+v", doc.Visibility)
+	}
+}
+
+func TestMapResultHitMarksEmptyLocaleAsAny(t *testing.T) {
+	hit := mapResultHit(tsapi.SearchResultHit{
+		Document: &map[string]any{
+			"id":          "doc-1",
+			"document_id": "doc-1",
+			"title":       "Global Note",
+			"body":        "shared content",
+			"locale":      "",
+		},
+	}, types.SearchRequest{Locale: "en"})
+	if hit.Retrieval == nil || hit.Retrieval.Metadata["locale_match"] != "any" {
+		t.Fatalf("expected empty locale match label 'any', got %+v", hit.Retrieval)
 	}
 }
 

@@ -68,6 +68,26 @@ func (s *mutableTranscriptSource) List(context.Context, int, string) ([]media.Tr
 	return []media.TranscriptRecord{s.record}, "", nil
 }
 
+type mutableTranscriptListSource struct {
+	records map[string]media.TranscriptRecord
+}
+
+func (s *mutableTranscriptListSource) Get(_ context.Context, id string) (media.TranscriptRecord, error) {
+	record, ok := s.records[id]
+	if !ok {
+		return media.TranscriptRecord{}, errors.New("record not found")
+	}
+	return record, nil
+}
+
+func (s *mutableTranscriptListSource) List(context.Context, int, string) ([]media.TranscriptRecord, string, error) {
+	out := make([]media.TranscriptRecord, 0, len(s.records))
+	for _, record := range s.records {
+		out = append(out, record)
+	}
+	return out, "", nil
+}
+
 type sharedRegistrationRecord struct {
 	ID    string
 	Type  string
@@ -101,6 +121,53 @@ func (p sharedRegistrationProjector) Project(_ context.Context, record sharedReg
 		Body:       record.Body,
 		URL:        "/" + p.sourceType + "/" + record.ID,
 		Locale:     "en",
+	}}, nil
+}
+
+type aliasRecord struct {
+	ID       string
+	AliasID  string
+	Title    string
+	Body     string
+	Locale   string
+	SourceID string
+}
+
+type aliasSource struct {
+	records map[string]aliasRecord
+}
+
+func (s aliasSource) Get(_ context.Context, id string) (aliasRecord, error) {
+	record, ok := s.records[id]
+	if !ok {
+		return aliasRecord{}, errors.New("record not found")
+	}
+	return record, nil
+}
+
+func (s aliasSource) List(context.Context, int, string) ([]aliasRecord, string, error) {
+	out := make([]aliasRecord, 0, len(s.records))
+	for _, record := range s.records {
+		out = append(out, record)
+	}
+	return out, "", nil
+}
+
+type aliasProjector struct{}
+
+func (aliasProjector) Project(_ context.Context, record aliasRecord) ([]types.Document, error) {
+	return []types.Document{{
+		ID:    "doc-" + record.AliasID,
+		Type:  types.DocumentTypeDocument,
+		Title: record.Title,
+		Body:  record.Body,
+		URL:   "/docs/" + record.AliasID,
+		Locale: func() string {
+			if record.Locale != "" {
+				return record.Locale
+			}
+			return "en"
+		}(),
 	}}, nil
 }
 
@@ -242,6 +309,113 @@ harbor bells
 	}
 	if len(health.Indexes) != 1 || health.Indexes[0].Documents != 2 {
 		t.Fatalf("expected only current derived documents after replacement, got %+v", health.Indexes)
+	}
+}
+
+func TestIndexerReindexRemovesStaleDerivedDocuments(t *testing.T) {
+	recordA := testkit.SampleTranscriptRecord()
+	recordB := testkit.SampleTranscriptRecord()
+	recordB.ID = "track-second"
+	recordB.Media.ID = "video-second"
+	recordB.Content = "1\n00:00:01,000 --> 00:00:02,500\nmountain bells\n"
+	source := &mutableTranscriptListSource{
+		records: map[string]media.TranscriptRecord{
+			recordA.ID: recordA,
+			recordB.ID: recordB,
+		},
+	}
+	projector := media.NewTranscriptProjector(media.TranscriptProjectorConfig{
+		Index:      "media",
+		SourceType: "transcript",
+	})
+	registry := NewRegistry()
+	def := types.IndexDefinition{Name: "media", GroupByDefault: "parent_id"}
+	reg := NewRegistration("media", def, "transcript", source, projector, func(r media.TranscriptRecord) string { return r.ID })
+	if err := registry.Register(def, reg); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	provider := memory.New(memory.Config{})
+	if err := provider.EnsureIndex(context.Background(), def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	indexer, err := NewIndexer(IndexerConfig{Registry: registry, Provider: provider})
+	if err != nil {
+		t.Fatalf("new indexer: %v", err)
+	}
+	if err := indexer.ReindexIndex(context.Background(), "media", "", 10); err != nil {
+		t.Fatalf("initial reindex: %v", err)
+	}
+	source.records = map[string]media.TranscriptRecord{recordB.ID: recordB}
+	if err := indexer.ReindexIndex(context.Background(), "media", "", 10); err != nil {
+		t.Fatalf("second reindex: %v", err)
+	}
+	page, err := provider.Search(context.Background(), types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "prayer",
+		Page:    1,
+		PerPage: 10,
+	})
+	if err != nil {
+		t.Fatalf("search stale content: %v", err)
+	}
+	if page.Total != 0 {
+		t.Fatalf("expected stale removed record to disappear after reindex, got %+v", page.Hits)
+	}
+	page, err = provider.Search(context.Background(), types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "mountain",
+		Page:    1,
+		PerPage: 10,
+	})
+	if err != nil {
+		t.Fatalf("search surviving content: %v", err)
+	}
+	if page.Total == 0 {
+		t.Fatalf("expected surviving record after convergent reindex")
+	}
+}
+
+func TestIndexerDeleteRecordResolvesCanonicalSourceID(t *testing.T) {
+	source := aliasSource{records: map[string]aliasRecord{
+		"db-1": {
+			ID:      "db-1",
+			AliasID: "public-1",
+			Title:   "Ocean Workbook",
+			Body:    "ocean prayer notes",
+			Locale:  "en",
+		},
+	}}
+	registry := NewRegistry()
+	def := types.IndexDefinition{Name: "documents"}
+	reg := NewRegistration("documents", def, "document", source, aliasProjector{}, func(r aliasRecord) string { return r.AliasID })
+	if err := registry.Register(def, reg); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	provider := memory.New(memory.Config{})
+	if err := provider.EnsureIndex(context.Background(), def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	indexer, err := NewIndexer(IndexerConfig{Registry: registry, Provider: provider})
+	if err != nil {
+		t.Fatalf("new indexer: %v", err)
+	}
+	if _, err := indexer.IndexRecord(context.Background(), "documents", "", "db-1"); err != nil {
+		t.Fatalf("index record: %v", err)
+	}
+	if err := indexer.DeleteRecord(context.Background(), "documents", "", "db-1"); err != nil {
+		t.Fatalf("delete record: %v", err)
+	}
+	page, err := provider.Search(context.Background(), types.SearchRequest{
+		Indexes: []string{"documents"},
+		Query:   "ocean",
+		Page:    1,
+		PerPage: 10,
+	})
+	if err != nil {
+		t.Fatalf("search after delete: %v", err)
+	}
+	if page.Total != 0 {
+		t.Fatalf("expected canonical source-id delete to remove document, got %+v", page.Hits)
 	}
 }
 

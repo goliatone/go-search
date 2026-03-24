@@ -329,6 +329,14 @@ func (p *Provider) ReplaceDocuments(ctx context.Context, index, registrationKey 
 	return replaceDocuments(ctx, p.client, runtime, registrationKey, sourceIDs, docs)
 }
 
+func (p *Provider) ResetRegistration(ctx context.Context, index, registrationKey string) error {
+	runtime, err := p.runtimeFor(index)
+	if err != nil {
+		return err
+	}
+	return deleteByRegistration(ctx, p.client, runtime, registrationKey)
+}
+
 func (p *Provider) Health(ctx context.Context, req types.HealthRequest) (types.HealthStatus, error) {
 	collections, err := p.client.Collections().Retrieve(ctx)
 	if err != nil {

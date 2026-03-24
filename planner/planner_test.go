@@ -101,6 +101,20 @@ func TestPlannerRejectsInvalidFilter(t *testing.T) {
 	}
 }
 
+func TestPlannerRejectsUnsupportedFilterOperator(t *testing.T) {
+	err := ValidateFilter(types.TermExpr{Field: "topic", Op: types.FilterOp("wildcard"), Value: "archive"})
+	if err == nil {
+		t.Fatalf("expected invalid filter operator error")
+	}
+}
+
+func TestPlannerRejectsInvalidFilterInPayload(t *testing.T) {
+	err := ValidateFilter(types.TermExpr{Field: "topic", Op: types.FilterOpIn, Value: "archive"})
+	if err == nil {
+		t.Fatalf("expected invalid in payload error")
+	}
+}
+
 func TestPlannerRejectsUnsupportedSearchMode(t *testing.T) {
 	registry := indexing.NewRegistry()
 	_ = registry.Register(types.IndexDefinition{Name: "media"}, nil)

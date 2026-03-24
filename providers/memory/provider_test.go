@@ -114,6 +114,24 @@ func TestProviderPreferParentSuggestionsAreDeduplicated(t *testing.T) {
 	}
 }
 
+func TestProviderRejectsInvalidFilterOperator(t *testing.T) {
+	provider := New(Config{})
+	ctx := context.Background()
+	if err := provider.EnsureIndex(ctx, types.IndexDefinition{Name: "media"}); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	_, err := provider.Search(ctx, types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "Ocean",
+		Filters: types.TermExpr{Field: "topic", Op: types.FilterOp("wildcard"), Value: "archive"},
+		Page:    1,
+		PerPage: 10,
+	})
+	if err == nil {
+		t.Fatalf("expected invalid filter operator error")
+	}
+}
+
 func TestProviderPrefersExactLocaleAndAnnotatesLocaleMatch(t *testing.T) {
 	provider := New(Config{})
 	ctx := context.Background()

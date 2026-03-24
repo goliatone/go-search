@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/goliatone/go-search/internal/errs"
+	"github.com/goliatone/go-search/internal/filtervalidate"
 	"github.com/goliatone/go-search/pkg/types"
 	"github.com/goliatone/go-search/ranking"
 )
@@ -142,6 +143,18 @@ func (p *Provider) DeleteBySource(_ context.Context, index, registrationKey stri
 		if _, ok := sourceSet[doc.SourceID]; ok {
 			delete(p.docs[index], id)
 		}
+	}
+	return nil
+}
+
+func (p *Provider) ResetRegistration(_ context.Context, index, registrationKey string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for id, doc := range p.docs[index] {
+		if !registrationMatches(doc, registrationKey) {
+			continue
+		}
+		delete(p.docs[index], id)
 	}
 	return nil
 }
@@ -767,7 +780,7 @@ func cloneMap(in map[string]any) map[string]any {
 func validateSearchRequest(req types.SearchRequest) error {
 	switch req.Mode {
 	case "", types.SearchModeLexical:
-		return nil
+		return filtervalidate.Validate(req.Filters)
 	case types.SearchModeSemantic:
 		return errs.UnsupportedCapability("semantic_search", map[string]any{"mode": req.Mode})
 	case types.SearchModeHybrid:

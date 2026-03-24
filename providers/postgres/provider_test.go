@@ -71,6 +71,17 @@ func TestFieldExistsMatchesCanonicalAndFacetFields(t *testing.T) {
 	}
 }
 
+func TestValidateSearchRequestRejectsInvalidFilterOperator(t *testing.T) {
+	err := validateSearchRequest(types.SearchRequest{
+		Indexes: []string{"media"},
+		Mode:    types.SearchModeLexical,
+		Filters: types.TermExpr{Field: "topic", Op: types.FilterOp("wildcard"), Value: "archive"},
+	})
+	if err == nil {
+		t.Fatalf("expected invalid filter operator error")
+	}
+}
+
 func TestPostgresProviderContractSuite(t *testing.T) {
 	providers.RunContractSuite(t, func(t *testing.T) providers.Provider {
 		t.Helper()

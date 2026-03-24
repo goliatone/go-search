@@ -87,6 +87,14 @@ func deleteBySource(ctx context.Context, client *tstypesense.Client, runtime man
 	return deleteDocumentsByStorageID(ctx, client, runtime, ids)
 }
 
+func deleteByRegistration(ctx context.Context, client *tstypesense.Client, runtime managedIndex, registrationKey string) error {
+	ids, err := listDocumentIDsByField(ctx, client, runtime, "registration_key", []string{strings.TrimSpace(registrationKey)})
+	if err != nil {
+		return err
+	}
+	return deleteDocumentsByStorageID(ctx, client, runtime, ids)
+}
+
 func replaceDocuments(ctx context.Context, client *tstypesense.Client, runtime managedIndex, registrationKey string, sourceIDs []string, docs []types.Document) error {
 	registrationKey = strings.TrimSpace(registrationKey)
 	for i := range docs {
