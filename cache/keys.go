@@ -82,14 +82,6 @@ func searchCacheDetails(ctx context.Context, provider string, req types.SearchRe
 	}, nil
 }
 
-func suggestCacheKey(ctx context.Context, provider string, req types.SuggestRequest, generations generationLookup) (string, error) {
-	details, err := suggestCacheDetails(ctx, provider, req, generations)
-	if err != nil {
-		return "", err
-	}
-	return details.Key, nil
-}
-
 func suggestCacheDetails(ctx context.Context, provider string, req types.SuggestRequest, generations generationLookup) (cacheKeyDetails, error) {
 	indexes := normalizeIndexes(req.Indexes)
 	generationMap, err := indexGenerations(ctx, indexes, generations)
