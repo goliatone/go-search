@@ -4,10 +4,10 @@ go 1.26.1
 
 require (
 	github.com/gofiber/fiber/v2 v2.52.12
-	github.com/goliatone/go-admin v0.31.0
+	github.com/goliatone/go-admin v0.32.0
 	github.com/goliatone/go-admin/quickstart v0.0.0
-	github.com/goliatone/go-auth v0.39.0
-	github.com/goliatone/go-cms v0.44.0
+	github.com/goliatone/go-auth v0.40.0
+	github.com/goliatone/go-cms v0.45.0
 	github.com/goliatone/go-command v0.18.0
 	github.com/goliatone/go-featuregate v0.6.0
 	github.com/goliatone/go-router v0.55.0
@@ -93,12 +93,12 @@ require (
 	github.com/gofiber/template/django/v3 v3.1.14 // indirect
 	github.com/gofiber/utils v1.2.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
-	github.com/goliatone/go-auth/adapters/featuregate v0.36.0 // indirect
+	github.com/goliatone/go-auth/adapters/featuregate v0.40.0 // indirect
 	github.com/goliatone/go-composite-fs v0.3.0 // indirect
 	github.com/goliatone/go-config v0.13.0 // indirect
 	github.com/goliatone/go-crud v0.23.0 // indirect
 	github.com/goliatone/go-crud/gql v0.23.0 // indirect
-	github.com/goliatone/go-dashboard v0.7.0 // indirect
+	github.com/goliatone/go-dashboard v0.9.0 // indirect
 	github.com/goliatone/go-errors v0.10.0 // indirect
 	github.com/goliatone/go-export v0.7.0 // indirect
 	github.com/goliatone/go-export/adapters/template/go-template v0.7.0 // indirect

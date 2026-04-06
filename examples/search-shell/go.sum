@@ -173,8 +173,8 @@ github.com/gofiber/utils v1.2.0/go.mod h1:poZpsnhBykfnY1Mc0KeEa6mSHrS3dV0+oBWyeQ
 github.com/golang-jwt/jwt/v5 v5.3.1 h1:kYf81DTWFe7t+1VvL7eS+jKFVWaUnK9cB1qbwn63YCY=
 github.com/golang-jwt/jwt/v5 v5.3.1/go.mod h1:fxCRLWMO43lRc8nhHWY6LGqRcf+1gQWArsqaEUEa5bE=
 github.com/golang/mock v1.6.0/go.mod h1:p6yTPP+5HYm5mzsMV8JkE6ZKdX+/wYM6Hr+LicevLPs=
-github.com/goliatone/go-auth/adapters/featuregate v0.36.0 h1:yxXSJkXQrQYF6nNxOi9O64vay/jbdKXIRYJMVHPBTQY=
-github.com/goliatone/go-auth/adapters/featuregate v0.36.0/go.mod h1:SiYC9KDokn6sWXFPmtJuCqCWHM1OFq6iJMR6299ITTs=
+github.com/goliatone/go-auth/adapters/featuregate v0.40.0 h1:ZgijghcuCNyifcovFclFpl/kZprpOJNJRANEePjR4fA=
+github.com/goliatone/go-auth/adapters/featuregate v0.40.0/go.mod h1:ErtW2zz5ZqyWReoWDhzXGUOwjdCeIUXhu6uMiFYAfZU=
 github.com/goliatone/go-composite-fs v0.3.0 h1:dM/iD097b7FWyMVduGpS9HK3Swig7FVNUWfIUs/hp7o=
 github.com/goliatone/go-composite-fs v0.3.0/go.mod h1:soZ1AneoCf50zh28NYag/HozxlvqgvmePsZo2tv1TRk=
 github.com/goliatone/go-crud/gql v0.23.0 h1:WNAeYVHWw5A/j5b0/qfFHfSYzm/0tuQ3dbJyRwG2DM4=
