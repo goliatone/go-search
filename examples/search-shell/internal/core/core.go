@@ -116,8 +116,7 @@ func New(_ context.Context, cfg *config.AppConfig) (*Core, error) {
 	if err := quickstart.RegisterAuthUIRoutes(
 		r,
 		adminCfg,
-		auther,
-		authCookieName,
+		routeAuth,
 		quickstart.WithAuthUIFeatureGate(adm.FeatureGate()),
 	); err != nil {
 		return nil, fmt.Errorf("register auth UI routes: %w", err)
