@@ -3,7 +3,7 @@ module github.com/goliatone/go-search
 go 1.26.1
 
 require (
-	github.com/goliatone/go-command v0.18.0
+	github.com/goliatone/go-command v0.19.0
 	github.com/goliatone/go-errors v0.10.0
 	github.com/goliatone/go-i18n v0.5.0
 	github.com/goliatone/go-persistence-bun v0.13.0
