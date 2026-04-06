@@ -5,7 +5,7 @@ go 1.26.1
 require (
 	github.com/goliatone/go-command v0.18.0
 	github.com/goliatone/go-errors v0.10.0
-	github.com/goliatone/go-i18n v0.4.0
+	github.com/goliatone/go-i18n v0.5.0
 	github.com/goliatone/go-persistence-bun v0.13.0
 	github.com/goliatone/go-repository-bun v0.15.1
 	github.com/lib/pq v1.12.0

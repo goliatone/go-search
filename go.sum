@@ -32,8 +32,8 @@ github.com/goliatone/go-command v0.18.0 h1:jcuL0B5IZDz6nDLin9k0+inAY1pwA3T77QH/f
 github.com/goliatone/go-command v0.18.0/go.mod h1:tWBQypgZxIk//4NBOEqFZiV4mgtWsEcvrqHPFo5eGv8=
 github.com/goliatone/go-errors v0.10.0 h1:qVmOXKq6aa3cHbygI5VHGCosuA0CLAXso0BlinboYJE=
 github.com/goliatone/go-errors v0.10.0/go.mod h1:FiZEC2z5a8SBdRyljC9wFt+IzqZDfrst2dPoqWARbr4=
-github.com/goliatone/go-i18n v0.4.0 h1:efIvQ0uazwhUYpKtW+hndf3/K3NgntXe836UUeoX8t0=
-github.com/goliatone/go-i18n v0.4.0/go.mod h1:lg0zlUwItVZAXUJPWywuFKtgL75eGSJFBfyIfhDekoU=
+github.com/goliatone/go-i18n v0.5.0 h1:xc2mYv0XWoMHpfyDj6JEJS53cUUDCvAtSjieG2OYdBc=
+github.com/goliatone/go-i18n v0.5.0/go.mod h1:lg0zlUwItVZAXUJPWywuFKtgL75eGSJFBfyIfhDekoU=
 github.com/goliatone/go-persistence-bun v0.13.0 h1:7GLuvIlSqbZG1Bvypl1c/o7q2WOvLK2JpWH4onE+skc=
 github.com/goliatone/go-persistence-bun v0.13.0/go.mod h1:hrsGtNrREROFmcc3P1JFYLtunY2JwfPfsRhRUT3+Gyc=
 github.com/goliatone/go-repository-bun v0.15.1 h1:t2RHhqM6OBjyybJE9wnKtVYXM8f4Jb2s1s/q2sSCS60=

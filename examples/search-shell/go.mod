@@ -5,15 +5,15 @@ go 1.26.1
 require (
 	github.com/gofiber/fiber/v2 v2.52.12
 	github.com/goliatone/go-admin v0.32.0
-	github.com/goliatone/go-admin/quickstart v0.0.0
+	github.com/goliatone/go-admin/quickstart v0.32.0
 	github.com/goliatone/go-auth v0.40.0
 	github.com/goliatone/go-cms v0.45.0
 	github.com/goliatone/go-command v0.18.0
 	github.com/goliatone/go-featuregate v0.6.0
 	github.com/goliatone/go-router v0.55.0
 	github.com/goliatone/go-search v0.2.0
-	github.com/goliatone/go-search/adapters/gocms v0.0.0
-	github.com/goliatone/go-search/adapters/gousers v0.0.0
+	github.com/goliatone/go-search/adapters/gocms v0.2.0
+	github.com/goliatone/go-search/adapters/gousers v0.2.0
 	github.com/goliatone/go-users v0.18.0
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.12.0
@@ -216,62 +216,4 @@ require (
 	modernc.org/sqlite v1.46.1 // indirect
 )
 
-replace github.com/goliatone/go-admin => ../../../go-admin
-
-replace github.com/goliatone/go-admin/quickstart => ../../../go-admin/quickstart
-
-replace github.com/goliatone/go-search/adapters/goadmin => ../../adapters/goadmin
-
-replace github.com/goliatone/go-auth => ../../../go-auth
-
-replace github.com/goliatone/go-cms => ../../../go-cms
-
-replace github.com/goliatone/go-command => ../../../go-command
-
-replace github.com/goliatone/go-config => ../../../go-config
-
-replace github.com/goliatone/go-crud => ../../../go-crud
-
-replace github.com/goliatone/go-dashboard => ../../../go-dashboard
-
-replace github.com/goliatone/go-errors => ../../../go-errors
-
-replace github.com/goliatone/go-export => ../../../go-export
-
-replace github.com/goliatone/go-featuregate => ../../../go-featuregate
-
-replace github.com/goliatone/go-formgen => ../../../go-formgen
-
-replace github.com/goliatone/go-i18n => ../../../go-i18n
-
-replace github.com/goliatone/go-job => ../../../go-job
-
-replace github.com/goliatone/go-logger => ../../../go-logger
-
-replace github.com/goliatone/go-masker => ../../../go-masker
-
-replace github.com/goliatone/go-notifications => ../../../go-notifications
-
-replace github.com/goliatone/go-options => ../../../go-options
-
-replace github.com/goliatone/go-persistence-bun => ../../../go-persistence-bun
-
-replace github.com/goliatone/go-repository-bun => ../../../go-repository-bun
-
-replace github.com/goliatone/go-router => ../../../go-router
-
 replace github.com/goliatone/go-search => ../..
-
-replace github.com/goliatone/go-search/adapters/gocms => ../../adapters/gocms
-
-replace github.com/goliatone/go-search/adapters/gousers => ../../adapters/gousers
-
-replace github.com/goliatone/go-template => ../../../go-template
-
-replace github.com/goliatone/go-theme => ../../../go-theme
-
-replace github.com/goliatone/go-uploader => ../../../go-uploader
-
-replace github.com/goliatone/go-urlkit => ../../../go-urlkit
-
-replace github.com/goliatone/go-users => ../../../go-users

@@ -25,8 +25,8 @@ github.com/flosch/pongo2/v6 v6.0.0 h1:lsGru8IAzHgIAw6H2m4PCyleO58I40ow6apih0WprM
 github.com/flosch/pongo2/v6 v6.0.0/go.mod h1:CuDpFm47R0uGGE7z13/tTlt1Y6zdxvr2RLT5LJhsHEU=
 github.com/go-ozzo/ozzo-validation/v4 v4.3.0 h1:byhDUpfEwjsVQb1vBunvIjh2BHQ9ead57VkAEY4V+Es=
 github.com/go-ozzo/ozzo-validation/v4 v4.3.0/go.mod h1:2NKgrcHl3z6cJs+3Oo940FPRiTzuqKbvfrL2RxCj6Ew=
-github.com/goliatone/go-cms v0.44.0 h1:guiESsDyWjbc9cxJkxaYwi8gZuFHgEB1HwafcTxR5ak=
-github.com/goliatone/go-cms v0.44.0/go.mod h1:JC51QeGhSR2eqbFmvK80flu4FIK9/xYk8YWkI4NHjCg=
+github.com/goliatone/go-cms v0.45.0 h1:g1/TWvP7Vxc42Jf+CyLubQgDuK1JXN7Y3nt8SrjvWzg=
+github.com/goliatone/go-cms v0.45.0/go.mod h1:d+TpdpXi8zTDWtn9v0i779tGZDhfhc5bMTZI+AZNXC8=
 github.com/goliatone/go-command v0.18.0 h1:jcuL0B5IZDz6nDLin9k0+inAY1pwA3T77QH/fDYQDUc=
 github.com/goliatone/go-command v0.18.0/go.mod h1:tWBQypgZxIk//4NBOEqFZiV4mgtWsEcvrqHPFo5eGv8=
 github.com/goliatone/go-errors v0.10.0 h1:qVmOXKq6aa3cHbygI5VHGCosuA0CLAXso0BlinboYJE=
