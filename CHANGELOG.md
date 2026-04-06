@@ -1,5 +1,25 @@
 # Changelog
 
+# [0.3.0](https://github.com/goliatone/go-search/compare/v0.2.0...v0.3.0) - (2026-04-06)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Remove unused code ([ff9969f](https://github.com/goliatone/go-search/commit/ff9969fbc44ac2c1627b618f35fc0c92fac9bb0b))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.3.0 ([ff5e251](https://github.com/goliatone/go-search/commit/ff5e251cb8e0d4839d52dff76692038f0d6c72d4))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.2.0 ([fbad2af](https://github.com/goliatone/go-search/commit/fbad2af7ef58444c907627029efa8191f6254b10))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update deps ([c06fc26](https://github.com/goliatone/go-search/commit/c06fc263ce0df0f55f6e5c50d9b487f94efd672c))  - (goliatone)
+- Fix code ([d8aa307](https://github.com/goliatone/go-search/commit/d8aa307e943f707442f825181080bf9b5b4c3050))  - (goliatone)
+- Update examples ([78a2c26](https://github.com/goliatone/go-search/commit/78a2c26f9627b8ab2e36a3b385829cf8ac8ebf33))  - (goliatone)
+
 # [0.2.0](https://github.com/goliatone/go-search/compare/v0.1.0...v0.2.0) - (2026-03-24)
 
 ## <!-- 1 -->🐛 Bug Fixes
