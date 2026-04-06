@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -83,9 +84,7 @@ func cacheMetadata(component, provider, reason string, metadata map[string]any) 
 	if reason != "" {
 		out["reason"] = reason
 	}
-	for key, value := range metadata {
-		out[key] = value
-	}
+	maps.Copy(out, metadata)
 	return out
 }
 

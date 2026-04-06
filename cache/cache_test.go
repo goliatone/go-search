@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -108,12 +109,7 @@ func (l *loggerStub) Warn(msg string, _ map[string]any)  { l.messages = append(l
 func (l *loggerStub) Error(msg string, _ map[string]any) { l.messages = append(l.messages, msg) }
 
 func (l *loggerStub) contains(msg string) bool {
-	for _, item := range l.messages {
-		if item == msg {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(l.messages, msg)
 }
 
 type providerStub struct {
