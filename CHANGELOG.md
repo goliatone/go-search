@@ -1,5 +1,24 @@
 # Changelog
 
+# [0.4.0](https://github.com/goliatone/go-search/compare/v0.3.0...v0.4.0) - (2026-04-07)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.4.0 ([bdda4ce](https://github.com/goliatone/go-search/commit/bdda4ce8d8106e05914bce39ab4f7e663a8c3548))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Jobs to index content ([bcde4cb](https://github.com/goliatone/go-search/commit/bcde4cba27f121eafbf3c643ab94238fe5cd7427))  - (goliatone)
+- Job dispatch store ([92bbfeb](https://github.com/goliatone/go-search/commit/92bbfeb65324da2d6c287d6a8b47f3ac5d6897f1))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.3.0 ([92666fd](https://github.com/goliatone/go-search/commit/92666fdb46cb0a475d1d0f6f739ac5a65c6f3b93))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update deps ([bf1c90a](https://github.com/goliatone/go-search/commit/bf1c90a0ea8cac5bcc6f6cf3f4595f131decb575))  - (goliatone)
+
 # [0.3.0](https://github.com/goliatone/go-search/compare/v0.2.0...v0.3.0) - (2026-04-06)
 
 ## <!-- 1 -->🐛 Bug Fixes
