@@ -231,10 +231,8 @@ func waitForState(t *testing.T, client *Client, dispatchID string, states ...str
 			t.Fatalf("get snapshot: %v", err)
 		}
 		if ok {
-			for _, state := range states {
-				if snapshot.State == state {
-					return snapshot
-				}
+			if slices.Contains(states, snapshot.State) {
+				return snapshot
 			}
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -249,8 +247,7 @@ func TestAsyncIndexRecordDuplicateDeliverySafetyAndSummary(t *testing.T) {
 		"alpha": {ID: "alpha", Title: "Alpha", Body: "archive alpha"},
 	}, projector, worker.DefaultRetryPolicy{MaxAttempts: 2})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	if err := h.worker.Start(ctx); err != nil {
 		t.Fatalf("start worker: %v", err)
 	}
@@ -302,8 +299,7 @@ func TestAsyncTrackingSurvivesWorkerCompletionBeforeReceiptBinding(t *testing.T)
 		"alpha": {ID: "alpha", Title: "Alpha", Body: "archive alpha"},
 	}, projector, worker.DefaultRetryPolicy{MaxAttempts: 1}, NewMemoryDispatchStore(), slowQueue, enqueueDelayQueue{MemoryQueue: slowQueue, delay: 75 * time.Millisecond})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	if err := h.worker.Start(ctx); err != nil {
 		t.Fatalf("start worker: %v", err)
 	}
@@ -340,8 +336,7 @@ func TestAsyncReindexPartialBatchRecoveryAndProgress(t *testing.T) {
 		},
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	if err := h.worker.Start(ctx); err != nil {
 		t.Fatalf("start worker: %v", err)
 	}
@@ -384,8 +379,7 @@ func TestAsyncPauseResumeCancelAndRestart(t *testing.T) {
 		"alpha": {ID: "alpha", Title: "Alpha", Body: "archive alpha"},
 	}, projector, worker.DefaultRetryPolicy{MaxAttempts: 1})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	if err := h.worker.Start(ctx); err != nil {
 		t.Fatalf("start worker: %v", err)
 	}
@@ -442,8 +436,7 @@ func TestAsyncRejectsDuplicateOperationKey(t *testing.T) {
 		"alpha": {ID: "alpha", Title: "Alpha", Body: "archive alpha"},
 	}, projector, worker.DefaultRetryPolicy{MaxAttempts: 1})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	if err := h.worker.Start(ctx); err != nil {
 		t.Fatalf("start worker: %v", err)
 	}
@@ -473,8 +466,7 @@ func TestAsyncGetAndRestartSurviveTrackerReplacement(t *testing.T) {
 		"alpha": {ID: "alpha", Title: "Alpha", Body: "archive alpha"},
 	}, projector, worker.DefaultRetryPolicy{MaxAttempts: 1}, store, nil, nil)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	if err := h.worker.Start(ctx); err != nil {
 		t.Fatalf("start worker: %v", err)
 	}
