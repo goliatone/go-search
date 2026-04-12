@@ -54,3 +54,4 @@ go.work
 .tmp
 
 examples/search-shell/demo
+.envset
