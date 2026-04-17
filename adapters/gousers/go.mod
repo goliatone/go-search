@@ -9,7 +9,7 @@ require (
 )
 
 require (
-	github.com/goliatone/go-i18n v0.4.0 // indirect
+	github.com/goliatone/go-i18n v0.5.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
