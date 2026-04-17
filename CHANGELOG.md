@@ -1,5 +1,28 @@
 # Changelog
 
+# [0.4.1](https://github.com/goliatone/go-search/compare/v0.4.0...v0.4.1) - (2026-04-17)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.4.1 ([6c2680a](https://github.com/goliatone/go-search/commit/6c2680a2777c90412c05a103b0c40d879973f825))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Baseline tools ([1252df3](https://github.com/goliatone/go-search/commit/1252df3272f3506924804dc96c27948b44a37e1d))  - (goliatone)
+- Go-cms projector ([5b5483a](https://github.com/goliatone/go-search/commit/5b5483a22cd8582976456e7077f44f0a0d51ac35))  - (goliatone)
+- Content projector for numeric ([7f0d1d5](https://github.com/goliatone/go-search/commit/7f0d1d5543ca353e5c53ae1d4f3e60da7842cf46))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.4.0 ([acd3008](https://github.com/goliatone/go-search/commit/acd3008e5533d1bb0c4e013102761a33fa4f5514))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Quality code linter ([d602047](https://github.com/goliatone/go-search/commit/d60204749be2c7cd87fe52afaf91e8a36b8a3a78))  - (goliatone)
+- Update deps ([90adf9f](https://github.com/goliatone/go-search/commit/90adf9fb166a0363b3d949bf04b18d010b4b6674))  - (goliatone)
+- Update gitignore ([ce4dc00](https://github.com/goliatone/go-search/commit/ce4dc00bb11dc35d1a5bd7d8ed11fd03977f3d70))  - (goliatone)
+- Update tests ([3aca928](https://github.com/goliatone/go-search/commit/3aca9289d2594852dc1b659eab651f442e0306ab))  - (goliatone)
+
 # [0.4.0](https://github.com/goliatone/go-search/compare/v0.3.0...v0.4.0) - (2026-04-07)
 
 ## <!-- 13 -->📦 Bumps
