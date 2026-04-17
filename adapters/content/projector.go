@@ -47,6 +47,9 @@ func (p *Projector) Project(_ context.Context, record Record) ([]types.Document,
 	if doc.Facets == nil {
 		doc.Facets = map[string][]string{}
 	}
+	if doc.Numeric == nil {
+		doc.Numeric = map[string]float64{}
+	}
 	doc.Fields["entity_type"] = doc.Type
 	doc.Facets["entity_type"] = []string{doc.Type}
 	if _, ok := doc.Numeric["published_year"]; !ok {
