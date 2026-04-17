@@ -32,12 +32,17 @@ TYPESENSE_PROTOCOL="${TYPESENSE_PROTOCOL:-http}"
 TYPESENSE_API_KEY="${GO_SEARCH_TEST_TYPESENSE_API_KEY:-${TYPESENSE_API_KEY:-xyz}}"
 TYPESENSE_URL="${GO_SEARCH_TEST_TYPESENSE_URL:-${TYPESENSE_PROTOCOL}://localhost:${TYPESENSE_PORT}}"
 GO_TOOLCHAIN="${GO_TOOLCHAIN:-local}"
+GO_GOLANGCI_LINT_VERSION="${GO_GOLANGCI_LINT_VERSION:-v2.11.3}"
+GO_GOLANGCI_LINT_VERSION_FILE="${GO_GOLANGCI_LINT_VERSION_FILE:-.golangci-lint-version}"
 GO_STATICCHECK_VERSION="${GO_STATICCHECK_VERSION:-v0.7.0}"
 GO_GOVULNCHECK_VERSION="${GO_GOVULNCHECK_VERSION:-v1.1.4}"
 GO_GOSEC_VERSION="${GO_GOSEC_VERSION:-v2.25.0}"
 GO_QUALITY_BASELINE_DIR="${GO_QUALITY_BASELINE_DIR:-${PROJECT_ROOT}/ops/quality/baselines}"
 GO_QUALITY_BASELINE_SCRIPT="${GO_QUALITY_BASELINE_SCRIPT:-${PROJECT_ROOT}/tools/quality/baseline.sh}"
-GO_QUALITY_MODULES="${GO_QUALITY_MODULES:-. adapters/goadmin adapters/gocms adapters/gousers}"
+GO_QUALITY_GOCACHE="${GO_QUALITY_GOCACHE:-${PROJECT_ROOT}/.tmp/go-cache}"
+GO_QUALITY_GOTMPDIR="${GO_QUALITY_GOTMPDIR:-${PROJECT_ROOT}/.tmp/go-tmp}"
+GO_LINT_NEW_FROM_REV="${GO_LINT_NEW_FROM_REV:-origin/main}"
+GO_QUALITY_MODULES="${GO_QUALITY_MODULES:-. adapters/goadmin adapters/gocms adapters/gousers examples/search-shell}"
 
 
 #################################################
@@ -96,6 +101,21 @@ function _go:bin {
     return 1
 }
 
+function _go:quality:prepare_env {
+    export GOCACHE="${GOCACHE:-${GO_QUALITY_GOCACHE}}"
+    export GOTMPDIR="${GOTMPDIR:-${GO_QUALITY_GOTMPDIR}}"
+    mkdir -p "${GOCACHE}" "${GOTMPDIR}"
+}
+
+function _go:golangci_lint_version {
+    if [ -f "${GO_GOLANGCI_LINT_VERSION_FILE}" ]; then
+        awk 'NF { print $1; exit }' "${GO_GOLANGCI_LINT_VERSION_FILE}"
+        return 0
+    fi
+
+    printf '%s\n' "${GO_GOLANGCI_LINT_VERSION}"
+}
+
 function _go:tool_bin_dir {
     local go_bin
     local gobin
@@ -142,6 +162,7 @@ function _go:tool:install {
     local go_bin
 
     go_bin=$(_go:bin) || return 1
+    _go:quality:prepare_env || return 1
     echo "Installing ${name} (${target})"
     GOTOOLCHAIN="${GO_TOOLCHAIN}" "${go_bin}" install "${target}" || return 1
     _go:tool:path "${name}" || return 1
@@ -284,6 +305,7 @@ function _go:test_module {
     local -a packages=()
 
     go_bin=$(_go:bin) || return 1
+    _go:quality:prepare_env || return 1
     while IFS= read -r -d '' pkg; do
         packages+=("${pkg}")
     done < <(_go:packages_for_module "${module}" "$@")
@@ -305,6 +327,7 @@ function _go:race_module {
     local -a packages=()
 
     go_bin=$(_go:bin) || return 1
+    _go:quality:prepare_env || return 1
     while IFS= read -r -d '' pkg; do
         packages+=("${pkg}")
     done < <(_go:packages_for_module "${module}" "$@")
@@ -326,6 +349,7 @@ function _go:vet_module {
     local -a packages=()
 
     go_bin=$(_go:bin) || return 1
+    _go:quality:prepare_env || return 1
     while IFS= read -r -d '' pkg; do
         packages+=("${pkg}")
     done < <(_go:packages_for_module "${module}" "$@")
@@ -340,6 +364,93 @@ function _go:vet_module {
     )
 }
 
+function _go:lint:golangci:run_module {
+    local module=$1
+    local label=$2
+    shift 2
+    local version
+    local golangci_lint_bin
+    local -a run_args=()
+    local -a patterns=()
+
+    while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
+        run_args+=("$1")
+        shift
+    done
+
+    if [ "$#" -gt 0 ] && [ "$1" = "--" ]; then
+        shift
+    fi
+
+    version="$(_go:golangci_lint_version)" || return 1
+    golangci_lint_bin=$(_go:tool:ensure "golangci-lint" "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${version}") || return 1
+    _go:quality:prepare_env || return 1
+    if [ "$#" -gt 0 ]; then
+        patterns=("$@")
+    else
+        patterns=("./...")
+    fi
+
+    echo "==> ${label} (${module})"
+    (
+        cd "${module}" || exit 1
+        "${golangci_lint_bin}" run "${run_args[@]}" "${patterns[@]}"
+    )
+}
+
+function _go:lint_module {
+    local module=$1
+    shift
+
+    _go:lint:golangci:run_module "${module}" "go:lint" -- "$@"
+}
+
+function _go:lint:fix_module {
+    local module=$1
+    shift
+
+    _go:lint:golangci:run_module "${module}" "go:lint:fix" --fix -- "$@"
+}
+
+function _go:lint:new_module {
+    local module=$1
+    shift
+
+    _go:lint:golangci:run_module "${module}" "go:lint:new" "--new-from-rev=${GO_LINT_NEW_FROM_REV}" --whole-files -- "$@"
+}
+
+function _go:lint:report_module {
+    local module=$1
+    shift
+
+    _go:lint:golangci:run_module "${module}" "go:lint:report" --issues-exit-code=0 -- "$@"
+}
+
+function _go:lint:baseline_module {
+    local module=$1
+    shift
+    local version
+    local golangci_lint_bin
+    local baseline_path
+    local -a patterns=()
+
+    version="$(_go:golangci_lint_version)" || return 1
+    golangci_lint_bin=$(_go:tool:ensure "golangci-lint" "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${version}") || return 1
+    baseline_path=$(_go:baseline_path "${module}" "golangci-lint") || return 1
+    _go:quality:prepare_env || return 1
+    if [ "$#" -gt 0 ]; then
+        patterns=("$@")
+    else
+        patterns=("./...")
+    fi
+
+    echo "==> go:lint:baseline (${module})"
+    (
+        cd "${module}" || exit 1
+        GOLANGCI_LINT_BIN="${golangci_lint_bin}" "${GO_QUALITY_BASELINE_SCRIPT}" check golangci-lint "${baseline_path}" "${patterns[@]}"
+    )
+}
+
 function _go:lint:staticcheck_module {
     local module=$1
     shift
@@ -347,6 +458,7 @@ function _go:lint:staticcheck_module {
     local -a packages=()
 
     staticcheck_bin=$(_go:tool:ensure "staticcheck" "honnef.co/go/tools/cmd/staticcheck@${GO_STATICCHECK_VERSION}") || return 1
+    _go:quality:prepare_env || return 1
     while IFS= read -r -d '' pkg; do
         packages+=("${pkg}")
     done < <(_go:packages_for_module "${module}" "$@")
@@ -370,6 +482,7 @@ function _go:lint:staticcheck:baseline_module {
 
     staticcheck_bin=$(_go:tool:ensure "staticcheck" "honnef.co/go/tools/cmd/staticcheck@${GO_STATICCHECK_VERSION}") || return 1
     baseline_path=$(_go:baseline_path "${module}" "staticcheck") || return 1
+    _go:quality:prepare_env || return 1
     while IFS= read -r -d '' pkg; do
         packages+=("${pkg}")
     done < <(_go:packages_for_module "${module}" "$@")
@@ -391,6 +504,7 @@ function _go:security:govulncheck_module {
     local -a packages=()
 
     govulncheck_bin=$(_go:tool:ensure "govulncheck" "golang.org/x/vuln/cmd/govulncheck@${GO_GOVULNCHECK_VERSION}") || return 1
+    _go:quality:prepare_env || return 1
     while IFS= read -r -d '' pkg; do
         packages+=("${pkg}")
     done < <(_go:packages_for_module "${module}" "$@")
@@ -412,6 +526,7 @@ function _go:security:gosec_module {
     local -a package_dirs=()
 
     gosec_bin=$(_go:tool:ensure "gosec" "github.com/securego/gosec/v2/cmd/gosec@${GO_GOSEC_VERSION}") || return 1
+    _go:quality:prepare_env || return 1
     while IFS= read -r -d '' dir; do
         package_dirs+=("${dir}")
     done < <(_go:package_dirs_for_module "${module}" "$@")
@@ -432,6 +547,7 @@ function _go:security:gosec:baseline_module {
 
     gosec_bin=$(_go:tool:ensure "gosec" "github.com/securego/gosec/v2/cmd/gosec@${GO_GOSEC_VERSION}") || return 1
     baseline_path=$(_go:baseline_path "${module}" "gosec") || return 1
+    _go:quality:prepare_env || return 1
     while IFS= read -r -d '' dir; do
         package_dirs+=("${dir}")
     done < <(_go:package_dirs_for_module "${module}" "$@")
@@ -443,6 +559,31 @@ function _go:security:gosec:baseline_module {
     GOSEC_BIN="${gosec_bin}" "${GO_QUALITY_BASELINE_SCRIPT}" check gosec "${baseline_path}" "${package_dirs[@]}"
 }
 
+function _go:baseline:update:golangci-lint_module {
+    local module=$1
+    shift
+    local version
+    local golangci_lint_bin
+    local baseline_path
+    local -a patterns=()
+
+    version="$(_go:golangci_lint_version)" || return 1
+    golangci_lint_bin=$(_go:tool:ensure "golangci-lint" "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${version}") || return 1
+    baseline_path=$(_go:baseline_path "${module}" "golangci-lint") || return 1
+    _go:quality:prepare_env || return 1
+    if [ "$#" -gt 0 ]; then
+        patterns=("$@")
+    else
+        patterns=("./...")
+    fi
+
+    echo "==> go:baseline:update:golangci-lint (${module})"
+    (
+        cd "${module}" || exit 1
+        GOLANGCI_LINT_BIN="${golangci_lint_bin}" "${GO_QUALITY_BASELINE_SCRIPT}" update golangci-lint "${baseline_path}" "${patterns[@]}"
+    )
+}
+
 function _go:baseline:update:staticcheck_module {
     local module=$1
     shift
@@ -452,6 +593,7 @@ function _go:baseline:update:staticcheck_module {
 
     staticcheck_bin=$(_go:tool:ensure "staticcheck" "honnef.co/go/tools/cmd/staticcheck@${GO_STATICCHECK_VERSION}") || return 1
     baseline_path=$(_go:baseline_path "${module}" "staticcheck") || return 1
+    _go:quality:prepare_env || return 1
     while IFS= read -r -d '' pkg; do
         packages+=("${pkg}")
     done < <(_go:packages_for_module "${module}" "$@")
@@ -475,6 +617,7 @@ function _go:baseline:update:gosec_module {
 
     gosec_bin=$(_go:tool:ensure "gosec" "github.com/securego/gosec/v2/cmd/gosec@${GO_GOSEC_VERSION}") || return 1
     baseline_path=$(_go:baseline_path "${module}" "gosec") || return 1
+    _go:quality:prepare_env || return 1
     while IFS= read -r -d '' dir; do
         package_dirs+=("${dir}")
     done < <(_go:package_dirs_for_module "${module}" "$@")
@@ -491,11 +634,19 @@ function _go:mod:tidy_module {
     local go_bin
 
     go_bin=$(_go:bin) || return 1
+    _go:quality:prepare_env || return 1
     echo "==> go:mod:tidy (${module})"
     (
         cd "${module}" || exit 1
         "${go_bin}" mod tidy
     )
+}
+
+function go:tools:golangci-lint {
+    local version
+
+    version="$(_go:golangci_lint_version)" || return 1
+    _go:tool:install "golangci-lint" "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${version}"
 }
 
 function go:tools:staticcheck {
@@ -511,6 +662,7 @@ function go:tools:gosec {
 }
 
 function go:tools:all {
+    go:tools:golangci-lint || return 1
     go:tools:staticcheck || return 1
     go:tools:govulncheck || return 1
     go:tools:gosec || return 1
@@ -576,6 +728,26 @@ function go:vet {
     _go:for_each_module _go:vet_module "$@"
 }
 
+function go:lint {
+    _go:for_each_module _go:lint_module "$@"
+}
+
+function go:lint:fix {
+    _go:for_each_module _go:lint:fix_module "$@"
+}
+
+function go:lint:new {
+    _go:for_each_module _go:lint:new_module "$@"
+}
+
+function go:lint:report {
+    _go:for_each_module _go:lint:report_module "$@"
+}
+
+function go:lint:baseline {
+    _go:for_each_module _go:lint:baseline_module "$@"
+}
+
 function go:lint:staticcheck {
     _go:for_each_module _go:lint:staticcheck_module "$@"
 }
@@ -583,6 +755,11 @@ function go:lint:staticcheck {
 function go:lint:all {
     go:vet "$@" || return 1
     go:lint:staticcheck "$@" || return 1
+    go:lint "$@" || return 1
+}
+
+function go:lint:strict {
+    go:lint "$@"
 }
 
 function go:lint:staticcheck:baseline {
@@ -610,13 +787,24 @@ function go:baseline:update:staticcheck {
     _go:for_each_module _go:baseline:update:staticcheck_module "$@"
 }
 
+function go:baseline:update:golangci-lint {
+    _go:for_each_module _go:baseline:update:golangci-lint_module "$@"
+}
+
 function go:baseline:update:gosec {
     _go:for_each_module _go:baseline:update:gosec_module "$@"
 }
 
 function go:baseline:update:all {
+    go:baseline:update:golangci-lint "$@" || return 1
     go:baseline:update:staticcheck "$@" || return 1
     go:baseline:update:gosec "$@" || return 1
+}
+
+function go:quality:pr {
+    go:fmt:check || return 1
+    go:test "$@" || return 1
+    go:lint:new "$@" || return 1
 }
 
 function go:quality:all {
