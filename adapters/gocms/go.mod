@@ -4,7 +4,7 @@ go 1.26.1
 
 require (
 	github.com/goliatone/go-cms v0.45.0
-	github.com/goliatone/go-search v0.4.1
+	github.com/goliatone/go-search v0.5.0
 	github.com/google/uuid v1.6.0
 )
 
