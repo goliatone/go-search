@@ -1,5 +1,15 @@
 # Changelog
 
+# [0.5.0](https://github.com/goliatone/go-search/compare/v0.4.1...v0.5.0) - (2026-04-17)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.5.0 ([329060c](https://github.com/goliatone/go-search/commit/329060c0c2776016c55a635e45736482a0e556ba))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.4.1 ([348d3b9](https://github.com/goliatone/go-search/commit/348d3b92c2ad9569f065912da790f43a21ff8fd7))  - (goliatone)
+
 # [0.4.1](https://github.com/goliatone/go-search/compare/v0.4.0...v0.4.1) - (2026-04-17)
 
 ## <!-- 13 -->📦 Bumps
