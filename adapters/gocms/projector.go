@@ -3,7 +3,9 @@ package gocms
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"strings"
 
 	cmscontent "github.com/goliatone/go-cms/content"
@@ -16,10 +18,104 @@ import (
 const DocumentTypePage = "page"
 
 type ProjectorConfig struct {
+	Index            string
+	RegistrationKey  string
+	SourceType       string
+	DocumentType     string
+	ContentEnrichers ContentRecordEnrichers
+	PageEnrichers    PageRecordEnrichers
+}
+
+type ProjectionContext struct {
 	Index           string
 	RegistrationKey string
 	SourceType      string
 	DocumentType    string
+	Locale          string
+	SearchIndex     string
+	ContentTypeSlug string
+}
+
+type ContentRecordEnricher interface {
+	EnrichContentRecord(context.Context, ProjectionContext, *cmscontent.Content, *contentadapter.Record) error
+}
+
+type ContentRecordEnricherFunc func(context.Context, ProjectionContext, *cmscontent.Content, *contentadapter.Record) error
+
+func (fn ContentRecordEnricherFunc) EnrichContentRecord(ctx context.Context, meta ProjectionContext, src *cmscontent.Content, rec *contentadapter.Record) error {
+	if fn == nil {
+		return nil
+	}
+	return fn(ctx, meta, src, rec)
+}
+
+type ContentRecordEnrichers []ContentRecordEnricher
+
+func (h ContentRecordEnrichers) Enabled() bool {
+	return len(h) > 0
+}
+
+func (h ContentRecordEnrichers) Enrich(ctx context.Context, meta ProjectionContext, src *cmscontent.Content, rec *contentadapter.Record) error {
+	if len(h) == 0 {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var errs []error
+	for _, hook := range h {
+		if hook == nil {
+			continue
+		}
+		if err := hook.EnrichContentRecord(ctx, meta, src, rec); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	return errors.Join(errs...)
+}
+
+type PageRecordEnricher interface {
+	EnrichPageRecord(context.Context, ProjectionContext, *cmspages.Page, *contentadapter.Record) error
+}
+
+type PageRecordEnricherFunc func(context.Context, ProjectionContext, *cmspages.Page, *contentadapter.Record) error
+
+func (fn PageRecordEnricherFunc) EnrichPageRecord(ctx context.Context, meta ProjectionContext, src *cmspages.Page, rec *contentadapter.Record) error {
+	if fn == nil {
+		return nil
+	}
+	return fn(ctx, meta, src, rec)
+}
+
+type PageRecordEnrichers []PageRecordEnricher
+
+func (h PageRecordEnrichers) Enabled() bool {
+	return len(h) > 0
+}
+
+func (h PageRecordEnrichers) Enrich(ctx context.Context, meta ProjectionContext, src *cmspages.Page, rec *contentadapter.Record) error {
+	if len(h) == 0 {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var errs []error
+	for _, hook := range h {
+		if hook == nil {
+			continue
+		}
+		if err := hook.EnrichPageRecord(ctx, meta, src, rec); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	return errors.Join(errs...)
 }
 
 type DocumentProjector struct {
@@ -88,6 +184,12 @@ func normalizeProjectorConfig(cfg ProjectorConfig, documentType string) Projecto
 	if cfg.DocumentType == "" {
 		cfg.DocumentType = documentType
 	}
+	if len(cfg.ContentEnrichers) > 0 {
+		cfg.ContentEnrichers = append(ContentRecordEnrichers(nil), cfg.ContentEnrichers...)
+	}
+	if len(cfg.PageEnrichers) > 0 {
+		cfg.PageEnrichers = append(PageRecordEnrichers(nil), cfg.PageEnrichers...)
+	}
 	return cfg
 }
 
@@ -125,7 +227,7 @@ func (p *PageProjector) Project(ctx context.Context, record *cmspages.Page) ([]t
 				fields["content_type_slug"] = record.Content.Type.Slug
 			}
 		}
-		records = append(records, contentadapter.Record{
+		item := contentadapter.Record{
 			ID:         deterministicDocumentID(record.ID.String(), p.cfg.RegistrationKey, locale),
 			Type:       p.cfg.DocumentType,
 			SourceType: p.cfg.SourceType,
@@ -142,7 +244,15 @@ func (p *PageProjector) Project(ctx context.Context, record *cmspages.Page) ([]t
 			Metadata: map[string]any{
 				"page_id": record.ID.String(),
 			},
-		})
+		}
+		if record.PublishedAt != nil {
+			item.Metadata["published_at"] = record.PublishedAt.UTC()
+		}
+		enriched, err := applyPageEnrichers(ctx, p.cfg, record, item, locale)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, enriched)
 	}
 	return projectRecords(ctx, p.delegate, records)
 }
@@ -151,7 +261,7 @@ func projectContent(ctx context.Context, delegate *contentadapter.Projector, cfg
 	if record == nil || !strings.EqualFold(strings.TrimSpace(record.Status), "published") {
 		return nil, nil
 	}
-	searchEnabled, _ := contentSearchState(record)
+	searchEnabled, searchIndex := contentSearchState(record)
 	if !searchEnabled {
 		return nil, nil
 	}
@@ -172,7 +282,7 @@ func projectContent(ctx context.Context, delegate *contentadapter.Projector, cfg
 		if record.Type != nil {
 			fields["content_type_slug"] = record.Type.Slug
 		}
-		records = append(records, contentadapter.Record{
+		item := contentadapter.Record{
 			ID:         deterministicDocumentID(record.ID.String(), cfg.RegistrationKey, locale),
 			Type:       cfg.DocumentType,
 			SourceType: cfg.SourceType,
@@ -189,7 +299,15 @@ func projectContent(ctx context.Context, delegate *contentadapter.Projector, cfg
 			Metadata: map[string]any{
 				"content_id": record.ID.String(),
 			},
-		})
+		}
+		if record.PublishedAt != nil {
+			item.Metadata["published_at"] = record.PublishedAt.UTC()
+		}
+		enriched, err := applyContentEnrichers(ctx, cfg, record, item, locale, searchIndex)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, enriched)
 	}
 	return projectRecords(ctx, delegate, records)
 }
@@ -270,4 +388,86 @@ func derefString(value *string) string {
 		return ""
 	}
 	return strings.TrimSpace(*value)
+}
+
+func applyContentEnrichers(ctx context.Context, cfg ProjectorConfig, src *cmscontent.Content, record contentadapter.Record, locale, searchIndex string) (contentadapter.Record, error) {
+	if !cfg.ContentEnrichers.Enabled() {
+		return record, nil
+	}
+	enriched := cloneAdapterRecord(record)
+	if err := cfg.ContentEnrichers.Enrich(ctx, buildContentProjectionContext(cfg, src, locale, searchIndex), src, &enriched); err != nil {
+		return contentadapter.Record{}, err
+	}
+	return enriched, nil
+}
+
+func applyPageEnrichers(ctx context.Context, cfg ProjectorConfig, src *cmspages.Page, record contentadapter.Record, locale string) (contentadapter.Record, error) {
+	if !cfg.PageEnrichers.Enabled() {
+		return record, nil
+	}
+	enriched := cloneAdapterRecord(record)
+	if err := cfg.PageEnrichers.Enrich(ctx, buildPageProjectionContext(cfg, src, locale), src, &enriched); err != nil {
+		return contentadapter.Record{}, err
+	}
+	return enriched, nil
+}
+
+func buildContentProjectionContext(cfg ProjectorConfig, src *cmscontent.Content, locale, searchIndex string) ProjectionContext {
+	ctx := ProjectionContext{
+		Index:           cfg.Index,
+		RegistrationKey: cfg.RegistrationKey,
+		SourceType:      cfg.SourceType,
+		DocumentType:    cfg.DocumentType,
+		Locale:          canonicalLocale(locale),
+		SearchIndex:     strings.TrimSpace(searchIndex),
+	}
+	if src != nil && src.Type != nil {
+		ctx.ContentTypeSlug = strings.TrimSpace(src.Type.Slug)
+	}
+	return ctx
+}
+
+func buildPageProjectionContext(cfg ProjectorConfig, src *cmspages.Page, locale string) ProjectionContext {
+	ctx := ProjectionContext{
+		Index:           cfg.Index,
+		RegistrationKey: cfg.RegistrationKey,
+		SourceType:      cfg.SourceType,
+		DocumentType:    cfg.DocumentType,
+		Locale:          canonicalLocale(locale),
+	}
+	if src != nil && src.Content != nil && src.Content.Type != nil {
+		ctx.ContentTypeSlug = strings.TrimSpace(src.Content.Type.Slug)
+	}
+	return ctx
+}
+
+func cloneAdapterRecord(in contentadapter.Record) contentadapter.Record {
+	out := in
+	out.Fields = cloneMap(in.Fields)
+	out.Facets = cloneFacetMap(in.Facets)
+	out.Numeric = cloneMap(in.Numeric)
+	out.Booleans = cloneMap(in.Booleans)
+	out.Scope = cloneMap(in.Scope)
+	out.Metadata = cloneMap(in.Metadata)
+	return out
+}
+
+func cloneMap[T any](src map[string]T) map[string]T {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]T, len(src))
+	maps.Copy(dst, src)
+	return dst
+}
+
+func cloneFacetMap(src map[string][]string) map[string][]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string][]string, len(src))
+	for key, values := range src {
+		dst[key] = append([]string(nil), values...)
+	}
+	return dst
 }
