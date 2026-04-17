@@ -9,6 +9,7 @@ Usage:
   baseline.sh update <tool> <baseline-file> [tool args...]
 
 Supported tools:
+  golangci-lint
   staticcheck
   gosec
 EOF
@@ -35,6 +36,9 @@ trap cleanup EXIT
 
 run_tool() {
     case "${tool_name}" in
+        golangci-lint)
+            "${GOLANGCI_LINT_BIN:-golangci-lint}" run "$@"
+            ;;
         staticcheck)
             "${STATICCHECK_BIN:-staticcheck}" "$@"
             ;;
