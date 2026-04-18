@@ -10,6 +10,7 @@ require (
 	github.com/goliatone/go-cms v0.45.0
 	github.com/goliatone/go-command v0.19.0
 	github.com/goliatone/go-featuregate v0.6.0
+	github.com/goliatone/go-persistence-bun v0.14.0
 	github.com/goliatone/go-router v0.55.0
 	github.com/goliatone/go-search v0.2.0
 	github.com/goliatone/go-search/adapters/gocms v0.2.0
@@ -68,7 +69,7 @@ require (
 	github.com/ettle/strcase v0.2.0 // indirect
 	github.com/expr-lang/expr v1.17.7 // indirect
 	github.com/fasthttp/websocket v1.5.12 // indirect
-	github.com/fatih/color v1.18.0 // indirect
+	github.com/fatih/color v1.19.0 // indirect
 	github.com/fatih/structs v1.1.0 // indirect
 	github.com/flosch/pongo2/v6 v6.0.0 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
@@ -109,7 +110,6 @@ require (
 	github.com/goliatone/go-masker v0.1.0 // indirect
 	github.com/goliatone/go-notifications v0.14.0 // indirect
 	github.com/goliatone/go-options v0.7.1 // indirect
-	github.com/goliatone/go-persistence-bun v0.13.0 // indirect
 	github.com/goliatone/go-print v0.4.1 // indirect
 	github.com/goliatone/go-repository-bun v0.15.1 // indirect
 	github.com/goliatone/go-repository-cache v0.7.1 // indirect
@@ -142,7 +142,7 @@ require (
 	github.com/lithammer/shortuuid v3.0.0+incompatible // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/mattn/go-isatty v0.0.21 // indirect
 	github.com/mattn/go-runewidth v0.0.21 // indirect
 	github.com/mattn/go-sqlite3 v1.14.34 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.26 // indirect
@@ -195,15 +195,15 @@ require (
 	github.com/yuin/goldmark v1.7.13 // indirect
 	go.beyondstorage.io/v5 v5.0.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/otel v1.42.0 // indirect
-	go.opentelemetry.io/otel/metric v1.42.0 // indirect
-	go.opentelemetry.io/otel/trace v1.42.0 // indirect
-	golang.org/x/crypto v0.49.0 // indirect
+	go.opentelemetry.io/otel v1.43.0 // indirect
+	go.opentelemetry.io/otel/metric v1.43.0 // indirect
+	go.opentelemetry.io/otel/trace v1.43.0 // indirect
+	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa // indirect
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/text v0.36.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20251213004720-97cd9d5aeac2 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251213004720-97cd9d5aeac2 // indirect

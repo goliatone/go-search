@@ -16,6 +16,7 @@ import (
 	cmscontent "github.com/goliatone/go-cms/content"
 	cmspages "github.com/goliatone/go-cms/pages"
 	cmslifecycle "github.com/goliatone/go-cms/pkg/lifecycle"
+	persistence "github.com/goliatone/go-persistence-bun"
 	"github.com/goliatone/go-search/adapters/content"
 	cmsgosearch "github.com/goliatone/go-search/adapters/gocms"
 	usersgosearch "github.com/goliatone/go-search/adapters/gousers"
@@ -24,6 +25,7 @@ import (
 	"github.com/goliatone/go-search/command"
 	"github.com/goliatone/go-search/indexing"
 	"github.com/goliatone/go-search/locale"
+	searchmigrations "github.com/goliatone/go-search/migrations"
 	"github.com/goliatone/go-search/pkg/types"
 	"github.com/goliatone/go-search/planner"
 	"github.com/goliatone/go-search/providers"
@@ -1186,11 +1188,24 @@ func newProviderBootstrap(cfg Config) (providerBootstrap, error) {
 		}
 		db := bun.NewDB(sqlDB, pgdialect.New())
 		closeFn := db.Close
-		if err := generationbunstore.Migrations().Migrate(context.Background(), db); err != nil {
+		migrationManager := persistence.NewMigrations()
+		if err := searchmigrations.RegisterManager(
+			migrationManager,
+			searchmigrations.WithProfile(searchmigrations.ProfilePostgresProvider),
+			searchmigrations.WithEditorialEnabled(false),
+			searchmigrations.WithDispatchEnabled(false),
+		); err != nil {
 			_ = closeFn()
 			return providerBootstrap{}, err
 		}
-		provider, err := providerpostgres.New(providerpostgres.Config{DB: db})
+		if err := migrationManager.Migrate(context.Background(), db); err != nil {
+			_ = closeFn()
+			return providerBootstrap{}, err
+		}
+		provider, err := providerpostgres.New(providerpostgres.Config{
+			DB:               db,
+			SchemaManagement: providerpostgres.SchemaManagementExternal,
+		})
 		if err != nil {
 			_ = closeFn()
 			return providerBootstrap{}, err
