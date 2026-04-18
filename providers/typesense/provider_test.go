@@ -128,6 +128,46 @@ func TestCompileSearchParamsCompilesExistsExprToShadowField(t *testing.T) {
 	}
 }
 
+func TestCompileSearchParamsKeepsIDAsProviderNeutralFilterField(t *testing.T) {
+	def := types.IndexDefinition{
+		Name:               "media",
+		DefaultQueryFields: []string{"title"},
+	}
+	params, err := compileSearchParams(Config{}, def, types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "ocean",
+		Page:    1,
+		PerPage: 10,
+		Filters: types.TermExpr{Field: "id", Op: types.FilterOpEQ, Value: "segment-1"},
+	})
+	if err != nil {
+		t.Fatalf("compile search params: %v", err)
+	}
+	if params.FilterBy == nil || *params.FilterBy != "document_id:=segment-1" {
+		t.Fatalf("expected id filter to compile to document_id storage field, got %+v", params.FilterBy)
+	}
+}
+
+func TestCompileSearchParamsCompilesIDExistsExprToDocumentShadowField(t *testing.T) {
+	def := types.IndexDefinition{
+		Name:               "media",
+		DefaultQueryFields: []string{"title"},
+	}
+	params, err := compileSearchParams(Config{}, def, types.SearchRequest{
+		Indexes: []string{"media"},
+		Query:   "ocean",
+		Page:    1,
+		PerPage: 10,
+		Filters: types.ExistsExpr{Field: "id", Exists: true},
+	})
+	if err != nil {
+		t.Fatalf("compile search params: %v", err)
+	}
+	if params.FilterBy == nil || *params.FilterBy != "__exists_document_id:=true" {
+		t.Fatalf("expected id exists filter to compile to document_id shadow field, got %+v", params.FilterBy)
+	}
+}
+
 func TestCompileSearchParamsAddsScopeFilters(t *testing.T) {
 	def := types.IndexDefinition{
 		Name:               "media",
@@ -268,6 +308,26 @@ func TestCompileDocumentAddsExistsShadowFields(t *testing.T) {
 	}
 	if payload["__exists_source_id"] != false {
 		t.Fatalf("expected empty source_id shadow field to be false, got %+v", payload["__exists_source_id"])
+	}
+}
+
+func TestBuildCollectionSchemaTracksDocumentIDShadowField(t *testing.T) {
+	schema, _, err := buildCollectionSchema(Config{}, types.IndexDefinition{
+		Name:               "media",
+		DefaultQueryFields: []string{"title"},
+	})
+	if err != nil {
+		t.Fatalf("build schema: %v", err)
+	}
+	fields := map[string]tsapi.Field{}
+	for _, field := range schema.Fields {
+		fields[field.Name] = field
+	}
+	if _, ok := fields["__exists_document_id"]; !ok {
+		t.Fatal("expected document id exists shadow field in schema")
+	}
+	if _, ok := fields["__exists_id"]; ok {
+		t.Fatal("did not expect provider-neutral id alias to leak into schema field names")
 	}
 }
 

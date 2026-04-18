@@ -303,6 +303,7 @@ func existenceTrackedFields(def types.IndexDefinition) []string {
 	out := []string{}
 	seen := map[string]struct{}{}
 	for field := range allowedFilterFields(def) {
+		field = storageFilterField(field)
 		if _, ok := seen[field]; ok {
 			continue
 		}

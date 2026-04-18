@@ -199,13 +199,14 @@ func compileFilterExpr(expr types.FilterExpr, allowed map[string]struct{}) (stri
 		if err := validateFilterField(v.Field, allowed); err != nil {
 			return "", err
 		}
+		field := storageFilterField(v.Field)
 		switch {
 		case v.GTE != nil && v.LTE != nil:
-			return fmt.Sprintf("%s:[%s..%s]", v.Field, encodeScalar(v.GTE), encodeScalar(v.LTE)), nil
+			return fmt.Sprintf("%s:[%s..%s]", field, encodeScalar(v.GTE), encodeScalar(v.LTE)), nil
 		case v.GTE != nil:
-			return fmt.Sprintf("%s:>=%s", v.Field, encodeScalar(v.GTE)), nil
+			return fmt.Sprintf("%s:>=%s", field, encodeScalar(v.GTE)), nil
 		case v.LTE != nil:
-			return fmt.Sprintf("%s:<=%s", v.Field, encodeScalar(v.LTE)), nil
+			return fmt.Sprintf("%s:<=%s", field, encodeScalar(v.LTE)), nil
 		default:
 			return "", nil
 		}
@@ -213,26 +214,27 @@ func compileFilterExpr(expr types.FilterExpr, allowed map[string]struct{}) (stri
 		if err := validateFilterField(v.Field, allowed); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%s:=%t", existsFieldName(v.Field), v.Exists), nil
+		return fmt.Sprintf("%s:=%t", existsFieldName(storageFilterField(v.Field)), v.Exists), nil
 	default:
 		return "", errs.InvalidFilter("unsupported filter expression", map[string]any{"type": expr})
 	}
 }
 
 func compileTermExpr(expr types.TermExpr) (string, error) {
+	field := storageFilterField(expr.Field)
 	switch expr.Op {
 	case types.FilterOpEQ:
-		return fmt.Sprintf("%s:=%s", expr.Field, encodeFilterValue(expr.Value)), nil
+		return fmt.Sprintf("%s:=%s", field, encodeFilterValue(expr.Value)), nil
 	case types.FilterOpNEQ:
-		return fmt.Sprintf("%s:!=%s", expr.Field, encodeFilterValue(expr.Value)), nil
+		return fmt.Sprintf("%s:!=%s", field, encodeFilterValue(expr.Value)), nil
 	case types.FilterOpIn:
 		values, err := encodeList(expr.Value)
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%s:=[%s]", expr.Field, strings.Join(values, ",")), nil
+		return fmt.Sprintf("%s:=[%s]", field, strings.Join(values, ",")), nil
 	case types.FilterOpContains:
-		return fmt.Sprintf("%s:%s", expr.Field, encodeFilterValue(expr.Value)), nil
+		return fmt.Sprintf("%s:%s", field, encodeFilterValue(expr.Value)), nil
 	default:
 		return "", errs.InvalidFilter("unsupported filter operator", map[string]any{"field": expr.Field, "op": expr.Op})
 	}
@@ -276,7 +278,7 @@ func searchQueryFields(def types.IndexDefinition) []string {
 
 func allowedFilterFields(def types.IndexDefinition) map[string]struct{} {
 	out := map[string]struct{}{
-		"document_id":            {},
+		"id":                     {},
 		"index":                  {},
 		"type":                   {},
 		"parent_id":              {},
@@ -306,6 +308,14 @@ func allowedFilterFields(def types.IndexDefinition) map[string]struct{} {
 		out[def.GroupByDefault] = struct{}{}
 	}
 	return out
+}
+
+func storageFilterField(field string) string {
+	field = strings.TrimSpace(field)
+	if field == "id" {
+		return "document_id"
+	}
+	return field
 }
 
 func compileScopeFilter(scope types.Scope) string {
