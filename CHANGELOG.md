@@ -1,5 +1,26 @@
 # Changelog
 
+# [0.6.0](https://github.com/goliatone/go-search/compare/v0.5.0...v0.6.0) - (2026-04-18)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.6.0 ([3f6b31f](https://github.com/goliatone/go-search/commit/3f6b31fd14f2575df0e579c39fb0770fb6b5b043))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Postgres and typesense migration ([27a3185](https://github.com/goliatone/go-search/commit/27a31859f3b2da9d04283cd021b844d448967934))  - (goliatone)
+- Mgirations ([1943acf](https://github.com/goliatone/go-search/commit/1943acfb35fb26f40dcad190063d82148365ec8f))  - (goliatone)
+- Internal migration util; ([8bbe8df](https://github.com/goliatone/go-search/commit/8bbe8df52c3fa814cdcf7f600c8655a25e227aac))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.5.0 ([d755e37](https://github.com/goliatone/go-search/commit/d755e37d49952c97c19df0a56ed69d2b8ee2afce))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update docs ([e766078](https://github.com/goliatone/go-search/commit/e766078f8a45f74f97b73ac3ca2c350b6a51ece8))  - (goliatone)
+- Update examples ([11f50c7](https://github.com/goliatone/go-search/commit/11f50c77a1d1633f40c65582023a01a9a116f7a3))  - (goliatone)
+
 # [0.5.0](https://github.com/goliatone/go-search/compare/v0.4.1...v0.5.0) - (2026-04-17)
 
 ## <!-- 13 -->📦 Bumps
