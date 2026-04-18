@@ -1,5 +1,19 @@
 # Changelog
 
+# [0.7.0](https://github.com/goliatone/go-search/compare/v0.6.0...v0.7.0) - (2026-04-18)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Typesense id parsing ([36913ae](https://github.com/goliatone/go-search/commit/36913aebd7ce2c6b234e1ebbc3031cbad8c00a18))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.7.0 ([2dfe421](https://github.com/goliatone/go-search/commit/2dfe4212a3657e0a679f3a9dcd7c58acbf97cb61))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.6.0 ([3d266f7](https://github.com/goliatone/go-search/commit/3d266f7a3de151a7d1b39a734e3fb2fcbc12bba9))  - (goliatone)
+
 # [0.6.0](https://github.com/goliatone/go-search/compare/v0.5.0...v0.6.0) - (2026-04-18)
 
 ## <!-- 13 -->📦 Bumps
