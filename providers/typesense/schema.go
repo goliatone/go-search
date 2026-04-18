@@ -106,7 +106,6 @@ func buildCollectionSchema(cfg Config, def types.IndexDefinition) (*tsapi.Collec
 
 func fixedFieldSpecs() map[string]schemaFieldSpec {
 	return map[string]schemaFieldSpec{
-		"id":                     {Type: "string", Index: true, Optional: false},
 		"document_id":            {Type: "string", Optional: true},
 		"index":                  {Type: "string", Facet: true, Optional: true},
 		"registration_key":       {Type: "string", Facet: true, Optional: true},
@@ -220,12 +219,15 @@ func collectionSchemaHash(schema *tsapi.CollectionSchema) string {
 		Name: schema.Name,
 	}
 	for _, field := range schema.Fields {
+		if field.Name == "id" {
+			continue
+		}
 		normalized.Fields = append(normalized.Fields, normalizedField{
 			Name:       field.Name,
 			Type:       field.Type,
 			Facet:      ptrBool(field.Facet),
-			Sort:       ptrBool(field.Sort),
-			Index:      ptrBool(field.Index),
+			Sort:       normalizedFieldSort(field),
+			Index:      ptrBoolDefault(field.Index, true),
 			Optional:   ptrBool(field.Optional),
 			Locale:     ptrString(field.Locale),
 			RangeIndex: ptrBool(field.RangeIndex),
@@ -242,6 +244,9 @@ func collectionResponseHash(schema *tsapi.CollectionResponse) string {
 		Name: schema.Name,
 	}
 	for _, field := range schema.Fields {
+		if field.Name == "id" {
+			continue
+		}
 		normalized.Fields = append(normalized.Fields, normalizedField{
 			Name:       field.Name,
 			Type:       field.Type,
@@ -327,6 +332,20 @@ func isNumericType(typeName string) bool {
 
 func ptrBool(value *bool) bool {
 	return value != nil && *value
+}
+
+func ptrBoolDefault(value *bool, fallback bool) bool {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func normalizedFieldSort(field tsapi.Field) bool {
+	if field.Sort == nil && isNumericType(field.Type) {
+		return true
+	}
+	return ptrBool(field.Sort)
 }
 
 func ptrString(value *string) string {

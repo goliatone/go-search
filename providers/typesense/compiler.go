@@ -276,7 +276,7 @@ func searchQueryFields(def types.IndexDefinition) []string {
 
 func allowedFilterFields(def types.IndexDefinition) map[string]struct{} {
 	out := map[string]struct{}{
-		"id":                     {},
+		"document_id":            {},
 		"index":                  {},
 		"type":                   {},
 		"parent_id":              {},

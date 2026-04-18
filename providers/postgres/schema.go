@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/goliatone/go-search/pkg/types"
@@ -14,10 +15,18 @@ type Config struct {
 	SearchConfig            string
 	TrigramThreshold        float64
 	SuggestTrigramThreshold float64
+	SchemaManagement        SchemaManagementMode
 	Clock                   types.Clock
 }
 
-func normalizeConfig(cfg Config) Config {
+type SchemaManagementMode string
+
+const (
+	SchemaManagementAuto     SchemaManagementMode = "auto"
+	SchemaManagementExternal SchemaManagementMode = "external"
+)
+
+func normalizeConfig(cfg Config) (Config, error) {
 	if strings.TrimSpace(cfg.TableName) == "" {
 		cfg.TableName = defaultTableName
 	}
@@ -33,5 +42,21 @@ func normalizeConfig(cfg Config) Config {
 	if cfg.Clock == nil {
 		cfg.Clock = types.SystemClock()
 	}
-	return cfg
+	mode, err := normalizeSchemaManagementMode(cfg.SchemaManagement)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.SchemaManagement = mode
+	return cfg, nil
+}
+
+func normalizeSchemaManagementMode(mode SchemaManagementMode) (SchemaManagementMode, error) {
+	switch SchemaManagementMode(strings.TrimSpace(strings.ToLower(string(mode)))) {
+	case "", SchemaManagementAuto:
+		return SchemaManagementAuto, nil
+	case SchemaManagementExternal:
+		return SchemaManagementExternal, nil
+	default:
+		return "", fmt.Errorf("invalid schema management mode %q", mode)
+	}
 }

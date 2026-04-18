@@ -361,7 +361,9 @@ func listDocumentIDsByField(ctx context.Context, client *tstypesense.Client, run
 	out := []string{}
 	for pageNumber := 1; ; pageNumber++ {
 		query := "*"
-		queryBy := "id"
+		// Typesense reserves `id` as the internal document identifier, so
+		// listing by filtered fields must still query on a schema field.
+		queryBy := "document_id"
 		perPage := 250
 		includeFields := "id"
 		result, err := client.Collection(runtime.collectionName).Documents().Search(ctx, &tsapi.SearchCollectionParams{

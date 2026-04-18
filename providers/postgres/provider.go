@@ -37,7 +37,13 @@ type Provider struct {
 }
 
 func New(cfg Config) (*Provider, error) {
-	cfg = normalizeConfig(cfg)
+	var err error
+	cfg, err = normalizeConfig(cfg)
+	if err != nil {
+		return nil, errs.ConfigurationError(err.Error(), map[string]any{
+			"schema_management": cfg.SchemaManagement,
+		})
+	}
 	if cfg.DB == nil {
 		return nil, errs.ConfigurationError("postgres db is required", nil)
 	}
@@ -417,6 +423,10 @@ func (p *Provider) ensureSchema(ctx context.Context) error {
 	p.schemaMu.Lock()
 	defer p.schemaMu.Unlock()
 	if p.schemaReady {
+		return nil
+	}
+	if p.cfg.SchemaManagement == SchemaManagementExternal {
+		p.schemaReady = true
 		return nil
 	}
 	db, ok := p.db.(*bun.DB)
