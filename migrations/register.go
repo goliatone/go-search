@@ -26,6 +26,20 @@ const (
 	SourceNameDispatch         = "go-search-dispatch"
 )
 
+const (
+	SourceKeyProviderPostgres = "go-search-provider-postgres"
+	SourceKeyGeneration       = "go-search-generation"
+	SourceKeyEditorial        = "go-search-editorial"
+	SourceKeyDispatch         = "go-search-dispatch"
+)
+
+const (
+	SourceOrderProviderPostgres = 700
+	SourceOrderGeneration       = 710
+	SourceOrderEditorial        = 720
+	SourceOrderDispatch         = 730
+)
+
 type Option func(*options)
 
 type options struct {
@@ -35,6 +49,13 @@ type options struct {
 	editorialEnabled  *bool
 	dispatchEnabled   *bool
 	validationTargets []string
+}
+
+type sourceDefinition struct {
+	name      string
+	sourceKey string
+	order     int
+	resolveFS func() (fs.FS, error)
 }
 
 func defaultOptions() options {
@@ -118,6 +139,41 @@ func RegisterManager(manager *persistence.Migrations, opts ...Option) error {
 }
 
 func OrderedSources(opts ...Option) ([]persistence.OrderedMigrationSource, error) {
+	definitions, targets, err := selectedSourceDefinitions(opts...)
+	if err != nil {
+		return nil, err
+	}
+	sources := make([]persistence.OrderedMigrationSource, 0, len(definitions))
+	for _, definition := range definitions {
+		source, err := buildStableSource(definition, targets)
+		if err != nil {
+			return nil, err
+		}
+		sources = append(sources, source)
+	}
+	return sources, nil
+}
+
+// LegacyOrderedSources returns the pre-source-stable positional search source
+// descriptors for compatibility backfills. Hosts repairing a shared database
+// must include their own historical runtime sources before these descriptors.
+func LegacyOrderedSources(opts ...Option) ([]persistence.OrderedMigrationSource, error) {
+	definitions, targets, err := selectedSourceDefinitions(opts...)
+	if err != nil {
+		return nil, err
+	}
+	sources := make([]persistence.OrderedMigrationSource, 0, len(definitions))
+	for _, definition := range definitions {
+		source, err := buildLegacySource(definition, targets)
+		if err != nil {
+			return nil, err
+		}
+		sources = append(sources, source)
+	}
+	return sources, nil
+}
+
+func selectedSourceDefinitions(opts ...Option) ([]sourceDefinition, []string, error) {
 	options := defaultOptions()
 	for _, opt := range opts {
 		if opt != nil {
@@ -127,7 +183,7 @@ func OrderedSources(opts ...Option) ([]persistence.OrderedMigrationSource, error
 
 	providerEnabled, generationEnabled, editorialEnabled, dispatchEnabled, err := resolveProfile(options.profile)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if options.providerEnabled != nil {
 		providerEnabled = *options.providerEnabled
@@ -142,36 +198,40 @@ func OrderedSources(opts ...Option) ([]persistence.OrderedMigrationSource, error
 		dispatchEnabled = *options.dispatchEnabled
 	}
 
-	sources := make([]persistence.OrderedMigrationSource, 0, 4)
+	definitions := make([]sourceDefinition, 0, 4)
 	if providerEnabled {
-		source, err := buildSource(SourceNameProviderPostgres, searchpostgres.GetMigrationsFS, options.validationTargets)
-		if err != nil {
-			return nil, err
-		}
-		sources = append(sources, source)
+		definitions = append(definitions, sourceDefinition{
+			name:      SourceNameProviderPostgres,
+			sourceKey: SourceKeyProviderPostgres,
+			order:     SourceOrderProviderPostgres,
+			resolveFS: searchpostgres.GetMigrationsFS,
+		})
 	}
 	if generationEnabled {
-		source, err := buildSource(SourceNameGeneration, generationbunstore.GetMigrationsFS, options.validationTargets)
-		if err != nil {
-			return nil, err
-		}
-		sources = append(sources, source)
+		definitions = append(definitions, sourceDefinition{
+			name:      SourceNameGeneration,
+			sourceKey: SourceKeyGeneration,
+			order:     SourceOrderGeneration,
+			resolveFS: generationbunstore.GetMigrationsFS,
+		})
 	}
 	if editorialEnabled {
-		source, err := buildSource(SourceNameEditorial, editorialbunstore.GetMigrationsFS, options.validationTargets)
-		if err != nil {
-			return nil, err
-		}
-		sources = append(sources, source)
+		definitions = append(definitions, sourceDefinition{
+			name:      SourceNameEditorial,
+			sourceKey: SourceKeyEditorial,
+			order:     SourceOrderEditorial,
+			resolveFS: editorialbunstore.GetMigrationsFS,
+		})
 	}
 	if dispatchEnabled {
-		source, err := buildSource(SourceNameDispatch, dispatchbunstore.GetMigrationsFS, options.validationTargets)
-		if err != nil {
-			return nil, err
-		}
-		sources = append(sources, source)
+		definitions = append(definitions, sourceDefinition{
+			name:      SourceNameDispatch,
+			sourceKey: SourceKeyDispatch,
+			order:     SourceOrderDispatch,
+			resolveFS: dispatchbunstore.GetMigrationsFS,
+		})
 	}
-	return sources, nil
+	return definitions, options.validationTargets, nil
 }
 
 func resolveProfile(profile Profile) (bool, bool, bool, bool, error) {
@@ -185,11 +245,33 @@ func resolveProfile(profile Profile) (bool, bool, bool, bool, error) {
 	}
 }
 
-func buildSource(name string, resolveFS func() (fs.FS, error), targets []string) (persistence.OrderedMigrationSource, error) {
-	root, err := resolveFS()
+func buildStableSource(definition sourceDefinition, targets []string) (persistence.OrderedMigrationSource, error) {
+	root, err := definition.resolveFS()
 	if err != nil {
 		return persistence.OrderedMigrationSource{}, err
 	}
+	return persistence.NewStableOrderedMigrationSource(
+		definition.name,
+		root,
+		definition.sourceKey,
+		definition.order,
+		persistence.WithOrderedMigrationDialectOptions(dialectOptions(definition.name, targets)...),
+	), nil
+}
+
+func buildLegacySource(definition sourceDefinition, targets []string) (persistence.OrderedMigrationSource, error) {
+	root, err := definition.resolveFS()
+	if err != nil {
+		return persistence.OrderedMigrationSource{}, err
+	}
+	return persistence.OrderedMigrationSource{
+		Name:    definition.name,
+		Root:    root,
+		Options: dialectOptions(definition.name, targets),
+	}, nil
+}
+
+func dialectOptions(name string, targets []string) []persistence.DialectMigrationOption {
 	options := []persistence.DialectMigrationOption{
 		persistence.WithDialectSourceLabel(name),
 		persistence.WithDialectResolver(migrationutil.RequirePostgresDialect),
@@ -201,11 +283,7 @@ func buildSource(name string, resolveFS func() (fs.FS, error), targets []string)
 			MandatoryTargets: append([]string(nil), targets...),
 		}))
 	}
-	return persistence.OrderedMigrationSource{
-		Name:    name,
-		Root:    root,
-		Options: options,
-	}, nil
+	return options
 }
 
 type unsupportedProfileError struct {
