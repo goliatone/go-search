@@ -53,8 +53,8 @@ github.com/goliatone/go-job v0.19.0 h1:xdjp9aWTst9vwiiCLGQUuwSnfXt8ehbVhRfYjw6mU
 github.com/goliatone/go-job v0.19.0/go.mod h1:WbBgtMg6VBycejrgyPaKatMOMMUobuRbhlrzQtnjLYk=
 github.com/goliatone/go-logger v0.8.0 h1:Yq9xy+ZGS65BDUxV5NpSd+aw72vUDxxv/ISMJDlRiHs=
 github.com/goliatone/go-logger v0.8.0/go.mod h1:hWv7Tj+af3E0vjJIHR52JmmK3jKk6rCKFtvhCC/3jXE=
-github.com/goliatone/go-persistence-bun v0.14.0 h1:WaOlotusDjszalVZt/6zUV9sqEGQRGTX4a4M/7LbR2s=
-github.com/goliatone/go-persistence-bun v0.14.0/go.mod h1:hrsGtNrREROFmcc3P1JFYLtunY2JwfPfsRhRUT3+Gyc=
+github.com/goliatone/go-persistence-bun v0.16.0 h1:mArQ3cprmn4gitXXqNDjsgGQ2S8G3mrk0gVZF+gWFZo=
+github.com/goliatone/go-persistence-bun v0.16.0/go.mod h1:hrsGtNrREROFmcc3P1JFYLtunY2JwfPfsRhRUT3+Gyc=
 github.com/goliatone/go-repository-bun v0.15.1 h1:t2RHhqM6OBjyybJE9wnKtVYXM8f4Jb2s1s/q2sSCS60=
 github.com/goliatone/go-repository-bun v0.15.1/go.mod h1:bOFyQOGKyPJX+tkd7A7DhASqcPMvwdhDq41AmWujFqs=
 github.com/goliatone/go-slug v0.1.0 h1:0APBcu2X9MWF2t6X3LN55XfQ47zf4FUzDmXYJ1YraAk=
