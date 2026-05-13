@@ -444,6 +444,7 @@ func (p *Provider) searchRows(ctx context.Context, req types.SearchRequest) ([]d
 	rows := []documentModel{}
 	q := p.db.NewSelect().
 		Model(&rows).
+		ColumnExpr("sd.*").
 		Where("index_name IN (?)", bun.List(req.Indexes))
 	if trimmed := strings.TrimSpace(req.Query); trimmed != "" {
 		querySearchConfig := requestSearchConfig(req, p.cfg.SearchConfig)
@@ -489,6 +490,7 @@ func (p *Provider) suggestRows(ctx context.Context, req types.SuggestRequest) ([
 	}
 	q := p.db.NewSelect().
 		Model(&rows).
+		ColumnExpr("sd.*").
 		Where("index_name IN (?)", bun.List(req.Indexes)).
 		ColumnExpr("0::double precision AS search_rank").
 		ColumnExpr(

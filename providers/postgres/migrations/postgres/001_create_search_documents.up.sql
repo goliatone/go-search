@@ -1,5 +1,27 @@
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
+CREATE OR REPLACE FUNCTION search_documents_text(
+    title TEXT,
+    summary TEXT,
+    body TEXT
+) RETURNS TEXT
+LANGUAGE plpgsql
+IMMUTABLE
+PARALLEL SAFE
+AS $$
+BEGIN
+    RETURN trim(
+        BOTH ' '
+        FROM concat_ws(
+            ' ',
+            coalesce(title, ''),
+            coalesce(summary, ''),
+            coalesce(body, '')
+        )
+    );
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION search_documents_tsvector(
     search_config TEXT,
     title TEXT,
@@ -53,15 +75,7 @@ CREATE TABLE IF NOT EXISTS search_documents (
     visibility_status TEXT NOT NULL DEFAULT '',
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     searchable_text TEXT GENERATED ALWAYS AS (
-        trim(
-            BOTH ' '
-            FROM concat_ws(
-                ' ',
-                coalesce(title, ''),
-                coalesce(summary, ''),
-                coalesce(body, '')
-            )
-        )
+        search_documents_text(title, summary, body)
     ) STORED,
     search_vector tsvector GENERATED ALWAYS AS (
         search_documents_tsvector(search_config, title, summary, body)

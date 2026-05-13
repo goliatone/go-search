@@ -45,9 +45,11 @@ type documentModel struct {
 	VisibilityStatus string              `bun:"visibility_status,nullzero"`
 	Metadata         map[string]any      `bun:"metadata,type:jsonb"`
 
-	SearchRank    float64 `bun:"search_rank,scanonly"`
-	TrigramScore  float64 `bun:"trigram_score,scanonly"`
-	CombinedScore float64 `bun:"combined_score,scanonly"`
+	SearchableText string  `bun:"searchable_text,scanonly"`
+	SearchVector   string  `bun:"search_vector,scanonly"`
+	SearchRank     float64 `bun:"search_rank,scanonly"`
+	TrigramScore   float64 `bun:"trigram_score,scanonly"`
+	CombinedScore  float64 `bun:"combined_score,scanonly"`
 }
 
 func toModel(index string, doc types.Document, defaultSearchConfig string) documentModel {
@@ -78,8 +80,8 @@ func toModel(index string, doc types.Document, defaultSearchConfig string) docum
 		ScopeOrgID:       doc.Scope.OrgID,
 		ScopeLabels:      doc.Scope.Clone().Labels,
 		VisibilityPublic: doc.Visibility.Public,
-		VisibilityRoles:  append([]string(nil), doc.Visibility.Roles...),
-		VisibilityPerms:  append([]string(nil), doc.Visibility.Permissions...),
+		VisibilityRoles:  normalizeStringSlice(doc.Visibility.Roles),
+		VisibilityPerms:  normalizeStringSlice(doc.Visibility.Permissions),
 		VisibilityStatus: doc.Visibility.Status,
 		Metadata:         doc.Clone().Metadata,
 	}
@@ -188,6 +190,13 @@ func normalizeSearchConfig(candidate, fallback string) string {
 		return fallback
 	}
 	return "simple"
+}
+
+func normalizeStringSlice(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return append([]string(nil), values...)
 }
 
 func isSafeSearchConfig(value string) bool {
