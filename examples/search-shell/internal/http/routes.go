@@ -21,9 +21,7 @@ import (
 )
 
 var templateFuncs = template.FuncMap{
-	"json": func(value any) template.HTML {
-		return template.HTML(prettyJSON(value))
-	},
+	"json": prettyJSON,
 	"add": func(a, b int) int {
 		return a + b
 	},
@@ -52,7 +50,7 @@ var templateFuncs = template.FuncMap{
 	},
 	"formatTimestamp":      formatTimestamp,
 	"formatTimestampRange": formatTimestampRange,
-	"snippetHTML":          snippetHTML,
+	"snippetParts":         snippetParts,
 	"facetTitle": func(field string) string {
 		switch strings.TrimSpace(field) {
 		case media.FacetFieldTopicHierarchy:
@@ -87,21 +85,58 @@ var templateFuncs = template.FuncMap{
 	},
 }
 
-func snippetHTML(snippet *types.SearchSnippet) template.HTML {
-	if snippet == nil {
-		return ""
-	}
-	if strings.TrimSpace(snippet.Highlighted) != "" {
-		return sanitizeHighlightedSnippet(snippet.Highlighted)
-	}
-	return template.HTML(template.HTMLEscapeString(snippet.Text))
+type snippetPart struct {
+	Text string
+	Mark bool
 }
 
-func sanitizeHighlightedSnippet(raw string) template.HTML {
-	escaped := template.HTMLEscapeString(raw)
-	escaped = strings.ReplaceAll(escaped, "&lt;mark&gt;", "<mark>")
-	escaped = strings.ReplaceAll(escaped, "&lt;/mark&gt;", "</mark>")
-	return template.HTML(escaped)
+func snippetParts(snippet *types.SearchSnippet) []snippetPart {
+	if snippet == nil {
+		return nil
+	}
+	if strings.TrimSpace(snippet.Highlighted) != "" {
+		return parseHighlightedSnippet(snippet.Highlighted)
+	}
+	return []snippetPart{{Text: snippet.Text}}
+}
+
+func parseHighlightedSnippet(raw string) []snippetPart {
+	var parts []snippetPart
+	marked := false
+	for raw != "" {
+		open := strings.Index(raw, "<mark>")
+		close := strings.Index(raw, "</mark>")
+		if open == -1 && close == -1 {
+			parts = appendSnippetPart(parts, raw, marked)
+			break
+		}
+
+		tag := ""
+		var next int
+		if open != -1 && (close == -1 || open < close) {
+			tag = "<mark>"
+			next = open
+		} else {
+			tag = "</mark>"
+			next = close
+		}
+
+		parts = appendSnippetPart(parts, raw[:next], marked)
+		marked = tag == "<mark>"
+		raw = raw[next+len(tag):]
+	}
+	return parts
+}
+
+func appendSnippetPart(parts []snippetPart, text string, marked bool) []snippetPart {
+	if text == "" {
+		return parts
+	}
+	if len(parts) > 0 && parts[len(parts)-1].Mark == marked {
+		parts[len(parts)-1].Text += text
+		return parts
+	}
+	return append(parts, snippetPart{Text: text, Mark: marked})
 }
 
 var homeTemplate = template.Must(template.New("home").Funcs(templateFuncs).Parse(`<!doctype html>
@@ -533,7 +568,7 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
                 <span class="badge badge-score">{{printf "%.1f" .Score}}</span>
               </div>
             </div>
-            {{if .Snippet}}<p class="result-snippet">{{snippetHTML .Snippet}}</p>{{end}}
+            {{if .Snippet}}<p class="result-snippet">{{range snippetParts .Snippet}}{{if .Mark}}<mark>{{.Text}}</mark>{{else}}{{.Text}}{{end}}{{end}}</p>{{end}}
             <div class="result-meta">
               {{if .Anchor}}<span>Timestamp: {{formatTimestampRange .Anchor}}</span>{{end}}
               {{if .Anchor}}<a href="{{.Anchor.URL}}">Jump to segment</a>{{end}}
@@ -556,7 +591,7 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
             <span class="badge badge-score">{{printf "%.1f" .Score}}</span>
           </div>
         </div>
-        {{if .Snippet}}<p class="result-snippet">{{snippetHTML .Snippet}}</p>{{end}}
+        {{if .Snippet}}<p class="result-snippet">{{range snippetParts .Snippet}}{{if .Mark}}<mark>{{.Text}}</mark>{{else}}{{.Text}}{{end}}{{end}}</p>{{end}}
         <div class="result-meta">
           {{if .Parent}}<span>Parent: {{.Parent.Title}}</span>{{end}}
           {{if .Anchor}}<span>{{formatTimestampRange .Anchor}}</span>{{end}}

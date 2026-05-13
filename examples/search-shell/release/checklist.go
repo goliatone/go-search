@@ -3,7 +3,9 @@ package release
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -140,7 +142,7 @@ func SearchV1RequiredSignoffTeams() []string {
 }
 
 func LoadSearchV1ReleaseChecklist(path string) (SearchV1ReleaseChecklist, error) {
-	raw, err := os.ReadFile(path)
+	raw, err := readFileFromWorkingDir(path)
 	if err != nil {
 		return SearchV1ReleaseChecklist{}, err
 	}
@@ -149,6 +151,44 @@ func LoadSearchV1ReleaseChecklist(path string) (SearchV1ReleaseChecklist, error)
 		return SearchV1ReleaseChecklist{}, err
 	}
 	return checklist, nil
+}
+
+func readFileFromWorkingDir(path string) ([]byte, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("get working directory: %w", err)
+	}
+
+	requested := filepath.Clean(path)
+	if !filepath.IsAbs(requested) {
+		requested = filepath.Join(wd, requested)
+	}
+
+	rel, err := filepath.Rel(wd, requested)
+	if err != nil {
+		return nil, fmt.Errorf("resolve path: %w", err)
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("path must be under working directory")
+	}
+
+	root, err := os.OpenRoot(wd)
+	if err != nil {
+		return nil, fmt.Errorf("open working directory root: %w", err)
+	}
+	defer func() {
+		_ = root.Close()
+	}()
+
+	file, err := root.Open(rel)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	return io.ReadAll(file)
 }
 
 func ValidateSearchV1ReleaseChecklistFile(path string) (SearchV1ReleaseChecklist, []string, error) {
