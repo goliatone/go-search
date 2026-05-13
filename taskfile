@@ -142,14 +142,91 @@ function _go:tool:path {
     local name=$1
     local bin_dir
 
+    if bin_dir=$(_go:tool_bin_dir 2>/dev/null); then
+        if [ -x "${bin_dir}/${name}" ]; then
+            printf '%s\n' "${bin_dir}/${name}"
+            return 0
+        fi
+    fi
+
     if command -v "${name}" >/dev/null 2>&1; then
         command -v "${name}"
         return 0
     fi
 
-    bin_dir=$(_go:tool_bin_dir) || return 1
-    if [ -x "${bin_dir}/${name}" ]; then
-        printf '%s\n' "${bin_dir}/${name}"
+    return 1
+}
+
+function _go:version_major_minor {
+    local version=$1
+
+    version="${version#go}"
+    if [[ "${version}" =~ ^([0-9]+)\.([0-9]+) ]]; then
+        printf '%s.%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+        return 0
+    fi
+
+    return 1
+}
+
+function _go:version_major_minor_lt {
+    local left=$1
+    local right=$2
+    local left_mm
+    local right_mm
+    local left_major
+    local left_minor
+    local right_major
+    local right_minor
+
+    left_mm=$(_go:version_major_minor "${left}") || return 1
+    right_mm=$(_go:version_major_minor "${right}") || return 1
+
+    left_major="${left_mm%%.*}"
+    left_minor="${left_mm#*.}"
+    right_major="${right_mm%%.*}"
+    right_minor="${right_mm#*.}"
+
+    if (( left_major < right_major )); then
+        return 0
+    fi
+    if (( left_major == right_major && left_minor < right_minor )); then
+        return 0
+    fi
+
+    return 1
+}
+
+function _go:current_go_version {
+    local go_bin
+
+    go_bin=$(_go:bin) || return 1
+    GOTOOLCHAIN="${GO_TOOLCHAIN}" "${go_bin}" env GOVERSION
+}
+
+function _go:tool:build_go_version {
+    local tool_path=$1
+    local go_bin
+
+    go_bin=$(_go:bin) || return 1
+    "${go_bin}" version -m "${tool_path}" 2>/dev/null | awk 'NR == 1 { print $NF }'
+}
+
+function _go:tool:needs_rebuild_for_go {
+    local name=$1
+    local tool_path=$2
+    local current_go
+    local tool_go
+
+    current_go=$(_go:current_go_version) || return 1
+    tool_go=$(_go:tool:build_go_version "${tool_path}") || return 1
+
+    if [ -z "${tool_go}" ]; then
+        return 1
+    fi
+
+    if _go:version_major_minor_lt "${tool_go}" "${current_go}"; then
+        echo "${name} was built with ${tool_go}; rebuilding with ${current_go}" >&2
         return 0
     fi
 
@@ -163,7 +240,7 @@ function _go:tool:install {
 
     go_bin=$(_go:bin) || return 1
     _go:quality:prepare_env || return 1
-    echo "Installing ${name} (${target})"
+    echo "Installing ${name} (${target})" >&2
     GOTOOLCHAIN="${GO_TOOLCHAIN}" "${go_bin}" install "${target}" || return 1
     _go:tool:path "${name}" || return 1
 }
@@ -174,6 +251,11 @@ function _go:tool:ensure {
     local tool_path
 
     if tool_path=$(_go:tool:path "${name}" 2>/dev/null); then
+        if _go:tool:needs_rebuild_for_go "${name}" "${tool_path}"; then
+            _go:tool:install "${name}" "${target}"
+            return $?
+        fi
+
         printf '%s\n' "${tool_path}"
         return 0
     fi
