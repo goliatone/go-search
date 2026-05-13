@@ -1,5 +1,16 @@
 # Changelog
 
+# Unreleased
+
+## Bug Fixes
+
+- Make `go-search/migrations` register source-stable ordered migration sources so host managers using `go-persistence-bun v0.16.0+` do not hit mixed identity errors.
+- Add `migrations.LegacyOrderedSources(...)` for positional marker backfill; shared runtime/search repairs still require the host's full historical graph.
+
+## Documentation
+
+- Document stable search source keys/orders, normalized database metadata keys, consumer smoke tests, and legacy marker repair guidance.
+
 # [0.7.0](https://github.com/goliatone/go-search/compare/v0.6.0...v0.7.0) - (2026-04-18)
 
 ## <!-- 1 -->🐛 Bug Fixes
@@ -195,5 +206,3 @@
 - Fix code ([c37280e](https://github.com/goliatone/go-search/commit/c37280ec71def55d0e3fb74a4b61dfefbb386863))  - (goliatone)
 - Update deps ([8276ea4](https://github.com/goliatone/go-search/commit/8276ea44f551aa7efc2c31320fa69cc26b4c22f4))  - (goliatone)
 - Release sub pacakges ([18b284a](https://github.com/goliatone/go-search/commit/18b284a9fd3dc7beb1e4d848f491248593bb446c))  - (goliatone)
-
-
