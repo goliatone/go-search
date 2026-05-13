@@ -10,7 +10,7 @@ require (
 	github.com/goliatone/go-cms v0.45.0
 	github.com/goliatone/go-command v0.19.0
 	github.com/goliatone/go-featuregate v0.6.0
-	github.com/goliatone/go-persistence-bun v0.14.0
+	github.com/goliatone/go-persistence-bun v0.16.0
 	github.com/goliatone/go-router v0.55.0
 	github.com/goliatone/go-search v0.2.0
 	github.com/goliatone/go-search/adapters/gocms v0.2.0
