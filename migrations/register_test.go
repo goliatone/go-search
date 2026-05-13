@@ -638,6 +638,7 @@ func resetSearchSchema(t *testing.T, ctx context.Context, db *bun.DB) {
 		"DROP TABLE IF EXISTS search_generations",
 		"DROP TABLE IF EXISTS search_documents",
 		"DROP FUNCTION IF EXISTS search_documents_tsvector(TEXT, TEXT, TEXT, TEXT)",
+		"DROP FUNCTION IF EXISTS search_documents_text(TEXT, TEXT, TEXT)",
 	}
 	for _, statement := range statements {
 		if _, err := db.NewRaw(statement).Exec(ctx); err != nil {

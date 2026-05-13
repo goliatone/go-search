@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -117,9 +118,14 @@ func TestNormalizeSortSupportsNumericArchiveFields(t *testing.T) {
 }
 
 func TestSnippetHTMLOnlyAllowsMarkTags(t *testing.T) {
-	got := string(snippetHTML(&types.SearchSnippet{
+	var out bytes.Buffer
+	tmpl := template.Must(template.New("snippet").Funcs(templateFuncs).Parse(`{{range snippetParts .}}{{if .Mark}}<mark>{{.Text}}</mark>{{else}}{{.Text}}{{end}}{{end}}`))
+	if err := tmpl.Execute(&out, &types.SearchSnippet{
 		Highlighted: `before <mark>match</mark><script>alert("xss")</script><img src=x onerror=alert(1)>`,
-	}))
+	}); err != nil {
+		t.Fatalf("execute snippet template: %v", err)
+	}
+	got := out.String()
 	if !strings.Contains(got, "<mark>match</mark>") {
 		t.Fatalf("expected mark tags to survive sanitization, got %q", got)
 	}

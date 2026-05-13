@@ -241,6 +241,15 @@ func waitForState(t *testing.T, client *Client, dispatchID string, states ...str
 	return DispatchSnapshot{}
 }
 
+func cleanupWorker(t *testing.T, runtime *WorkerRuntime) {
+	t.Helper()
+	t.Cleanup(func() {
+		if err := runtime.Stop(context.Background()); err != nil {
+			t.Errorf("stop worker: %v", err)
+		}
+	})
+}
+
 func TestAsyncIndexRecordDuplicateDeliverySafetyAndSummary(t *testing.T) {
 	projector := &controllableProjector{}
 	h := newHarness(t, map[string]simpleRecord{
@@ -251,7 +260,7 @@ func TestAsyncIndexRecordDuplicateDeliverySafetyAndSummary(t *testing.T) {
 	if err := h.worker.Start(ctx); err != nil {
 		t.Fatalf("start worker: %v", err)
 	}
-	defer h.worker.Stop(context.Background())
+	cleanupWorker(t, h.worker)
 
 	first, err := h.client.EnqueueIndexRecord(context.Background(), types.IndexRecordInput{
 		Index:    "documents",
@@ -303,7 +312,7 @@ func TestAsyncTrackingSurvivesWorkerCompletionBeforeReceiptBinding(t *testing.T)
 	if err := h.worker.Start(ctx); err != nil {
 		t.Fatalf("start worker: %v", err)
 	}
-	defer h.worker.Stop(context.Background())
+	cleanupWorker(t, h.worker)
 
 	receipt, err := h.client.EnqueueIndexRecord(context.Background(), types.IndexRecordInput{
 		Index:    "documents",
@@ -340,7 +349,7 @@ func TestAsyncReindexPartialBatchRecoveryAndProgress(t *testing.T) {
 	if err := h.worker.Start(ctx); err != nil {
 		t.Fatalf("start worker: %v", err)
 	}
-	defer h.worker.Stop(context.Background())
+	cleanupWorker(t, h.worker)
 
 	receipt, err := h.client.EnqueueReindexIndex(context.Background(), types.ReindexIndexInput{
 		Index: "documents",
@@ -383,7 +392,7 @@ func TestAsyncPauseResumeCancelAndRestart(t *testing.T) {
 	if err := h.worker.Start(ctx); err != nil {
 		t.Fatalf("start worker: %v", err)
 	}
-	defer h.worker.Stop(context.Background())
+	cleanupWorker(t, h.worker)
 
 	if err := h.worker.Pause(); err != nil {
 		t.Fatalf("pause worker: %v", err)
@@ -440,7 +449,7 @@ func TestAsyncRejectsDuplicateOperationKey(t *testing.T) {
 	if err := h.worker.Start(ctx); err != nil {
 		t.Fatalf("start worker: %v", err)
 	}
-	defer h.worker.Stop(context.Background())
+	cleanupWorker(t, h.worker)
 
 	const operationKey = "shared-op"
 	first, err := h.client.EnqueueIndexRecord(context.Background(), types.IndexRecordInput{
@@ -470,7 +479,7 @@ func TestAsyncGetAndRestartSurviveTrackerReplacement(t *testing.T) {
 	if err := h.worker.Start(ctx); err != nil {
 		t.Fatalf("start worker: %v", err)
 	}
-	defer h.worker.Stop(context.Background())
+	cleanupWorker(t, h.worker)
 
 	first, err := h.client.EnqueueIndexRecord(context.Background(), types.IndexRecordInput{
 		Index:    "documents",

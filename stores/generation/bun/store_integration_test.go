@@ -20,7 +20,11 @@ func TestGenerationStoreIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open postgres: %v", err)
 	}
-	defer sqlDB.Close()
+	defer func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close postgres: %v", err)
+		}
+	}()
 	db := bun.NewDB(sqlDB, pgdialect.New())
 	ctx := context.Background()
 	if err := Migrations().Migrate(ctx, db); err != nil {
