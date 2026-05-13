@@ -1,6 +1,24 @@
 ALTER TABLE search_documents
     ADD COLUMN IF NOT EXISTS search_config TEXT NOT NULL DEFAULT 'simple';
 
+CREATE OR REPLACE FUNCTION search_documents_tsvector(
+    search_config TEXT,
+    title TEXT,
+    summary TEXT,
+    body TEXT
+) RETURNS tsvector
+LANGUAGE plpgsql
+IMMUTABLE
+PARALLEL SAFE
+AS $$
+BEGIN
+    RETURN
+        setweight(to_tsvector(search_config::regconfig, coalesce(title, '')), 'A') ||
+        setweight(to_tsvector(search_config::regconfig, coalesce(summary, '')), 'B') ||
+        setweight(to_tsvector(search_config::regconfig, coalesce(body, '')), 'C');
+END;
+$$;
+
 UPDATE search_documents
 SET search_config = 'simple'
 WHERE COALESCE(search_config, '') = '';
@@ -10,9 +28,7 @@ ALTER TABLE search_documents DROP COLUMN IF EXISTS search_vector;
 
 ALTER TABLE search_documents
     ADD COLUMN search_vector tsvector GENERATED ALWAYS AS (
-        setweight(to_tsvector(search_config::regconfig, coalesce(title, '')), 'A') ||
-        setweight(to_tsvector(search_config::regconfig, coalesce(summary, '')), 'B') ||
-        setweight(to_tsvector(search_config::regconfig, coalesce(body, '')), 'C')
+        search_documents_tsvector(search_config, title, summary, body)
     ) STORED;
 
 CREATE INDEX IF NOT EXISTS idx_search_documents_search_vector ON search_documents USING GIN (search_vector);

@@ -1,5 +1,23 @@
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
+CREATE OR REPLACE FUNCTION search_documents_tsvector(
+    search_config TEXT,
+    title TEXT,
+    summary TEXT,
+    body TEXT
+) RETURNS tsvector
+LANGUAGE plpgsql
+IMMUTABLE
+PARALLEL SAFE
+AS $$
+BEGIN
+    RETURN
+        setweight(to_tsvector(search_config::regconfig, coalesce(title, '')), 'A') ||
+        setweight(to_tsvector(search_config::regconfig, coalesce(summary, '')), 'B') ||
+        setweight(to_tsvector(search_config::regconfig, coalesce(body, '')), 'C');
+END;
+$$;
+
 CREATE TABLE IF NOT EXISTS search_documents (
     index_name TEXT NOT NULL,
     registration_key TEXT NOT NULL DEFAULT '',
@@ -46,9 +64,7 @@ CREATE TABLE IF NOT EXISTS search_documents (
         )
     ) STORED,
     search_vector tsvector GENERATED ALWAYS AS (
-        setweight(to_tsvector(search_config::regconfig, coalesce(title, '')), 'A') ||
-        setweight(to_tsvector(search_config::regconfig, coalesce(summary, '')), 'B') ||
-        setweight(to_tsvector(search_config::regconfig, coalesce(body, '')), 'C')
+        search_documents_tsvector(search_config, title, summary, body)
     ) STORED,
     PRIMARY KEY (index_name, registration_key, document_id)
 );

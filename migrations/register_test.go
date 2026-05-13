@@ -147,11 +147,11 @@ func TestRegisterManagerComposesAfterStableHostSource(t *testing.T) {
 		t.Fatalf("Plan after stable host source: %v", err)
 	}
 	assertSourceStablePlan(t, plan, []expectedPlanSource{
-		{name: "host-runtime", key: "host_runtime", order: 100, position: 0},
-		{name: SourceNameProviderPostgres, key: "go_search_provider_postgres", order: SourceOrderProviderPostgres, position: 1},
-		{name: SourceNameGeneration, key: "go_search_generation", order: SourceOrderGeneration, position: 2},
-		{name: SourceNameEditorial, key: "go_search_editorial", order: SourceOrderEditorial, position: 3},
-		{name: SourceNameDispatch, key: "go_search_dispatch", order: SourceOrderDispatch, position: 4},
+		{name: "host-runtime", key: "host_runtime", order: 100, position: 1},
+		{name: SourceNameProviderPostgres, key: "go_search_provider_postgres", order: SourceOrderProviderPostgres, position: 2},
+		{name: SourceNameGeneration, key: "go_search_generation", order: SourceOrderGeneration, position: 3},
+		{name: SourceNameEditorial, key: "go_search_editorial", order: SourceOrderEditorial, position: 4},
+		{name: SourceNameDispatch, key: "go_search_dispatch", order: SourceOrderDispatch, position: 5},
 	})
 }
 
@@ -233,10 +233,10 @@ func TestRegisterManagerMigrateCreatesComposedSchemaPostgres(t *testing.T) {
 		assertTableExists(t, ctx, db, "search_job_dispatches", true)
 		assertStableMigrationMarkers(t, ctx, db, plan)
 		assertStableSourceMetadata(t, ctx, db, []expectedSourceMetadata{
-			{name: SourceNameProviderPostgres, key: "go_search_provider_postgres", order: SourceOrderProviderPostgres, position: 0},
-			{name: SourceNameGeneration, key: "go_search_generation", order: SourceOrderGeneration, position: 1},
-			{name: SourceNameEditorial, key: "go_search_editorial", order: SourceOrderEditorial, position: 2},
-			{name: SourceNameDispatch, key: "go_search_dispatch", order: SourceOrderDispatch, position: 3},
+			{name: SourceNameProviderPostgres, key: "go_search_provider_postgres", order: SourceOrderProviderPostgres, position: 1},
+			{name: SourceNameGeneration, key: "go_search_generation", order: SourceOrderGeneration, position: 2},
+			{name: SourceNameEditorial, key: "go_search_editorial", order: SourceOrderEditorial, position: 3},
+			{name: SourceNameDispatch, key: "go_search_dispatch", order: SourceOrderDispatch, position: 4},
 		})
 	})
 }
@@ -637,6 +637,7 @@ func resetSearchSchema(t *testing.T, ctx context.Context, db *bun.DB) {
 		"DROP TABLE IF EXISTS search_editorial_rules",
 		"DROP TABLE IF EXISTS search_generations",
 		"DROP TABLE IF EXISTS search_documents",
+		"DROP FUNCTION IF EXISTS search_documents_tsvector(TEXT, TEXT, TEXT, TEXT)",
 	}
 	for _, statement := range statements {
 		if _, err := db.NewRaw(statement).Exec(ctx); err != nil {
