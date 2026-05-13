@@ -1,16 +1,31 @@
 # Changelog
 
-# Unreleased
+# [0.8.0](https://github.com/goliatone/go-search/compare/v0.7.0...v0.8.0) - (2026-05-13)
 
-## Bug Fixes
+## <!-- 1 -->🐛 Bug Fixes
 
-- Make `go-search/migrations` register source-stable ordered migration sources so host managers using `go-persistence-bun v0.16.0+` do not hit mixed identity errors.
-- Add `migrations.LegacyOrderedSources(...)` for positional marker backfill; shared runtime/search repairs still require the host's full historical graph.
-- Fix Postgres provider generated-column migrations by moving text/vector expressions behind immutable helper functions.
+- Postgres search ([d1e7b2a](https://github.com/goliatone/go-search/commit/d1e7b2a45ca62df1ab4c38d75941fabddb682ac6))  - (goliatone)
+- Migration registration using new api ([e15c59d](https://github.com/goliatone/go-search/commit/e15c59d8130b6e1492aef22dcd90d1da3c8216ee))  - (goliatone)
 
-## Documentation
+## <!-- 13 -->📦 Bumps
 
-- Document stable search source keys/orders, normalized database metadata keys, consumer smoke tests, Postgres integration test configuration, and legacy marker repair guidance.
+- Bump version: v0.8.0 ([60e6c58](https://github.com/goliatone/go-search/commit/60e6c582d4c6a8ee73a0721c567d9651deb38e19))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Profile ordering for migrations ([29dffe3](https://github.com/goliatone/go-search/commit/29dffe34560b1726c8b212a72d88b6f67fcb041d))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.7.0 ([69a0582](https://github.com/goliatone/go-search/commit/69a0582a28e8cc4f58566490ddd7309791a51a88))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tasks ([8a77369](https://github.com/goliatone/go-search/commit/8a77369e163e5985f30e8997c902c841bd725641))  - (goliatone)
+- Update docs ([9269d03](https://github.com/goliatone/go-search/commit/9269d03863dc30332c8eb61a3a8bcf9267e5aef6))  - (goliatone)
+- Update examples ([3b2da95](https://github.com/goliatone/go-search/commit/3b2da95ee32553fec0777a0e0d3a251bc0cc8de5))  - (goliatone)
+- Update tests ([f6a2892](https://github.com/goliatone/go-search/commit/f6a2892b719d3a9dcf9debdd33a508e690478783))  - (goliatone)
+- Update deps ([ea1d733](https://github.com/goliatone/go-search/commit/ea1d733d58a2eef72873e4a33e7989b691264b6a))  - (goliatone)
 
 # [0.7.0](https://github.com/goliatone/go-search/compare/v0.6.0...v0.7.0) - (2026-04-18)
 
@@ -207,3 +222,5 @@
 - Fix code ([c37280e](https://github.com/goliatone/go-search/commit/c37280ec71def55d0e3fb74a4b61dfefbb386863))  - (goliatone)
 - Update deps ([8276ea4](https://github.com/goliatone/go-search/commit/8276ea44f551aa7efc2c31320fa69cc26b4c22f4))  - (goliatone)
 - Release sub pacakges ([18b284a](https://github.com/goliatone/go-search/commit/18b284a9fd3dc7beb1e4d848f491248593bb446c))  - (goliatone)
+
+
