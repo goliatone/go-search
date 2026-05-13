@@ -6,10 +6,11 @@
 
 - Make `go-search/migrations` register source-stable ordered migration sources so host managers using `go-persistence-bun v0.16.0+` do not hit mixed identity errors.
 - Add `migrations.LegacyOrderedSources(...)` for positional marker backfill; shared runtime/search repairs still require the host's full historical graph.
+- Fix Postgres provider generated-column migrations by moving text/vector expressions behind immutable helper functions.
 
 ## Documentation
 
-- Document stable search source keys/orders, normalized database metadata keys, consumer smoke tests, and legacy marker repair guidance.
+- Document stable search source keys/orders, normalized database metadata keys, consumer smoke tests, Postgres integration test configuration, and legacy marker repair guidance.
 
 # [0.7.0](https://github.com/goliatone/go-search/compare/v0.6.0...v0.7.0) - (2026-04-18)
 
