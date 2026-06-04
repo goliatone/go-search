@@ -1,5 +1,19 @@
 # Changelog
 
+# [0.8.1](https://github.com/goliatone/go-search/compare/v0.8.0...v0.8.1) - (2026-06-04)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.8.1 ([abd981b](https://github.com/goliatone/go-search/commit/abd981b6fe250e0473ed49dda98bb096854e28f3))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.8.0 ([e209385](https://github.com/goliatone/go-search/commit/e209385d290fc5a7c58622629c83fc18cef4a203))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update deps ([30c9cf6](https://github.com/goliatone/go-search/commit/30c9cf6d9b2d8eff74bd04258fe9d3ea75398e2e))  - (goliatone)
+
 # [0.8.0](https://github.com/goliatone/go-search/compare/v0.7.0...v0.8.0) - (2026-05-13)
 
 ## <!-- 1 -->🐛 Bug Fixes
