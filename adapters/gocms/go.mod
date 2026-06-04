@@ -1,6 +1,6 @@
 module github.com/goliatone/go-search/adapters/gocms
 
-go 1.26.1
+go 1.26.4
 
 require (
 	github.com/goliatone/go-cms v0.45.0
@@ -23,8 +23,8 @@ require (
 	github.com/uptrace/bun v1.2.18 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
-	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 

@@ -1,6 +1,6 @@
 module github.com/goliatone/go-search/adapters/gousers
 
-go 1.26.1
+go 1.26.4
 
 require (
 	github.com/goliatone/go-search v0.8.0
@@ -10,7 +10,7 @@ require (
 
 require (
 	github.com/goliatone/go-i18n v0.5.0 // indirect
-	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 

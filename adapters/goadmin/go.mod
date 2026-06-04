@@ -1,6 +1,6 @@
 module github.com/goliatone/go-search/adapters/goadmin
 
-go 1.26.1
+go 1.26.4
 
 require github.com/goliatone/go-search v0.8.0
 
