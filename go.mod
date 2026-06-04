@@ -7,8 +7,8 @@ require (
 	github.com/goliatone/go-errors v0.10.0
 	github.com/goliatone/go-i18n v0.5.0
 	github.com/goliatone/go-job v0.19.0
-	github.com/goliatone/go-persistence-bun v0.16.0
-	github.com/goliatone/go-repository-bun v0.15.1
+	github.com/goliatone/go-persistence-bun v0.16.1
+	github.com/goliatone/go-repository-bun v0.16.1
 	github.com/lib/pq v1.12.0
 	github.com/typesense/typesense-go/v3 v3.2.0
 	github.com/uptrace/bun v1.2.18
