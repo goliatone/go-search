@@ -3,7 +3,7 @@ module github.com/goliatone/go-search/adapters/gousers
 go 1.26.4
 
 require (
-	github.com/goliatone/go-search v0.8.0
+	github.com/goliatone/go-search v0.8.1
 	github.com/goliatone/go-users v0.18.0
 	github.com/google/uuid v1.6.0
 )
