@@ -1,5 +1,30 @@
 # Changelog
 
+# [0.9.0](https://github.com/goliatone/go-search/compare/v0.8.1...v0.9.0) - (2026-07-11)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.9.0 ([78b294b](https://github.com/goliatone/go-search/commit/78b294bc2874d9db11a71e44334326ba19dbb2e8))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Typesense support for ranking and grouping ([76b2274](https://github.com/goliatone/go-search/commit/76b227451c5336a09ca63cc6d53dad23363fdcb0))  - (goliatone)
+- Aggregate provider ([e5e84a8](https://github.com/goliatone/go-search/commit/e5e84a82ad7abe73ad4b574517f9f2b562b92c78))  - (goliatone)
+- Ranking profile ([63f560b](https://github.com/goliatone/go-search/commit/63f560b6def0043587ef548eda38df21a1e18c02))  - (goliatone)
+- Text match control ([7e42e33](https://github.com/goliatone/go-search/commit/7e42e338becf450cb9b173e5ce1265dced6163e2))  - (goliatone)
+- Ranking implementation ([1dfced0](https://github.com/goliatone/go-search/commit/1dfced083f442607509d1777c35bcdb8a266e0e4))  - (goliatone)
+- Document added resolution for data provenance ([fcc1d41](https://github.com/goliatone/go-search/commit/fcc1d419ec7cad1cc4b94d6b2ee96f8659fc5956))  - (goliatone)
+- New capabilities definitions ([8ad8f64](https://github.com/goliatone/go-search/commit/8ad8f64f5352b3f6580bd5eb212996e61b67b2a8))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.8.1 ([83a8f33](https://github.com/goliatone/go-search/commit/83a8f3383a22facbd9b5b915e38210789fa05598))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update examples ([6c1e2db](https://github.com/goliatone/go-search/commit/6c1e2db91c13f3f6aca4f48393d0a1abbcbdc019))  - (goliatone)
+- Update tests ([f0fce82](https://github.com/goliatone/go-search/commit/f0fce82e71bdbcb8695d5a020a5f9614e43f8476))  - (goliatone)
+
 # [0.8.1](https://github.com/goliatone/go-search/compare/v0.8.0...v0.8.1) - (2026-06-04)
 
 ## <!-- 13 -->📦 Bumps
