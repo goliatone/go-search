@@ -16,6 +16,11 @@ type CapabilitySet struct {
 	ExternalEmbeddings   bool                   `json:"external_embeddings"`
 	DistanceThreshold    bool                   `json:"distance_threshold"`
 	MultilingualEmbeds   bool                   `json:"multilingual_embeds"`
+	WeightedQueryFields  bool                   `json:"weighted_query_fields"`
+	TextMatchControls    bool                   `json:"text_match_controls"`
+	EntityGrouping       bool                   `json:"entity_grouping"`
+	ExactEntityCounts    bool                   `json:"exact_entity_counts"`
+	BatchedEvidence      bool                   `json:"batched_evidence"`
 	SupportedSearchModes []SearchMode           `json:"supported_search_modes"`
 	Limitations          []CapabilityLimitation `json:"limitations,omitempty"`
 	Metadata             map[string]any         `json:"metadata"`
