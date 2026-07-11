@@ -9,25 +9,32 @@ const (
 )
 
 type SearchRequest struct {
-	Indexes        []string         `json:"indexes"`
-	Query          string           `json:"query"`
-	Locale         string           `json:"locale"`
-	Locales        []string         `json:"locales"`
-	Page           int              `json:"page"`
-	PerPage        int              `json:"per_page"`
-	Sort           []Sort           `json:"sort"`
-	Filters        FilterExpr       `json:"filters"`
-	Facets         []FacetRequest   `json:"facets"`
-	GroupBy        string           `json:"group_by"`
-	Highlight      []string         `json:"highlight"`
-	IncludeFields  []string         `json:"include_fields"`
-	RankingProfile string           `json:"ranking_profile"`
-	Mode           SearchMode       `json:"mode"`
-	Semantic       *SemanticRequest `json:"semantic"`
-	Metadata       map[string]any   `json:"metadata"`
-	Actor          ActorRef         `json:"actor"`
-	Scope          Scope            `json:"scope"`
-	Request        any              `json:"request"`
+	Indexes        []string                `json:"indexes"`
+	Query          string                  `json:"query"`
+	Locale         string                  `json:"locale"`
+	Locales        []string                `json:"locales"`
+	Page           int                     `json:"page"`
+	PerPage        int                     `json:"per_page"`
+	Sort           []Sort                  `json:"sort"`
+	Filters        FilterExpr              `json:"filters"`
+	Facets         []FacetRequest          `json:"facets"`
+	GroupBy        string                  `json:"group_by"`
+	Highlight      []string                `json:"highlight"`
+	IncludeFields  []string                `json:"include_fields"`
+	RankingProfile string                  `json:"ranking_profile"`
+	QueryFields    map[string][]QueryField `json:"query_fields,omitempty"`
+	TextMatch      *TextMatchControl       `json:"text_match,omitempty"`
+	Mode           SearchMode              `json:"mode"`
+	Semantic       *SemanticRequest        `json:"semantic"`
+	Metadata       map[string]any          `json:"metadata"`
+	Actor          ActorRef                `json:"actor"`
+	Scope          Scope                   `json:"scope"`
+	Request        any                     `json:"request"`
+}
+
+type TextMatchControl struct {
+	PrioritizeExactMatch *bool  `json:"prioritize_exact_match,omitempty"`
+	Mode                 string `json:"mode,omitempty"`
 }
 
 func (SearchRequest) Type() string { return "search::search" }
