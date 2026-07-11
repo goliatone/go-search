@@ -8,12 +8,25 @@ import (
 
 	"github.com/goliatone/go-search/internal/errs"
 	"github.com/goliatone/go-search/pkg/types"
+	"github.com/goliatone/go-search/ranking"
 	tsapi "github.com/typesense/typesense-go/v3/typesense/api"
 )
 
 func compileSearchParams(cfg Config, def types.IndexDefinition, req types.SearchRequest) (*tsapi.SearchCollectionParams, error) {
 	cfg = normalizeConfig(cfg)
-	queryFields := searchQueryFields(def)
+	weighted := req.QueryFields[def.Name]
+	if len(weighted) == 0 {
+		weighted = ranking.LegacyQueryFields(def)
+	}
+	queryFields := make([]string, 0, len(weighted))
+	queryWeights := make([]string, 0, len(weighted))
+	for _, field := range weighted {
+		queryFields = append(queryFields, field.Field)
+		queryWeights = append(queryWeights, strconv.Itoa(field.Weight))
+	}
+	if len(queryFields) == 0 {
+		queryFields = searchQueryFields(def)
+	}
 	query := strings.TrimSpace(req.Query)
 	if query == "" {
 		query = "*"
@@ -22,9 +35,20 @@ func compileSearchParams(cfg Config, def types.IndexDefinition, req types.Search
 	params := &tsapi.SearchCollectionParams{
 		Q:                    &query,
 		QueryBy:              new(strings.Join(queryFields, ",")),
+		QueryByWeights:       new(strings.Join(queryWeights, ",")),
 		Page:                 new(req.Page),
 		PerPage:              new(req.PerPage),
 		PrioritizeExactMatch: new(true),
+	}
+	if req.TextMatch != nil && req.TextMatch.PrioritizeExactMatch != nil {
+		params.PrioritizeExactMatch = req.TextMatch.PrioritizeExactMatch
+	}
+	if req.TextMatch != nil && strings.TrimSpace(req.TextMatch.Mode) != "" {
+		mode := strings.TrimSpace(req.TextMatch.Mode)
+		if mode != "max_score" && mode != "max_weight" {
+			return nil, errs.InvalidInput("invalid text match mode", map[string]any{"mode": mode})
+		}
+		params.TextMatchType = &mode
 	}
 
 	if req.GroupBy != "" {
@@ -43,7 +67,7 @@ func compileSearchParams(cfg Config, def types.IndexDefinition, req types.Search
 		fields := make([]string, 0, len(req.Facets))
 		maxFacetValues := 0
 		for _, facet := range req.Facets {
-			if !contains(def.FacetFields, facet.Field) && facet.Field != "topic" && facet.Field != "parent_id" && facet.Field != "locale" {
+			if !contains(def.FacetFields, facet.Field) && facet.Field != "topic" && facet.Field != "parent_id" && facet.Field != "locale" && facet.Field != "match_location" {
 				return nil, errs.InvalidFilter("facet field is not declared on the index", map[string]any{"field": facet.Field})
 			}
 			fields = append(fields, facet.Field)
@@ -282,6 +306,8 @@ func allowedFilterFields(def types.IndexDefinition) map[string]struct{} {
 		"index":                  {},
 		"type":                   {},
 		"parent_id":              {},
+		"result_id":              {},
+		"match_location":         {},
 		"source_type":            {},
 		"source_id":              {},
 		"locale":                 {},

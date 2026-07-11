@@ -104,6 +104,8 @@ func (p *Provider) Capabilities(context.Context) (types.CapabilitySet, error) {
 		Highlighting:         true,
 		Snippets:             true,
 		PrefixSearch:         true,
+		WeightedQueryFields:  true,
+		TextMatchControls:    true,
 		SupportedSearchModes: []types.SearchMode{types.SearchModeLexical},
 		Limitations: []types.CapabilityLimitation{
 			{
@@ -114,7 +116,50 @@ func (p *Provider) Capabilities(context.Context) (types.CapabilitySet, error) {
 		Metadata: map[string]any{
 			"grouped_evidence_limit": p.cfg.GroupedEvidenceLimit,
 		},
+		EntityGrouping: true, ExactEntityCounts: true, BatchedEvidence: true,
 	}, nil
+}
+
+func (p *Provider) AggregateEvidence(ctx context.Context, in types.EvidenceRequest) (map[string]*types.MatchEvidenceSummary, error) {
+	requests := make([]types.SearchRequest, 0, len(in.ResultIDs))
+	for _, id := range in.ResultIDs {
+		req := in.Search
+		req.Page = 1
+		req.PerPage = in.MaxSamplesPerLocation
+		req.GroupBy = ""
+		req.Facets = []types.FacetRequest{{Field: "match_location"}}
+		term := types.TermExpr{Field: "result_id", Op: types.FilterOpEQ, Value: id}
+		if req.Filters != nil {
+			req.Filters = types.AndExpr{Terms: []types.FilterExpr{req.Filters, term}}
+		} else {
+			req.Filters = term
+		}
+		requests = append(requests, req)
+	}
+	pages, err := p.SearchBatch(ctx, requests)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]*types.MatchEvidenceSummary{}
+	for i, page := range pages {
+		summary := &types.MatchEvidenceSummary{Exact: true}
+		for _, facet := range page.Facets {
+			if facet.Field != "match_location" {
+				continue
+			}
+			for _, value := range facet.Values {
+				location := types.MatchEvidenceLocation{Location: value.Value, Count: value.Count}
+				for _, hit := range page.Hits {
+					if hit.Document != nil && hit.Document.MatchLocation == value.Value && len(location.Samples) < in.MaxSamplesPerLocation {
+						location.Samples = append(location.Samples, types.MatchEvidenceSample{DocumentID: hit.ID, Field: hit.Document.MatchField, ChunkOrdinal: hit.Document.ChunkOrdinal, Anchor: hit.Anchor})
+					}
+				}
+				summary.Locations = append(summary.Locations, location)
+			}
+		}
+		out[in.ResultIDs[i]] = summary
+	}
+	return out, nil
 }
 
 func (p *Provider) EnsureIndex(ctx context.Context, def types.IndexDefinition) error {

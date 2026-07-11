@@ -185,16 +185,17 @@ func mapDocument(raw *map[string]any) types.Document {
 		RegistrationKey: fieldStringValue(*raw, "registration_key"),
 		Type:            fieldStringValue(*raw, "type"),
 		ParentID:        fieldStringValue(*raw, "parent_id"),
-		SourceType:      fieldStringValue(*raw, "source_type"),
-		SourceID:        fieldStringValue(*raw, "source_id"),
-		Title:           fieldStringValue(*raw, "title"),
-		Summary:         fieldStringValue(*raw, "summary"),
-		Body:            fieldStringValue(*raw, "body"),
-		URL:             fieldStringValue(*raw, "url"),
-		AnchorURL:       fieldStringValue(*raw, "anchor_url"),
-		Locale:          fieldStringValue(*raw, "locale"),
-		Fields:          map[string]any{},
-		Metadata:        map[string]any{},
+		ResultID:        fieldStringValue(*raw, "result_id"), ResultType: fieldStringValue(*raw, "result_type"), MatchLocation: fieldStringValue(*raw, "match_location"), MatchField: fieldStringValue(*raw, "match_field"),
+		SourceType: fieldStringValue(*raw, "source_type"),
+		SourceID:   fieldStringValue(*raw, "source_id"),
+		Title:      fieldStringValue(*raw, "title"),
+		Summary:    fieldStringValue(*raw, "summary"),
+		Body:       fieldStringValue(*raw, "body"),
+		URL:        fieldStringValue(*raw, "url"),
+		AnchorURL:  fieldStringValue(*raw, "anchor_url"),
+		Locale:     fieldStringValue(*raw, "locale"),
+		Fields:     map[string]any{},
+		Metadata:   map[string]any{},
 		Scope: types.Scope{
 			TenantID: fieldStringValue(*raw, "scope_tenant_id"),
 			OrgID:    fieldStringValue(*raw, "scope_org_id"),
@@ -206,6 +207,10 @@ func mapDocument(raw *map[string]any) types.Document {
 			Permissions: stringSliceFieldValueOrNil(*raw, "visibility_permissions"),
 			Status:      fieldStringValue(*raw, "visibility_status"),
 		},
+	}
+	if value, ok := int64FieldValue(*raw, "chunk_ordinal"); ok {
+		v := int(value)
+		doc.ChunkOrdinal = &v
 	}
 	if value, ok := int64FieldValue(*raw, "start_ms"); ok {
 		doc.StartMS = &value
@@ -222,6 +227,7 @@ func mapDocument(raw *map[string]any) types.Document {
 		"index",
 		"type",
 		"parent_id",
+		"result_id", "result_type", "match_location", "match_field", "chunk_ordinal",
 		"parent_type",
 		"source_type",
 		"source_id",

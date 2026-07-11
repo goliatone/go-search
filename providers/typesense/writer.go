@@ -128,12 +128,13 @@ func replaceDocuments(ctx context.Context, client *tstypesense.Client, runtime m
 
 func compileDocument(def types.IndexDefinition, doc types.Document) map[string]any {
 	payload := map[string]any{
-		"id":                     storageDocumentID(doc),
-		"document_id":            doc.ID,
-		"index":                  firstNonEmpty(doc.Index, def.Name),
-		"registration_key":       strings.TrimSpace(doc.RegistrationKey),
-		"type":                   doc.Type,
-		"parent_id":              doc.ParentID,
+		"id":               storageDocumentID(doc),
+		"document_id":      doc.ID,
+		"index":            firstNonEmpty(doc.Index, def.Name),
+		"registration_key": strings.TrimSpace(doc.RegistrationKey),
+		"type":             doc.Type,
+		"parent_id":        doc.ParentID,
+		"result_id":        doc.ResultID, "result_type": doc.ResultType, "match_location": doc.MatchLocation, "match_field": doc.MatchField,
 		"source_type":            doc.SourceType,
 		"source_id":              doc.SourceID,
 		"title":                  doc.Title,
@@ -149,6 +150,9 @@ func compileDocument(def types.IndexDefinition, doc types.Document) map[string]a
 		"visibility_roles":       append([]string(nil), doc.Visibility.Roles...),
 		"visibility_permissions": append([]string(nil), doc.Visibility.Permissions...),
 		"visibility_status":      strings.TrimSpace(doc.Visibility.Status),
+	}
+	if doc.ChunkOrdinal != nil {
+		payload["chunk_ordinal"] = *doc.ChunkOrdinal
 	}
 	if doc.StartMS != nil {
 		payload["start_ms"] = *doc.StartMS
