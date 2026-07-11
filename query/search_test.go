@@ -9,10 +9,28 @@ import (
 	"github.com/goliatone/go-search/pkg/types"
 	"github.com/goliatone/go-search/planner"
 	"github.com/goliatone/go-search/providers/memory"
+	"github.com/goliatone/go-search/ranking"
 )
 
 type staticEditorialStore struct {
 	rules []types.EditorialRankRule
+}
+
+func TestCandidateWindowIsBounded(t *testing.T) {
+	cfg := ranking.CandidateConfig{Multiplier: 5, MaxPerIndex: 250, MaxRefillRounds: 2}
+	if got := candidateWindow(types.SearchRequest{Page: 1, PerPage: 20}, cfg); got != 100 {
+		t.Fatalf("got %d", got)
+	}
+	if got := candidateWindow(types.SearchRequest{Page: 9, PerPage: 20}, cfg); got != 250 {
+		t.Fatalf("cap got %d", got)
+	}
+}
+func BenchmarkCandidateWindow(b *testing.B) {
+	cfg := ranking.CandidateConfig{Multiplier: 5, MaxPerIndex: 250, MaxRefillRounds: 2}
+	req := types.SearchRequest{Page: 3, PerPage: 20}
+	for i := 0; i < b.N; i++ {
+		_ = candidateWindow(req, cfg)
+	}
 }
 
 type countingBatchProvider struct {

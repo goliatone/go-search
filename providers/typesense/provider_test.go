@@ -105,6 +105,30 @@ func TestCompileSearchParamsAddsLocaleFilterGroupingAndSortBoost(t *testing.T) {
 	if params.SortBy == nil || *params.SortBy != "_eval(locale:=en):desc,start_ms:asc" {
 		t.Fatalf("unexpected sort_by: %+v", params.SortBy)
 	}
+	if params.QueryByWeights == nil || *params.QueryByWeights != "1,1" {
+		t.Fatalf("weights=%v", params.QueryByWeights)
+	}
+}
+
+func TestCompileSearchParamsUsesProfileWeights(t *testing.T) {
+	def := types.IndexDefinition{Name: "media", DefaultQueryFields: []string{"title", "body"}}
+	params, err := compileSearchParams(Config{}, def, types.SearchRequest{Query: "x", Page: 1, PerPage: 10, QueryFields: map[string][]types.QueryField{"media": {{Field: "title", Weight: 10}, {Field: "body", Weight: 2}}}, TextMatch: &types.TextMatchControl{Mode: "max_weight"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *params.QueryBy != "title,body" || *params.QueryByWeights != "10,2" {
+		t.Fatalf("params=%+v", params)
+	}
+	if params.TextMatchType == nil || *params.TextMatchType != "max_weight" {
+		t.Fatalf("text match=%v", params.TextMatchType)
+	}
+}
+
+func TestCompileSearchParamsRejectsInvalidTextMatchMode(t *testing.T) {
+	_, err := compileSearchParams(Config{}, types.IndexDefinition{Name: "media", DefaultQueryFields: []string{"title"}}, types.SearchRequest{Query: "x", Page: 1, PerPage: 10, TextMatch: &types.TextMatchControl{Mode: "bad"}})
+	if err == nil {
+		t.Fatal("expected error")
+	}
 }
 
 func TestCompileSearchParamsCompilesExistsExprToShadowField(t *testing.T) {

@@ -1,0 +1,3 @@
+package ranking
+import("testing";"github.com/goliatone/go-search/pkg/types")
+func TestGroupEntitiesResistsChunkCountAndAggregatesEvidence(t *testing.T){hits:=[]types.SearchHit{{ID:"c1",FinalScore:3,Document:&types.Document{ID:"c1",ResultID:"event:e1",MatchLocation:"transcript"}},{ID:"c2",FinalScore:1,Document:&types.Document{ID:"c2",ResultID:"event:e1",MatchLocation:"transcript"}},{ID:"t",FinalScore:2,Document:&types.Document{ID:"t",ResultID:"event:e2",MatchLocation:"title"}}};groups:=GroupEntities(hits,1);if len(groups)!=2||groups[0].ResultID!="event:e1"||groups[0].FinalScore!=3{t.Fatalf("groups=%#v",groups)};e:=AggregateEvidence(hits,1);if e["event:e1"].Locations[0].Count!=2||len(e["event:e1"].Locations[0].Samples)!=1{t.Fatalf("evidence=%#v",e)}}
