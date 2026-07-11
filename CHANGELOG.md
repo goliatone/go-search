@@ -1,5 +1,24 @@
 # Changelog
 
+# [0.10.0](https://github.com/goliatone/go-search/compare/v0.9.0...v0.10.0) - (2026-07-11)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.10.0 ([3b03d97](https://github.com/goliatone/go-search/commit/3b03d97dd636477cae6e401666cbe19619ac7658))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Trusted ranking profile, cache identity, canonical public filter ([9b1d2e8](https://github.com/goliatone/go-search/commit/9b1d2e80c20ab857b87eba37206d797617156d6e))  - (goliatone)
+- Count and identity parameters ([757d0b8](https://github.com/goliatone/go-search/commit/757d0b80a07e0d8b7615e31261cfb68de108bb95))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.9.0 ([7fad750](https://github.com/goliatone/go-search/commit/7fad750ff8150c99d4a898e840ea85b605877a6f))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([b78cf46](https://github.com/goliatone/go-search/commit/b78cf46fc0890145e098f3fa0b349839e209511c))  - (goliatone)
+
 # [0.9.0](https://github.com/goliatone/go-search/compare/v0.8.1...v0.9.0) - (2026-07-11)
 
 ## <!-- 13 -->📦 Bumps
