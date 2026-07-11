@@ -94,17 +94,29 @@ type SearchFacet struct {
 	Disjunctive bool               `json:"disjunctive,omitempty"`
 	Values      []SearchFacetValue `json:"values"`
 	Metadata    map[string]any     `json:"metadata,omitempty"`
+	Accuracy    FacetCountAccuracy `json:"accuracy,omitempty"`
 }
 
+type FacetCountAccuracy string
+
+const (
+	FacetCountAccuracyExact       FacetCountAccuracy = "exact"
+	FacetCountAccuracyApproximate FacetCountAccuracy = "approximate"
+	FacetCountAccuracyLowerBound  FacetCountAccuracy = "lower_bound"
+	FacetCountAccuracyUnavailable FacetCountAccuracy = "unavailable"
+)
+
 type SearchFacetValue struct {
-	Value       string         `json:"value"`
-	Label       string         `json:"label,omitempty"`
-	Count       int            `json:"count"`
-	Path        []string       `json:"path,omitempty"`
-	Level       int            `json:"level,omitempty"`
-	ParentValue string         `json:"parent_value,omitempty"`
-	Selected    bool           `json:"selected,omitempty"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
+	Value             string         `json:"value"`
+	Label             string         `json:"label,omitempty"`
+	Count             int            `json:"count"`
+	Path              []string       `json:"path,omitempty"`
+	Level             int            `json:"level,omitempty"`
+	ParentValue       string         `json:"parent_value,omitempty"`
+	Selected          bool           `json:"selected,omitempty"`
+	Metadata          map[string]any `json:"metadata,omitempty"`
+	EntityIDs         []string       `json:"entity_ids,omitempty"`
+	EntityIDsComplete bool           `json:"entity_ids_complete,omitempty"`
 }
 
 type SuggestResult struct {
