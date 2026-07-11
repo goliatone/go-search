@@ -1,18 +1,24 @@
 package types
 
 type IndexDefinition struct {
-	Name               string               `json:"name"`
-	Label              string               `json:"label"`
-	DefaultQueryFields []string             `json:"default_query_fields"`
-	SearchableFields   []string             `json:"searchable_fields"`
-	FacetFields        []string             `json:"facet_fields"`
-	SortableFields     []string             `json:"sortable_fields"`
-	FilterableFields   []string             `json:"filterable_fields"`
-	HighlightFields    []string             `json:"highlight_fields"`
-	DefaultSort        []Sort               `json:"default_sort"`
-	GroupByDefault     string               `json:"group_by_default"`
-	ProviderHints      map[string]any       `json:"provider_hints"`
-	Semantic           *SemanticIndexConfig `json:"semantic"`
+	DefaultWeightedQueryFields []QueryField         `json:"default_weighted_query_fields,omitempty"`
+	Name                       string               `json:"name"`
+	Label                      string               `json:"label"`
+	DefaultQueryFields         []string             `json:"default_query_fields"`
+	SearchableFields           []string             `json:"searchable_fields"`
+	FacetFields                []string             `json:"facet_fields"`
+	SortableFields             []string             `json:"sortable_fields"`
+	FilterableFields           []string             `json:"filterable_fields"`
+	HighlightFields            []string             `json:"highlight_fields"`
+	DefaultSort                []Sort               `json:"default_sort"`
+	GroupByDefault             string               `json:"group_by_default"`
+	ProviderHints              map[string]any       `json:"provider_hints"`
+	Semantic                   *SemanticIndexConfig `json:"semantic"`
+}
+
+type QueryField struct {
+	Field  string `json:"field"`
+	Weight int    `json:"weight"`
 }
 
 type SemanticIndexConfig struct {
