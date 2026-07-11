@@ -108,6 +108,8 @@ func (p *Provider) Capabilities(context.Context) (types.CapabilitySet, error) {
 		TextMatchControls:    true,
 		SupportedSearchModes: []types.SearchMode{types.SearchModeLexical},
 		Limitations: []types.CapabilityLimitation{
+			{Capability: "entity_facet_counts", Message: "typesense facet counts are retrieval-unit counts; exact unique-result_id facets require a separate bounded aggregation"},
+			{Capability: "cross_index_facet_union", Message: "typesense does not return mergeable per-bucket result_id identity sets"},
 			{
 				Capability: "range_facets",
 				Message:    "typesense provider supports range filtering but does not compute dedicated numeric/date range facet buckets in the canonical response yet",

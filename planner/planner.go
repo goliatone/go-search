@@ -282,6 +282,18 @@ func (p *Planner) ValidateSearchCapabilities(ctx context.Context, req types.Sear
 		return errs.UnsupportedCapability("facets", map[string]any{"count": len(req.Facets)})
 	}
 	for _, facet := range req.Facets {
+		if strings.TrimSpace(facet.CountBy) != "" && strings.TrimSpace(facet.CountBy) != types.FacetCountByResultID {
+			return errs.UnsupportedCapability("facet_count_by", map[string]any{"field": facet.Field, "count_by": facet.CountBy})
+		}
+		if facet.CountBy == types.FacetCountByResultID && !caps.EntityFacetCounts {
+			return errs.UnsupportedCapability("entity_facet_counts", map[string]any{"field": facet.Field})
+		}
+		if facet.CountBy == types.FacetCountByResultID && facet.IdentityLimit < 1 {
+			return errs.UnsupportedCapability("entity_facet_identity_limit", map[string]any{"field": facet.Field})
+		}
+		if facet.CountBy == types.FacetCountByResultID && len(req.Indexes) > 1 && !caps.CrossIndexFacetUnion {
+			return errs.UnsupportedCapability("cross_index_facet_union", map[string]any{"field": facet.Field})
+		}
 		switch facet.NormalizedKind() {
 		case types.FacetKindHierarchical:
 			if !caps.HierarchicalFacets {

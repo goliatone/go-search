@@ -61,6 +61,8 @@ func (p *Provider) Capabilities(context.Context) (types.CapabilitySet, error) {
 		Facets:               true,
 		HierarchicalFacets:   true,
 		DisjunctiveFacets:    true,
+		EntityFacetCounts:    true,
+		CrossIndexFacetUnion: true,
 		Grouping:             true,
 		Highlighting:         true,
 		Snippets:             true,
@@ -585,19 +587,54 @@ func buildFacets(req types.SearchRequest, docs map[string]map[string]types.Docum
 			filterExpr = types.RemoveFacetFilter(filterExpr, facetReq.Field)
 		}
 		counts := map[string]int{}
+		identities := map[string]map[string]struct{}{}
+		overflow := false
 		for _, index := range req.Indexes {
 			for _, doc := range docs[index] {
 				if !matchesScope(req.Scope, doc) || !matchesLocale(req, doc) || !matchesFilter(filterExpr, doc) {
 					continue
 				}
 				for _, value := range doc.Facets[facetReq.Field] {
-					counts[value]++
+					if facetReq.CountBy == types.FacetCountByResultID {
+						set := identities[value]
+						if set == nil {
+							set = map[string]struct{}{}
+							identities[value] = set
+						}
+						id := facetResultID(doc)
+						if _, exists := set[id]; !exists && facetReq.IdentityLimit > 0 && len(set) >= facetReq.IdentityLimit {
+							overflow = true
+						} else {
+							set[id] = struct{}{}
+						}
+					} else {
+						counts[value]++
+					}
 				}
 			}
 		}
-		out = append(out, types.BuildFacet(facetReq, counts, types.SelectedFacetValues(req.Filters, facetReq.Field)))
+		selected := types.SelectedFacetValues(req.Filters, facetReq.Field)
+		if facetReq.CountBy == types.FacetCountByResultID {
+			facet := types.BuildEntityFacet(facetReq, identities, selected)
+			if overflow {
+				facet.Accuracy = types.FacetCountAccuracyLowerBound
+				for i := range facet.Values {
+					facet.Values[i].EntityIDsComplete = false
+				}
+			}
+			out = append(out, facet)
+		} else {
+			out = append(out, types.BuildFacet(facetReq, counts, selected))
+		}
 	}
 	return out
+}
+
+func facetResultID(doc types.Document) string {
+	if id := strings.TrimSpace(doc.ResultID); id != "" {
+		return id
+	}
+	return strings.TrimSpace(doc.Index) + ":" + strings.TrimSpace(doc.ID)
 }
 
 func matchesScope(scope types.Scope, doc types.Document) bool {
