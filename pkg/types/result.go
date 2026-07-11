@@ -3,15 +3,24 @@ package types
 import "time"
 
 type SearchResultPage struct {
-	Hits       []SearchHit    `json:"hits"`
-	Groups     []SearchGroup  `json:"groups"`
-	Facets     []SearchFacet  `json:"facets"`
-	Page       int            `json:"page"`
-	PerPage    int            `json:"per_page"`
-	Total      int            `json:"total"`
-	DurationMS int64          `json:"duration_ms"`
-	Metadata   map[string]any `json:"metadata"`
+	Hits          []SearchHit    `json:"hits"`
+	Groups        []SearchGroup  `json:"groups"`
+	Facets        []SearchFacet  `json:"facets"`
+	Page          int            `json:"page"`
+	PerPage       int            `json:"per_page"`
+	Total         int            `json:"total"`
+	TotalAccuracy TotalAccuracy  `json:"total_accuracy,omitempty"`
+	DurationMS    int64          `json:"duration_ms"`
+	Metadata      map[string]any `json:"metadata"`
 }
+
+type TotalAccuracy string
+
+const (
+	TotalAccuracyExact       TotalAccuracy = "exact"
+	TotalAccuracyLowerBound  TotalAccuracy = "lower_bound"
+	TotalAccuracyApproximate TotalAccuracy = "approximate"
+)
 
 type SearchHit struct {
 	ID         string                   `json:"id"`
@@ -30,6 +39,31 @@ type SearchHit struct {
 	Ranking    *AppliedRankingSignals   `json:"ranking"`
 	Retrieval  *AppliedRetrievalSignals `json:"retrieval"`
 	Document   *Document                `json:"document"`
+	ResultID   string                   `json:"result_id,omitempty"`
+	ResultType string                   `json:"result_type,omitempty"`
+	Evidence   *MatchEvidenceSummary    `json:"match_evidence,omitempty"`
+}
+
+type MatchEvidenceSummary struct {
+	Exact      bool                    `json:"exact"`
+	Locations  []MatchEvidenceLocation `json:"locations"`
+	Diagnostic string                  `json:"diagnostic,omitempty"`
+}
+type MatchEvidenceLocation struct {
+	Location string                `json:"location"`
+	Count    int                   `json:"count"`
+	Samples  []MatchEvidenceSample `json:"samples,omitempty"`
+}
+type MatchEvidenceSample struct {
+	DocumentID   string       `json:"document_id"`
+	Field        string       `json:"field,omitempty"`
+	ChunkOrdinal *int         `json:"chunk_ordinal,omitempty"`
+	Anchor       *MediaAnchor `json:"anchor,omitempty"`
+}
+type EvidenceRequest struct {
+	Search                SearchRequest `json:"search"`
+	ResultIDs             []string      `json:"result_ids"`
+	MaxSamplesPerLocation int           `json:"max_samples_per_location"`
 }
 
 type SearchParent struct {
