@@ -156,6 +156,20 @@ func TestPlannerRejectsUnsupportedHierarchicalAndDisjunctiveFacets(t *testing.T)
 	}
 }
 
+func TestPlannerRejectsUnsupportedEntityFacetAggregation(t *testing.T) {
+	registry := indexing.NewRegistry()
+	_ = registry.Register(types.IndexDefinition{Name: "media", FacetFields: []string{"topic"}}, nil)
+	planner, err := New(Config{Registry: registry})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := types.SearchRequest{Indexes: []string{"media"}, Facets: []types.FacetRequest{{Field: "topic", CountBy: types.FacetCountByResultID}}}
+	err = planner.ValidateSearchCapabilities(context.Background(), req, capabilitySourceStub{caps: types.CapabilitySet{Facets: true}})
+	if err == nil {
+		t.Fatal("expected entity facet capability error")
+	}
+}
+
 func TestPlannerBuildsLocalePlanAndProviderRequest(t *testing.T) {
 	registry := indexing.NewRegistry()
 	_ = registry.Register(types.IndexDefinition{Name: "media"}, nil)

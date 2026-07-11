@@ -15,6 +15,42 @@ func TestProviderContractSuite(t *testing.T) {
 	})
 }
 
+func TestProviderEntityFacetsCountResultOnceAcrossIndexesAndUnits(t *testing.T) {
+	provider := New(Config{})
+	ctx := context.Background()
+	for _, index := range []string{"content", "media"} {
+		if err := provider.EnsureIndex(ctx, types.IndexDefinition{Name: index, FacetFields: []string{"topic"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := provider.UpsertDocuments(ctx, "content", []types.Document{
+		{ID: "title-1", Index: "content", ResultID: "event:1", Body: "practice", Facets: map[string][]string{"topic": {"mind"}}},
+		{ID: "body-1", Index: "content", ResultID: "event:1", Body: "practice", Facets: map[string][]string{"topic": {"mind"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.UpsertDocuments(ctx, "media", []types.Document{
+		{ID: "transcript-1", Index: "media", ResultID: "event:1", Body: "practice", Facets: map[string][]string{"topic": {"mind"}}},
+		{ID: "transcript-2", Index: "media", ResultID: "event:2", Body: "practice", Facets: map[string][]string{"topic": {"mind"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := provider.Search(ctx, types.SearchRequest{Indexes: []string{"content", "media"}, Query: "practice", Page: 1, PerPage: 10, Facets: []types.FacetRequest{{Field: "topic", CountBy: types.FacetCountByResultID, IdentityLimit: 10}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Facets) != 1 || len(page.Facets[0].Values) != 1 || page.Facets[0].Values[0].Count != 2 || len(page.Facets[0].Values[0].EntityIDs) != 2 || page.Facets[0].Accuracy != types.FacetCountAccuracyExact {
+		t.Fatalf("facets = %#v", page.Facets)
+	}
+	page, err = provider.Search(ctx, types.SearchRequest{Indexes: []string{"content", "media"}, Query: "practice", Page: 1, PerPage: 10, Facets: []types.FacetRequest{{Field: "topic", CountBy: types.FacetCountByResultID, IdentityLimit: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Facets[0].Accuracy != types.FacetCountAccuracyLowerBound || page.Facets[0].Values[0].Count != 1 || page.Facets[0].Values[0].EntityIDsComplete {
+		t.Fatalf("bounded facets = %#v", page.Facets)
+	}
+}
+
 func TestProviderEnforcesScopeForSearchAndSuggest(t *testing.T) {
 	provider := New(Config{})
 	ctx := context.Background()
