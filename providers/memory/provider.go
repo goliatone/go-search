@@ -41,13 +41,16 @@ func (p *Provider) Name() string { return "memory" }
 
 func (p *Provider) Capabilities(context.Context) (types.CapabilitySet, error) {
 	return types.CapabilitySet{
-		Facets:               true,
-		HierarchicalFacets:   true,
-		DisjunctiveFacets:    true,
-		Grouping:             true,
-		Highlighting:         true,
-		Snippets:             true,
-		PrefixSearch:         true,
+		Facets:             true,
+		HierarchicalFacets: true,
+		DisjunctiveFacets:  true,
+		Grouping:           true,
+		Highlighting:       true,
+		Snippets:           true,
+		PrefixSearch:       true,
+		EntityGrouping:     true, ExactEntityCounts: true, BatchedEvidence: true,
+		WeightedQueryFields:  true,
+		TextMatchControls:    false,
 		SupportedSearchModes: []types.SearchMode{types.SearchModeLexical},
 		Limitations: []types.CapabilityLimitation{
 			{
@@ -56,6 +59,30 @@ func (p *Provider) Capabilities(context.Context) (types.CapabilitySet, error) {
 			},
 		},
 	}, nil
+}
+
+func (p *Provider) AggregateEvidence(_ context.Context, in types.EvidenceRequest) (map[string]*types.MatchEvidenceSummary, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	wanted := map[string]bool{}
+	for _, id := range in.ResultIDs {
+		wanted[id] = true
+	}
+	hits := []types.SearchHit{}
+	for _, index := range in.Search.Indexes {
+		for _, doc := range p.docs[index] {
+			probe := types.SearchHit{ID: doc.ID, Type: doc.Type, Document: &doc}
+			if !wanted[ranking.ResultID(probe)] || !matchesScope(in.Search.Scope, doc) || !matchesLocale(in.Search, doc) || !matchesFilter(in.Search.Filters, doc) {
+				continue
+			}
+			score, ok := scoreDocumentWeighted(in.Search.Query, doc, in.Search.QueryFields[index])
+			if !ok {
+				continue
+			}
+			hits = append(hits, toHit(doc, score, in.Search))
+		}
+	}
+	return ranking.AggregateEvidence(hits, in.MaxSamplesPerLocation), nil
 }
 
 func (p *Provider) EnsureIndex(_ context.Context, def types.IndexDefinition) error {
@@ -189,7 +216,7 @@ func (p *Provider) Search(_ context.Context, req types.SearchRequest) (types.Sea
 			if !matchesScope(req.Scope, doc) || !matchesLocale(req, doc) || !matchesFilter(req.Filters, doc) {
 				continue
 			}
-			score, ok := scoreDocument(req.Query, doc)
+			score, ok := scoreDocumentWeighted(req.Query, doc, req.QueryFields[index])
 			if !ok {
 				continue
 			}
@@ -521,9 +548,25 @@ func asFloat(value any) (float64, bool) {
 }
 
 func scoreDocument(query string, doc types.Document) (float64, bool) {
+	return scoreDocumentWeighted(query, doc, nil)
+}
+func scoreDocumentWeighted(query string, doc types.Document, fields []types.QueryField) (float64, bool) {
 	query = strings.TrimSpace(strings.ToLower(query))
 	if query == "" {
 		return 1, true
+	}
+	if len(fields) > 0 {
+		score := 0.0
+		values := documentFields(&doc)
+		for _, field := range fields {
+			if strings.Contains(strings.ToLower(toString(values[field.Field])), query) {
+				score += float64(field.Weight)
+			}
+		}
+		if score == 0 {
+			return 0, false
+		}
+		return score, true
 	}
 	score := 0.0
 	if strings.Contains(strings.ToLower(doc.Title), query) {
