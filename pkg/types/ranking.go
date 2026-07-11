@@ -41,8 +41,23 @@ type EditorialScope struct {
 }
 
 type AppliedRankingSignals struct {
-	Editorial []AppliedEditorialSignal `json:"editorial"`
-	Metadata  map[string]any           `json:"metadata"`
+	Editorial []AppliedEditorialSignal    `json:"editorial"`
+	Signals   []AppliedSignalContribution `json:"signals,omitempty"`
+	Diversity []DiversityEvidence         `json:"diversity,omitempty"`
+	Metadata  map[string]any              `json:"metadata"`
+}
+type DiversityEvidence struct {
+	Kind       string  `json:"kind"`
+	Key        string  `json:"key"`
+	Occurrence int     `json:"occurrence,omitempty"`
+	Penalty    float64 `json:"penalty,omitempty"`
+	Suppressed bool    `json:"suppressed,omitempty"`
+}
+type AppliedSignalContribution struct {
+	ID           string  `json:"id"`
+	Value        float64 `json:"value"`
+	Contribution float64 `json:"contribution"`
+	Reason       string  `json:"reason,omitempty"`
 }
 
 type AppliedEditorialSignal struct {
@@ -54,15 +69,23 @@ type AppliedEditorialSignal struct {
 }
 
 type AppliedRetrievalSignals struct {
-	Mode          SearchMode     `json:"mode"`
-	ProviderScore *float64       `json:"provider_score"`
-	SemanticScore *float64       `json:"semantic_score"`
-	LexicalScore  *float64       `json:"lexical_score"`
-	HybridScore   *float64       `json:"hybrid_score"`
-	Distance      *float64       `json:"distance"`
-	Field         string         `json:"field"`
-	Model         string         `json:"model"`
-	Metadata      map[string]any `json:"metadata"`
+	Mode          SearchMode              `json:"mode"`
+	ProviderScore *float64                `json:"provider_score"`
+	SemanticScore *float64                `json:"semantic_score"`
+	LexicalScore  *float64                `json:"lexical_score"`
+	HybridScore   *float64                `json:"hybrid_score"`
+	Distance      *float64                `json:"distance"`
+	Field         string                  `json:"field"`
+	Model         string                  `json:"model"`
+	Metadata      map[string]any          `json:"metadata"`
+	Contributions []RetrievalContribution `json:"contributions,omitempty"`
+}
+
+type RetrievalContribution struct {
+	Index         string   `json:"index"`
+	ProviderRank  int      `json:"provider_rank"`
+	ProviderScore *float64 `json:"provider_score,omitempty"`
+	Contribution  float64  `json:"contribution"`
 }
 
 type EditorialRuleStore interface {
