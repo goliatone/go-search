@@ -66,11 +66,13 @@ const (
 )
 
 type FacetRequest struct {
-	Field       string         `json:"field"`
-	Limit       int            `json:"limit"`
-	Kind        FacetKind      `json:"kind,omitempty"`
-	Disjunctive bool           `json:"disjunctive,omitempty"`
-	Separator   string         `json:"separator,omitempty"`
-	Path        []string       `json:"path,omitempty"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
+	Field         string         `json:"field"`
+	Limit         int            `json:"limit"`
+	Kind          FacetKind      `json:"kind,omitempty"`
+	Disjunctive   bool           `json:"disjunctive,omitempty"`
+	Separator     string         `json:"separator,omitempty"`
+	Path          []string       `json:"path,omitempty"`
+	Metadata      map[string]any `json:"metadata,omitempty"`
+	CountBy       string         `json:"count_by,omitempty"`
+	IdentityLimit int            `json:"identity_limit,omitempty"`
 }

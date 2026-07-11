@@ -277,13 +277,15 @@ func normalizeFacets(facets []types.FacetRequest) []map[string]any {
 	out := make([]map[string]any, 0, len(facets))
 	for _, facet := range facets {
 		out = append(out, map[string]any{
-			"field":       strings.TrimSpace(facet.Field),
-			"limit":       facet.Limit,
-			"kind":        facet.Kind,
-			"disjunctive": facet.Disjunctive,
-			"separator":   strings.TrimSpace(facet.Separator),
-			"path":        append([]string(nil), facet.Path...),
-			"metadata":    normalizeMap(facet.Metadata),
+			"field":          strings.TrimSpace(facet.Field),
+			"limit":          facet.Limit,
+			"kind":           facet.Kind,
+			"disjunctive":    facet.Disjunctive,
+			"separator":      strings.TrimSpace(facet.Separator),
+			"path":           append([]string(nil), facet.Path...),
+			"metadata":       normalizeMap(facet.Metadata),
+			"count_by":       strings.TrimSpace(facet.CountBy),
+			"identity_limit": facet.IdentityLimit,
 		})
 	}
 	return out

@@ -10,6 +10,63 @@ import (
 
 const DefaultFacetPathSeparator = " > "
 
+const FacetCountByResultID = "result_id"
+
+// BuildEntityFacet creates exact unique-entity counts and bounded mergeable
+// identity sets. The caller is responsible for including every eligible match.
+func BuildEntityFacet(request FacetRequest, identities map[string]map[string]struct{}, selected []string) SearchFacet {
+	counts := make(map[string]int, len(identities))
+	for value, ids := range identities {
+		counts[value] = len(ids)
+	}
+	facet := BuildFacet(request, counts, selected)
+	facet.Accuracy = FacetCountAccuracyExact
+	limit := request.IdentityLimit
+	for i := range facet.Values {
+		ids := make([]string, 0, len(identities[facet.Values[i].Value]))
+		for id := range identities[facet.Values[i].Value] {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		if limit > 0 && len(ids) > limit {
+			ids = ids[:limit]
+			facet.Values[i].EntityIDsComplete = false
+		} else {
+			facet.Values[i].EntityIDsComplete = true
+		}
+		facet.Values[i].EntityIDs = ids
+	}
+	return facet
+}
+
+// MergeEntityFacets unions per-bucket global identities across indexes.
+func MergeEntityFacets(request FacetRequest, facets ...SearchFacet) SearchFacet {
+	identities := map[string]map[string]struct{}{}
+	selected := []string{}
+	complete := true
+	for _, facet := range facets {
+		for _, value := range facet.Values {
+			if value.Selected {
+				selected = append(selected, value.Value)
+			}
+			set := identities[value.Value]
+			if set == nil {
+				set = map[string]struct{}{}
+				identities[value.Value] = set
+			}
+			for _, id := range value.EntityIDs {
+				set[id] = struct{}{}
+			}
+			complete = complete && value.EntityIDsComplete
+		}
+	}
+	merged := BuildEntityFacet(request, identities, selected)
+	if !complete {
+		merged.Accuracy = FacetCountAccuracyLowerBound
+	}
+	return merged
+}
+
 func (r FacetRequest) NormalizedKind() FacetKind {
 	switch r.Kind {
 	case FacetKindHierarchical, FacetKindNumericRange, FacetKindDateRange:
@@ -209,6 +266,21 @@ func BuildFacet(request FacetRequest, counts map[string]int, selected []string) 
 		}
 		values = append(values, item)
 	}
+	for _, value := range selected {
+		if _, ok := counts[value]; ok || strings.TrimSpace(value) == "" {
+			continue
+		}
+		item := SearchFacetValue{Value: value, Selected: true}
+		if facet.Kind == FacetKindHierarchical {
+			item.Path = SplitFacetPath(value, request.PathSeparator())
+			item.Level = max(0, len(item.Path)-1)
+			item.Label = facetLabel(item.Path, value)
+			if len(item.Path) > 1 {
+				item.ParentValue = JoinFacetPath(item.Path[:len(item.Path)-1], request.PathSeparator())
+			}
+		}
+		values = append(values, item)
+	}
 	sort.SliceStable(values, func(i, j int) bool {
 		if values[i].Count == values[j].Count {
 			if values[i].Level == values[j].Level {
@@ -219,7 +291,13 @@ func BuildFacet(request FacetRequest, counts map[string]int, selected []string) 
 		return values[i].Count > values[j].Count
 	})
 	if request.Limit > 0 && len(values) > request.Limit {
-		values = values[:request.Limit]
+		limited := append([]SearchFacetValue(nil), values[:request.Limit]...)
+		for _, value := range values[request.Limit:] {
+			if value.Selected && !slices.ContainsFunc(limited, func(item SearchFacetValue) bool { return item.Value == value.Value }) {
+				limited = append(limited, value)
+			}
+		}
+		values = limited
 	}
 	facet.Values = values
 	return facet

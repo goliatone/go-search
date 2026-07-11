@@ -20,6 +20,8 @@ type CapabilitySet struct {
 	TextMatchControls    bool                   `json:"text_match_controls"`
 	EntityGrouping       bool                   `json:"entity_grouping"`
 	ExactEntityCounts    bool                   `json:"exact_entity_counts"`
+	EntityFacetCounts    bool                   `json:"entity_facet_counts"`
+	CrossIndexFacetUnion bool                   `json:"cross_index_facet_union"`
 	BatchedEvidence      bool                   `json:"batched_evidence"`
 	SupportedSearchModes []SearchMode           `json:"supported_search_modes"`
 	Limitations          []CapabilityLimitation `json:"limitations,omitempty"`
