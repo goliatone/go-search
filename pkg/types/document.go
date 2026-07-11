@@ -17,6 +17,11 @@ type Document struct {
 	RegistrationKey string              `json:"-"`
 	Type            string              `json:"type"`
 	ParentID        string              `json:"parent_id"`
+	ResultID        string              `json:"result_id,omitempty"`
+	ResultType      string              `json:"result_type,omitempty"`
+	MatchLocation   string              `json:"match_location,omitempty"`
+	MatchField      string              `json:"match_field,omitempty"`
+	ChunkOrdinal    *int                `json:"chunk_ordinal,omitempty"`
 	SourceType      string              `json:"source_type"`
 	SourceID        string              `json:"source_id"`
 	SourceVersion   string              `json:"source_version"`
