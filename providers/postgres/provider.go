@@ -66,8 +66,11 @@ func (p *Provider) Capabilities(context.Context) (types.CapabilitySet, error) {
 		Snippets:             true,
 		PrefixSearch:         true,
 		TypoTolerance:        true,
+		WeightedQueryFields:  false,
+		TextMatchControls:    false,
 		SupportedSearchModes: []types.SearchMode{types.SearchModeLexical},
 		Limitations: []types.CapabilityLimitation{
+			{Capability: "batched_evidence", Message: "exact result/location evidence aggregation is not implemented by the postgres provider"},
 			{
 				Capability: "range_facets",
 				Message:    "postgres provider supports range filtering but does not yet compute dedicated numeric/date range facet buckets in the canonical response",

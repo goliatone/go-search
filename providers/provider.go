@@ -22,6 +22,9 @@ type Provider interface {
 type SearchBatcher interface {
 	SearchBatch(ctx context.Context, requests []types.SearchRequest) ([]types.SearchResultPage, error)
 }
+type EvidenceAggregator interface {
+	AggregateEvidence(context.Context, types.EvidenceRequest) (map[string]*types.MatchEvidenceSummary, error)
+}
 
 type RegistrationResetter interface {
 	ResetRegistration(ctx context.Context, index, registrationKey string) error
