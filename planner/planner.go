@@ -9,6 +9,7 @@ import (
 	"github.com/goliatone/go-search/internal/filtervalidate"
 	"github.com/goliatone/go-search/locale"
 	"github.com/goliatone/go-search/pkg/types"
+	"github.com/goliatone/go-search/ranking"
 )
 
 type IndexRegistry interface {
@@ -24,6 +25,7 @@ type SearchPlan struct {
 	Request types.SearchRequest
 	Indexes []types.IndexDefinition
 	Locale  LocalePlan
+	Profile *ranking.RankingProfile
 }
 
 type SuggestPlan struct {
@@ -55,6 +57,7 @@ type Config struct {
 	ScopeGuard     types.ScopeGuard
 	CapabilityGate types.CapabilityGate
 	Defaults       Defaults
+	Profiles       ranking.ProfileRegistry
 }
 
 type Planner struct {
@@ -64,6 +67,7 @@ type Planner struct {
 	scopeGuard     types.ScopeGuard
 	capabilityGate types.CapabilityGate
 	defaults       Defaults
+	profiles       ranking.ProfileRegistry
 }
 
 type LocalePlan struct {
@@ -94,6 +98,7 @@ func New(cfg Config) (*Planner, error) {
 		scopeGuard:     cfg.ScopeGuard,
 		capabilityGate: cfg.CapabilityGate,
 		defaults:       cfg.Defaults,
+		profiles:       cfg.Profiles,
 	}, nil
 }
 
@@ -171,8 +176,47 @@ func (p *Planner) BuildSearchPlan(ctx context.Context, req types.SearchRequest) 
 		return SearchPlan{}, errs.FeatureDisabled("search denied by scope guard", map[string]any{"indexes": req.Indexes})
 	}
 	plan := SearchPlan{Request: req, Indexes: indexes, Locale: p.buildSearchLocalePlan(req)}
+	if req.RankingProfile != "" {
+		if p.profiles == nil {
+			return SearchPlan{}, errs.ConfigurationError("ranking profile registry is required", nil)
+		}
+		profile, ok := p.profiles.Resolve(req.RankingProfile)
+		if !ok {
+			return SearchPlan{}, errs.ConfigurationError("unknown ranking profile", map[string]any{"profile": req.RankingProfile})
+		}
+		if err := validateProfileIndexes(profile, indexes); err != nil {
+			return SearchPlan{}, err
+		}
+		plan.Profile = &profile
+		plan.Request.QueryFields = make(map[string][]types.QueryField, len(profile.Indexes))
+		for name, cfg := range profile.Indexes {
+			plan.Request.QueryFields[name] = append([]types.QueryField(nil), cfg.QueryFields...)
+		}
+	}
 	p.applySearchLocaleMetadata(&plan.Request, plan.Locale)
 	return plan, nil
+}
+
+func validateProfileIndexes(profile ranking.RankingProfile, indexes []types.IndexDefinition) error {
+	for _, def := range indexes {
+		cfg, ok := profile.Indexes[def.Name]
+		if !ok {
+			return errs.ConfigurationError("ranking profile missing index", map[string]any{"profile": profile.Name, "index": def.Name})
+		}
+		allowed := map[string]bool{}
+		for _, f := range def.SearchableFields {
+			allowed[f] = true
+		}
+		for _, f := range def.DefaultQueryFields {
+			allowed[f] = true
+		}
+		for _, f := range cfg.QueryFields {
+			if !allowed[f.Field] {
+				return errs.ConfigurationError("ranking profile references unknown query field", map[string]any{"profile": profile.Name, "index": def.Name, "field": f.Field})
+			}
+		}
+	}
+	return nil
 }
 
 func (p *Planner) BuildSuggestPlan(ctx context.Context, req types.SuggestRequest) (SuggestPlan, error) {
@@ -254,6 +298,12 @@ func (p *Planner) ValidateSearchCapabilities(ctx context.Context, req types.Sear
 	}
 	if len(req.Highlight) > 0 && !caps.Highlighting {
 		return errs.UnsupportedCapability("highlighting", map[string]any{"fields": req.Highlight})
+	}
+	if len(req.QueryFields) > 0 && !caps.WeightedQueryFields {
+		return errs.UnsupportedCapability("weighted_query_fields", nil)
+	}
+	if req.TextMatch != nil && !caps.TextMatchControls {
+		return errs.UnsupportedCapability("text_match_controls", nil)
 	}
 	if req.Semantic != nil {
 		switch req.Mode {
