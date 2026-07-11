@@ -85,19 +85,33 @@ func (q *Search) Query(ctx context.Context, req types.SearchRequest) (types.Sear
 	providerReq := plan.ProviderRequest()
 	if requiresPost {
 		providerReq.Page = 1
-		providerReq.PerPage = 0
+		if plan.Profile != nil {
+			providerReq.PerPage = candidateWindow(plan.Request, plan.Profile.Candidates)
+		} else {
+			providerReq.PerPage = 0
+		}
 		providerReq.GroupBy = ""
 		if plan.Request.GroupBy != "" {
 			providerReq.Facets = nil
 		}
 	}
-	page, err := q.provider.Search(ctx, providerReq)
+	page, err := q.searchCandidates(ctx, providerReq, plan.Profile)
 	if err != nil {
 		observe.Count(ctx, q.metrics, q.logger, "search.query.error.count", 1, labels)
 		return types.SearchResultPage{}, err
 	}
+	if requiresPost && plan.Profile != nil {
+		page, err = q.refillCandidates(ctx, providerReq, page, plan.Profile.Candidates)
+		if err != nil {
+			return types.SearchResultPage{}, err
+		}
+	}
 	page = annotateSearchPageLocales(page, plan.Locale)
 	page = filterSearchPage(ctx, plan.Request, page, q.planner.ScopeGuard())
+	if plan.Profile != nil {
+		page.Hits = ranking.GroupEntities(page.Hits, 1)
+		page.Total = len(page.Hits)
+	}
 	if !requiresPost {
 		if page.DurationMS <= 0 {
 			page.DurationMS = q.clock.Now().Sub(startedAt).Milliseconds()
@@ -107,6 +121,13 @@ func (q *Search) Query(ctx context.Context, req types.SearchRequest) (types.Sear
 	}
 	page.Page = plan.Request.Page
 	page.PerPage = plan.Request.PerPage
+	if plan.Profile != nil {
+		if page.Total >= providerReq.PerPage {
+			page.TotalAccuracy = types.TotalAccuracyLowerBound
+		} else {
+			page.TotalAccuracy = types.TotalAccuracyExact
+		}
+	}
 	rankedAt := q.clock.Now()
 	var groupedFacets []types.SearchFacet
 	if plan.Request.GroupBy != "" && len(plan.Request.Facets) > 0 {
@@ -124,11 +145,118 @@ func (q *Search) Query(ctx context.Context, req types.SearchRequest) (types.Sear
 	if len(groupedFacets) > 0 {
 		page.Facets = groupedFacets
 	}
+	if plan.Profile != nil {
+		q.attachEvidence(ctx, plan.Request, &page)
+	}
 	if page.DurationMS <= 0 {
 		page.DurationMS = q.clock.Now().Sub(startedAt).Milliseconds()
 	}
 	finalizeSearchObservation(ctx, q.metrics, q.logger, startedAt, page, len(rules))
 	return page, nil
+}
+
+func (q *Search) attachEvidence(ctx context.Context, req types.SearchRequest, page *types.SearchResultPage) {
+	aggregator, ok := q.provider.(providers.EvidenceAggregator)
+	if !ok {
+		if page.Metadata == nil {
+			page.Metadata = map[string]any{}
+		}
+		page.Metadata["evidence_diagnostic"] = "provider does not support batched evidence"
+		return
+	}
+	ids := make([]string, 0, len(page.Hits))
+	for _, hit := range page.Hits {
+		ids = append(ids, ranking.ResultID(hit))
+	}
+	summaries, err := aggregator.AggregateEvidence(ctx, types.EvidenceRequest{Search: req, ResultIDs: ids, MaxSamplesPerLocation: 3})
+	if err != nil {
+		if page.Metadata == nil {
+			page.Metadata = map[string]any{}
+		}
+		page.Metadata["evidence_diagnostic"] = "aggregation_failed"
+		return
+	}
+	for i := range page.Hits {
+		summary, ok := summaries[ranking.ResultID(page.Hits[i])]
+		if !ok || summary == nil || !summary.Exact {
+			if page.Metadata == nil {
+				page.Metadata = map[string]any{}
+			}
+			page.Metadata["evidence_diagnostic"] = "incomplete_aggregation"
+			continue
+		}
+		page.Hits[i].Evidence = summary
+	}
+}
+
+func (q *Search) searchCandidates(ctx context.Context, req types.SearchRequest, profile *ranking.RankingProfile) (types.SearchResultPage, error) {
+	if profile == nil || len(req.Indexes) < 2 {
+		return q.provider.Search(ctx, req)
+	}
+	requests := make([]types.SearchRequest, 0, len(req.Indexes))
+	for _, index := range req.Indexes {
+		one := req
+		one.Indexes = []string{index}
+		requests = append(requests, one)
+	}
+	pages, err := searchPages(ctx, q.provider, requests)
+	if err != nil {
+		return types.SearchResultPage{}, err
+	}
+	lists := make([]ranking.RankedList, 0, len(pages))
+	total := 0
+	for i, page := range pages {
+		weight := profile.Indexes[req.Indexes[i]].Weight
+		lists = append(lists, ranking.RankedList{Index: req.Indexes[i], Weight: weight, Hits: page.Hits})
+		total += page.Total
+	}
+	return types.SearchResultPage{Hits: ranking.FuseRRF(lists, 60), Page: req.Page, PerPage: req.PerPage, Total: total, Metadata: map[string]any{"fusion": "rrf"}}, nil
+}
+
+func (q *Search) refillCandidates(ctx context.Context, req types.SearchRequest, page types.SearchResultPage, cfg ranking.CandidateConfig) (types.SearchResultPage, error) {
+	seen := len(page.Hits)
+	rounds := 1
+	for rounds < cfg.MaxRefillRounds && seen < cfg.MaxPerIndex && page.Total > seen {
+		next := req
+		next.Page = rounds + 1
+		remaining := cfg.MaxPerIndex - seen
+		if next.PerPage > remaining {
+			next.PerPage = remaining
+		}
+		extra, err := q.provider.Search(ctx, next)
+		if err != nil {
+			return types.SearchResultPage{}, err
+		}
+		if len(extra.Hits) == 0 {
+			break
+		}
+		page.Hits = append(page.Hits, extra.Hits...)
+		if len(page.Hits) > cfg.MaxPerIndex {
+			page.Hits = page.Hits[:cfg.MaxPerIndex]
+		}
+		seen += len(extra.Hits)
+		if seen > cfg.MaxPerIndex {
+			seen = cfg.MaxPerIndex
+		}
+		rounds++
+	}
+	if page.Metadata == nil {
+		page.Metadata = map[string]any{}
+	}
+	page.Metadata["candidate_rounds"] = rounds
+	page.Metadata["candidate_count"] = seen
+	return page, nil
+}
+
+func candidateWindow(req types.SearchRequest, cfg ranking.CandidateConfig) int {
+	window := req.Page * req.PerPage * cfg.Multiplier
+	if window > cfg.MaxPerIndex {
+		window = cfg.MaxPerIndex
+	}
+	if window < req.PerPage {
+		window = req.PerPage
+	}
+	return window
 }
 
 func requiresPostProcessing(req types.SearchRequest, rules []types.EditorialRankRule, guard types.ScopeGuard) bool {
@@ -141,7 +269,11 @@ func (q *Search) buildGroupedDisjunctiveFacets(ctx context.Context, plan planner
 	}
 	baseProviderReq := plan.ProviderRequest()
 	baseProviderReq.Page = 1
-	baseProviderReq.PerPage = 0
+	if plan.Profile != nil {
+		baseProviderReq.PerPage = plan.Profile.Candidates.MaxPerIndex
+	} else {
+		baseProviderReq.PerPage = 0
+	}
 	baseProviderReq.GroupBy = ""
 	baseProviderReq.Facets = nil
 
