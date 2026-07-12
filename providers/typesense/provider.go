@@ -100,6 +100,8 @@ func (p *Provider) Capabilities(context.Context) (types.CapabilitySet, error) {
 		Facets:               true,
 		HierarchicalFacets:   true,
 		DisjunctiveFacets:    true,
+		EntityFacetCounts:    true,
+		CrossIndexFacetUnion: false,
 		Grouping:             true,
 		Highlighting:         true,
 		Snippets:             true,
@@ -108,8 +110,7 @@ func (p *Provider) Capabilities(context.Context) (types.CapabilitySet, error) {
 		TextMatchControls:    true,
 		SupportedSearchModes: []types.SearchMode{types.SearchModeLexical},
 		Limitations: []types.CapabilityLimitation{
-			{Capability: "entity_facet_counts", Message: "typesense facet counts are retrieval-unit counts; exact unique-result_id facets require a separate bounded aggregation"},
-			{Capability: "cross_index_facet_union", Message: "typesense does not return mergeable per-bucket result_id identity sets"},
+			{Capability: "cross_index_facet_union", Message: "callers must union the bounded per-index entity identity sets"},
 			{
 				Capability: "range_facets",
 				Message:    "typesense provider supports range filtering but does not compute dedicated numeric/date range facet buckets in the canonical response yet",
@@ -459,7 +460,12 @@ func (p *Provider) searchSingleIndex(ctx context.Context, index string, req type
 		return types.SearchResultPage{}, errs.Wrap(err, map[string]any{"index": index, "collection": runtime.collectionName})
 	}
 	page := mapSearchResult(result, runtime, req, p.cfg)
-	if page.Facets, err = p.disjunctiveFacets(ctx, runtime, req, page.Facets); err != nil {
+	if hasEntityFacetRequests(req.Facets) {
+		page.Facets, err = p.entityFacets(ctx, runtime, req)
+		if err != nil {
+			return types.SearchResultPage{}, err
+		}
+	} else if page.Facets, err = p.disjunctiveFacets(ctx, runtime, req, page.Facets); err != nil {
 		return types.SearchResultPage{}, err
 	}
 	if req.GroupBy != "" {
@@ -470,6 +476,77 @@ func (p *Provider) searchSingleIndex(ctx context.Context, index string, req type
 		page.Total = total
 	}
 	return page, nil
+}
+
+func hasEntityFacetRequests(requests []types.FacetRequest) bool {
+	for _, request := range requests {
+		if request.CountBy == types.FacetCountByResultID {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Provider) entityFacets(ctx context.Context, runtime managedIndex, req types.SearchRequest) ([]types.SearchFacet, error) {
+	out := make([]types.SearchFacet, 0, len(req.Facets))
+	for _, facetReq := range req.Facets {
+		if facetReq.CountBy != types.FacetCountByResultID {
+			continue
+		}
+		filter := req.Filters
+		if facetReq.Disjunctive {
+			filter = types.RemoveFacetFilter(filter, facetReq.Field)
+		}
+		identities := map[string]map[string]struct{}{}
+		fetched, total := 0, 0
+		for pageNumber := 1; fetched < facetReq.IdentityLimit; pageNumber++ {
+			perPage := min(250, facetReq.IdentityLimit-fetched)
+			probe := req
+			probe.Page = pageNumber
+			probe.PerPage = perPage
+			probe.GroupBy = ""
+			probe.Facets = nil
+			probe.Highlight = nil
+			probe.Filters = filter
+			params, err := compileSearchParams(p.cfg, runtime.def, probe)
+			if err != nil {
+				return nil, err
+			}
+			result, err := p.client.Collection(runtime.collectionName).Documents().Search(ctx, params)
+			if err != nil {
+				return nil, errs.Wrap(err, map[string]any{"index": runtime.def.Name, "facet": facetReq.Field})
+			}
+			mapped := mapSearchResult(result, runtime, probe, p.cfg)
+			total = mapped.Total
+			for _, hit := range mapped.Hits {
+				if hit.Document == nil {
+					continue
+				}
+				id := ranking.ResultID(hit)
+				for _, value := range hit.Document.Facets[facetReq.Field] {
+					set := identities[value]
+					if set == nil {
+						set = map[string]struct{}{}
+						identities[value] = set
+					}
+					set[id] = struct{}{}
+				}
+			}
+			fetched += len(mapped.Hits)
+			if len(mapped.Hits) == 0 || fetched >= total {
+				break
+			}
+		}
+		facet := types.BuildEntityFacet(facetReq, identities, types.SelectedFacetValues(req.Filters, facetReq.Field))
+		if fetched < total {
+			facet.Accuracy = types.FacetCountAccuracyLowerBound
+			for i := range facet.Values {
+				facet.Values[i].EntityIDsComplete = false
+			}
+		}
+		out = append(out, facet)
+	}
+	return out, nil
 }
 
 func (p *Provider) searchMultiIndex(ctx context.Context, req types.SearchRequest) (types.SearchResultPage, error) {
