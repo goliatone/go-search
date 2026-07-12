@@ -20,6 +20,26 @@ func TestBuildCollectionSchemaRequiresCustomFieldHint(t *testing.T) {
 	}
 }
 
+func TestTypesenseCapabilitiesAdvertiseBoundedEntityFacets(t *testing.T) {
+	p := &Provider{}
+	caps, err := p.Capabilities(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !caps.EntityFacetCounts || caps.CrossIndexFacetUnion {
+		t.Fatalf("capabilities = %#v", caps)
+	}
+}
+
+func TestHasEntityFacetRequests(t *testing.T) {
+	if hasEntityFacetRequests([]types.FacetRequest{{Field: "topic"}}) {
+		t.Fatal("legacy facet detected as entity facet")
+	}
+	if !hasEntityFacetRequests([]types.FacetRequest{{Field: "topic", CountBy: types.FacetCountByResultID, IdentityLimit: 100}}) {
+		t.Fatal("entity facet not detected")
+	}
+}
+
 func TestBuildCollectionSchemaIncludesFixedTranscriptFields(t *testing.T) {
 	schema, _, err := buildCollectionSchema(Config{CollectionPrefix: "test_"}, types.IndexDefinition{
 		Name:           "media",

@@ -23,6 +23,26 @@ func TestTypesenseProviderContractSuite(t *testing.T) {
 	})
 }
 
+func TestTypesenseProviderBoundedEntityFacetsDeduplicateRetrievalUnits(t *testing.T) {
+	provider := newIntegrationProvider(t)
+	ctx := context.Background()
+	def := types.IndexDefinition{Name: "entity-facets", DefaultQueryFields: []string{"body"}, SearchableFields: []string{"body"}, FacetFields: []string{"topic", "result_id"}, FilterableFields: []string{"topic", "result_id"}, ProviderHints: map[string]any{"typesense": map[string]any{"field_types": map[string]string{"topic": "string[]", "result_id": "string"}}}}
+	if err := provider.EnsureIndex(ctx, def); err != nil {
+		t.Fatal(err)
+	}
+	docs := []types.Document{{ID: "u1", Index: def.Name, ResultID: "event:1", Body: "practice", Facets: map[string][]string{"topic": {"tara"}}}, {ID: "u2", Index: def.Name, ResultID: "event:1", Body: "practice", Facets: map[string][]string{"topic": {"tara"}}}, {ID: "u3", Index: def.Name, ResultID: "event:2", Body: "practice", Facets: map[string][]string{"topic": {"tara"}}}}
+	if err := provider.UpsertDocuments(ctx, def.Name, docs); err != nil {
+		t.Fatal(err)
+	}
+	page, err := provider.Search(ctx, types.SearchRequest{Indexes: []string{def.Name}, Query: "practice", Page: 1, PerPage: 10, Facets: []types.FacetRequest{{Field: "topic", CountBy: types.FacetCountByResultID, IdentityLimit: 10, Disjunctive: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Facets) != 1 || page.Facets[0].Accuracy != types.FacetCountAccuracyExact || len(page.Facets[0].Values) != 1 || page.Facets[0].Values[0].Count != 2 {
+		t.Fatalf("facets=%#v", page.Facets)
+	}
+}
+
 func TestTypesenseProviderArchiveWorkflow(t *testing.T) {
 	provider := newIntegrationProvider(t)
 	ctx := context.Background()
