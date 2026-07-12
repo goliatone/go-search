@@ -1,5 +1,23 @@
 # Changelog
 
+# [0.11.0](https://github.com/goliatone/go-search/compare/v0.10.0...v0.11.0) - (2026-07-12)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.11.0 ([e1d7e4f](https://github.com/goliatone/go-search/commit/e1d7e4f80748a6ea9e4a996fb57735b6e74fdd99))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Entity facets ([72d7843](https://github.com/goliatone/go-search/commit/72d78438e5ea7e217aa268839be8e746356aaefb))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.10.0 ([479f667](https://github.com/goliatone/go-search/commit/479f6672c0ca04ec6d8806538e678cb88fda8769))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([2b3b3bd](https://github.com/goliatone/go-search/commit/2b3b3bd076c32a063d5ecedf483efc730db8b9d3))  - (goliatone)
+
 # [0.10.0](https://github.com/goliatone/go-search/compare/v0.9.0...v0.10.0) - (2026-07-11)
 
 ## <!-- 13 -->📦 Bumps
