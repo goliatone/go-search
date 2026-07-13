@@ -1,5 +1,19 @@
 # Changelog
 
+# [0.11.1](https://github.com/goliatone/go-search/compare/v0.11.0...v0.11.1) - (2026-07-13)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Count and grouping ([b438d6b](https://github.com/goliatone/go-search/commit/b438d6b469a5ae3e8374e52c51bf89e96f2f0db1))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.11.1 ([0c997a4](https://github.com/goliatone/go-search/commit/0c997a486a11324d928ea8f67c86d8d9556f0cb0))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.11.0 ([720cd22](https://github.com/goliatone/go-search/commit/720cd221381544bd782764e4caec972d0168ccd3))  - (goliatone)
+
 # [0.11.0](https://github.com/goliatone/go-search/compare/v0.10.0...v0.11.0) - (2026-07-12)
 
 ## <!-- 13 -->📦 Bumps
