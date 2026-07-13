@@ -84,6 +84,112 @@ func TestTypesenseProviderAcceptsAliasForIdenticalPhysicalSchema(t *testing.T) {
 	}
 }
 
+func TestTypesenseAliasMovesEveryLiveProviderWithoutRestart(t *testing.T) {
+	ctx := context.Background()
+	def := integrationIndexDefinition("alias-live-replicas")
+	first := newIntegrationProvider(t)
+	if err := first.EnsureIndex(ctx, def); err != nil {
+		t.Fatal(err)
+	}
+	first.mu.RLock()
+	firstName := first.indexes[def.Name].collectionName
+	first.mu.RUnlock()
+
+	secondName := firstName + "__next"
+	second, err := New(Config{
+		ServerURL:         testkit.Integration.Typesense.ServerURL,
+		APIKey:            testkit.Integration.Typesense.APIKey,
+		CollectionNamer:   func(string) string { return secondName },
+		ConnectionTimeout: testkit.Integration.Typesense.ConnectionTimeout,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.EnsureIndex(ctx, def); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = second.client.Collection(secondName).Delete(context.Background()) })
+	if err := first.UpsertDocuments(ctx, def.Name, []types.Document{{ID: "old", Index: def.Name, Title: "Old generation"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.UpsertDocuments(ctx, def.Name, []types.Document{{ID: "new", Index: def.Name, Title: "New generation"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	aliasName := firstName + "__active"
+	if _, err := first.client.Aliases().Upsert(ctx, aliasName, &tsapi.CollectionAliasSchema{CollectionName: firstName}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = first.client.Alias(aliasName).Delete(context.Background()) })
+	newReplica := func() *Provider {
+		provider, err := New(Config{
+			ServerURL:         testkit.Integration.Typesense.ServerURL,
+			APIKey:            testkit.Integration.Typesense.APIKey,
+			CollectionNamer:   func(string) string { return aliasName },
+			ConnectionTimeout: testkit.Integration.Typesense.ConnectionTimeout,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := provider.EnsureIndex(ctx, def); err != nil {
+			t.Fatal(err)
+		}
+		return provider
+	}
+	replicas := []*Provider{newReplica(), newReplica()}
+	assertHit := func(want string) {
+		t.Helper()
+		for i, replica := range replicas {
+			page, err := replica.Search(ctx, types.SearchRequest{Indexes: []string{def.Name}, Query: "generation", Page: 1, PerPage: 10})
+			if err != nil {
+				t.Fatalf("replica %d search: %v", i, err)
+			}
+			if len(page.Hits) != 1 || page.Hits[0].ID != want {
+				t.Fatalf("replica %d hit after alias switch = %#v, want %q", i, page.Hits, want)
+			}
+		}
+	}
+
+	assertHit("old")
+	if _, err := first.client.Aliases().Upsert(ctx, aliasName, &tsapi.CollectionAliasSchema{CollectionName: secondName}); err != nil {
+		t.Fatal(err)
+	}
+	assertHit("new")
+	if _, err := first.client.Aliases().Upsert(ctx, aliasName, &tsapi.CollectionAliasSchema{CollectionName: firstName}); err != nil {
+		t.Fatal(err)
+	}
+	assertHit("old")
+}
+
+func TestTypesenseDocumentManifestDetectsStoredContentMismatch(t *testing.T) {
+	provider := newIntegrationProvider(t)
+	ctx := context.Background()
+	def := integrationIndexDefinition("document-manifest")
+	if err := provider.EnsureIndex(ctx, def); err != nil {
+		t.Fatal(err)
+	}
+	doc := types.Document{
+		ID: "doc-1", Index: def.Name, RegistrationKey: "cms", SourceType: "content", SourceID: "source-1",
+		ResultID: "guide:1", Title: "Canonical title", URL: "/guides/one", Locale: "en",
+		Visibility: types.Visibility{Public: true, Status: "published"},
+	}
+	if err := provider.ReplaceDocuments(ctx, def.Name, "cms", []string{"source-1"}, []types.Document{doc}); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.VerifyDocumentManifest(ctx, def.Name, []types.Document{doc}); err != nil {
+		t.Fatalf("matching manifest: %v", err)
+	}
+	provider.mu.RLock()
+	collection := provider.indexes[def.Name].collectionName
+	provider.mu.RUnlock()
+	if _, err := provider.client.Collection(collection).Document(storageDocumentID(doc)).Update(ctx, map[string]any{"title": "Corrupted title"}, &tsapi.DocumentIndexParameters{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.VerifyDocumentManifest(ctx, def.Name, []types.Document{doc}); err == nil {
+		t.Fatal("expected stored content mismatch to fail manifest verification")
+	}
+}
+
 func TestTypesenseProviderArchiveWorkflow(t *testing.T) {
 	provider := newIntegrationProvider(t)
 	ctx := context.Background()
