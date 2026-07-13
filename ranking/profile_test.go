@@ -2,6 +2,7 @@ package ranking
 
 import (
 	"github.com/goliatone/go-search/pkg/types"
+	"math"
 	"reflect"
 	"testing"
 )
@@ -35,6 +36,21 @@ func TestLegacyQueryFieldsAndRegistry(t *testing.T) {
 	again, _ := r.Resolve("public-v1")
 	if again.Indexes["media"].QueryFields[0].Weight != 10 {
 		t.Fatal("resolved profile mutated registry")
+	}
+}
+
+func TestProfileValidationRejectsUnsafeIndexWeights(t *testing.T) {
+	for _, weight := range []float64{-1, math.NaN(), math.Inf(1), math.Inf(-1), MaxIndexWeight + 1} {
+		p := RankingProfile{Name: "p", Version: "1", Indexes: map[string]IndexProfile{"media": {Weight: weight, QueryFields: []types.QueryField{{Field: "title", Weight: 1}}}}, Candidates: CandidateConfig{Multiplier: 1, MaxPerIndex: 1, MaxRefillRounds: 1}}
+		if err := p.Validate(); err == nil {
+			t.Fatalf("weight %v: expected validation error", weight)
+		}
+	}
+	for _, weight := range []float64{0, 1, 2, MaxIndexWeight} {
+		p := RankingProfile{Name: "p", Version: "1", Indexes: map[string]IndexProfile{"media": {Weight: weight, QueryFields: []types.QueryField{{Field: "title", Weight: 1}}}}, Candidates: CandidateConfig{Multiplier: 1, MaxPerIndex: 1, MaxRefillRounds: 1}}
+		if err := p.Validate(); err != nil {
+			t.Fatalf("weight %v: %v", weight, err)
+		}
 	}
 }
 

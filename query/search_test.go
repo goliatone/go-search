@@ -24,6 +24,13 @@ func TestCandidateWindowIsBounded(t *testing.T) {
 	if got := candidateWindow(types.SearchRequest{Page: 9, PerPage: 20}, cfg); got != 250 {
 		t.Fatalf("cap got %d", got)
 	}
+	if got := candidateWindow(types.SearchRequest{Page: 1, PerPage: 20}, ranking.CandidateConfig{Multiplier: 1, MaxPerIndex: 5}); got != 5 {
+		t.Fatalf("absolute cap got %d", got)
+	}
+	maxInt := int(^uint(0) >> 1)
+	if got := candidateWindow(types.SearchRequest{Page: maxInt, PerPage: maxInt}, ranking.CandidateConfig{Multiplier: maxInt, MaxPerIndex: 250}); got != 250 {
+		t.Fatalf("overflow-safe cap got %d", got)
+	}
 }
 func BenchmarkCandidateWindow(b *testing.B) {
 	cfg := ranking.CandidateConfig{Multiplier: 5, MaxPerIndex: 250, MaxRefillRounds: 2}
@@ -38,6 +45,206 @@ type countingBatchProvider struct {
 	searchCalls int
 	batchCalls  int
 	batchSize   int
+}
+
+type pagedCandidateProvider struct {
+	*memory.Provider
+	hits     map[string][]types.SearchHit
+	accuracy map[string]types.TotalAccuracy
+	requests []types.SearchRequest
+}
+
+type oversizedCandidateProvider struct {
+	*memory.Provider
+	hits []types.SearchHit
+}
+
+func (p *oversizedCandidateProvider) Search(_ context.Context, req types.SearchRequest) (types.SearchResultPage, error) {
+	return types.SearchResultPage{Hits: append([]types.SearchHit(nil), p.hits...), Page: req.Page, PerPage: req.PerPage, Total: len(p.hits), TotalAccuracy: types.TotalAccuracyExact}, nil
+}
+
+func (p *oversizedCandidateProvider) SearchBatch(ctx context.Context, requests []types.SearchRequest) ([]types.SearchResultPage, error) {
+	out := make([]types.SearchResultPage, 0, len(requests))
+	for _, req := range requests {
+		page, err := p.Search(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, page)
+	}
+	return out, nil
+}
+
+func (p *pagedCandidateProvider) Search(_ context.Context, req types.SearchRequest) (types.SearchResultPage, error) {
+	p.requests = append(p.requests, req)
+	index := req.Indexes[0]
+	all := p.hits[index]
+	start := (max(1, req.Page) - 1) * req.PerPage
+	if start > len(all) {
+		start = len(all)
+	}
+	end := min(len(all), start+req.PerPage)
+	return types.SearchResultPage{Hits: append([]types.SearchHit(nil), all[start:end]...), Page: req.Page, PerPage: req.PerPage, Total: len(all), TotalAccuracy: p.accuracy[index]}, nil
+}
+
+func (p *pagedCandidateProvider) SearchBatch(ctx context.Context, requests []types.SearchRequest) ([]types.SearchResultPage, error) {
+	out := make([]types.SearchResultPage, 0, len(requests))
+	for _, req := range requests {
+		page, err := p.Search(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, page)
+	}
+	return out, nil
+}
+
+func TestSearchCandidatesGroupsEntitiesBeforeCrossIndexRRF(t *testing.T) {
+	provider := &pagedCandidateProvider{Provider: memory.New(memory.Config{}), hits: map[string][]types.SearchHit{
+		"site":  {{ID: "site-doc", ResultID: "article:42", FinalScore: 10}},
+		"media": {{ID: "media-chunk", ResultID: "article:42", FinalScore: 2}},
+	}}
+	profile := &ranking.RankingProfile{Indexes: map[string]ranking.IndexProfile{"site": {Weight: 1}, "media": {Weight: 1}}}
+	search := &Search{provider: provider}
+	page, _, err := search.searchCandidates(t.Context(), types.SearchRequest{Indexes: []string{"site", "media"}, Page: 1, PerPage: 10}, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Hits) != 1 || page.Hits[0].ResultID != "article:42" || page.Hits[0].Retrieval == nil || len(page.Hits[0].Retrieval.Contributions) != 2 {
+		t.Fatalf("fused page = %#v", page)
+	}
+}
+
+func TestSearchCandidatesClampsOversizedInitialProviderResult(t *testing.T) {
+	provider := &oversizedCandidateProvider{Provider: memory.New(memory.Config{}), hits: []types.SearchHit{{ID: "1"}, {ID: "2"}, {ID: "3"}, {ID: "4"}}}
+	profile := &ranking.RankingProfile{Indexes: map[string]ranking.IndexProfile{"site": {Weight: 1}}, Candidates: ranking.CandidateConfig{Multiplier: 1, MaxPerIndex: 2, MaxRefillRounds: 1}}
+	search := &Search{provider: provider}
+	page, state, err := search.searchCandidates(t.Context(), types.SearchRequest{Indexes: []string{"site"}, Page: 1, PerPage: 2}, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Hits) != 2 || state.indexes[0].fetched != 2 || page.TotalAccuracy != types.TotalAccuracyLowerBound {
+		t.Fatalf("oversized provider result = %#v state=%#v", page, state.indexes[0])
+	}
+}
+
+func TestRefillCandidatesPagesEachIndexIndependentlyAndCapsRetention(t *testing.T) {
+	provider := &pagedCandidateProvider{Provider: memory.New(memory.Config{}), hits: map[string][]types.SearchHit{
+		"site":  {{ID: "s1"}, {ID: "s2"}, {ID: "s3"}, {ID: "s4"}},
+		"media": {{ID: "m1"}, {ID: "m2"}, {ID: "m3"}, {ID: "m4"}},
+	}}
+	profile := &ranking.RankingProfile{Indexes: map[string]ranking.IndexProfile{"site": {Weight: 1}, "media": {Weight: 1}}}
+	search := &Search{provider: provider}
+	req := types.SearchRequest{Indexes: []string{"site", "media"}, Page: 1, PerPage: 2}
+	_, state, err := search.searchCandidates(t.Context(), req, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := search.refillCandidates(t.Context(), req, state, ranking.CandidateConfig{Multiplier: 1, MaxPerIndex: 3, MaxRefillRounds: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.requests) != 4 || provider.requests[2].Indexes[0] != "site" || provider.requests[3].Indexes[0] != "media" || provider.requests[2].Page != 2 || provider.requests[3].Page != 2 {
+		t.Fatalf("requests = %#v", provider.requests)
+	}
+	if got := page.Metadata["candidate_count"]; got != 6 {
+		t.Fatalf("candidate_count = %#v", got)
+	}
+	if len(page.Hits) != 6 || page.TotalAccuracy != types.TotalAccuracyLowerBound {
+		t.Fatalf("page = %#v", page)
+	}
+}
+
+func TestRefillCandidatesRecomputesEntityRRFOverAllRounds(t *testing.T) {
+	provider := &pagedCandidateProvider{Provider: memory.New(memory.Config{}), hits: map[string][]types.SearchHit{
+		"site":  {{ID: "site-shared", ResultID: "entity:shared"}, {ID: "site-only", ResultID: "entity:site"}},
+		"media": {{ID: "media-only", ResultID: "entity:media"}, {ID: "media-shared", ResultID: "entity:shared"}},
+	}}
+	profile := &ranking.RankingProfile{Indexes: map[string]ranking.IndexProfile{"site": {Weight: 1}, "media": {Weight: 1}}}
+	search := &Search{provider: provider}
+	req := types.SearchRequest{Indexes: []string{"site", "media"}, Page: 1, PerPage: 1}
+	_, state, err := search.searchCandidates(t.Context(), req, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := search.refillCandidates(t.Context(), req, state, ranking.CandidateConfig{Multiplier: 1, MaxPerIndex: 2, MaxRefillRounds: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shared *types.SearchHit
+	for i := range page.Hits {
+		if page.Hits[i].ResultID == "entity:shared" {
+			shared = &page.Hits[i]
+			break
+		}
+	}
+	if shared == nil || shared.Retrieval == nil || len(shared.Retrieval.Contributions) != 2 || page.TotalAccuracy != types.TotalAccuracyExact {
+		t.Fatalf("refilled entity fusion = %#v", page)
+	}
+}
+
+func TestRefillCandidatesStopsExhaustedIndexesIndependently(t *testing.T) {
+	provider := &pagedCandidateProvider{Provider: memory.New(memory.Config{}), hits: map[string][]types.SearchHit{
+		"site":  {{ID: "s1"}},
+		"media": {{ID: "m1"}, {ID: "m2"}, {ID: "m3"}},
+	}}
+	profile := &ranking.RankingProfile{Indexes: map[string]ranking.IndexProfile{"site": {Weight: 1}, "media": {Weight: 1}}}
+	search := &Search{provider: provider}
+	req := types.SearchRequest{Indexes: []string{"site", "media"}, Page: 1, PerPage: 1}
+	_, state, err := search.searchCandidates(t.Context(), req, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := search.refillCandidates(t.Context(), req, state, ranking.CandidateConfig{Multiplier: 1, MaxPerIndex: 3, MaxRefillRounds: 3}); err != nil {
+		t.Fatal(err)
+	}
+	for _, request := range provider.requests[2:] {
+		if request.Indexes[0] == "site" {
+			t.Fatalf("exhausted site index was refilled: %#v", provider.requests)
+		}
+	}
+}
+
+func TestLegacyPostProcessingUsesBoundedPositiveCandidateWindow(t *testing.T) {
+	got := candidateWindow(types.SearchRequest{Page: 1, PerPage: 20}, defaultCandidateConfig())
+	if got <= 0 || got > 250 {
+		t.Fatalf("legacy candidate window = %d", got)
+	}
+}
+
+func TestRefillCandidatesNeverPromotesApproximateProviderTotal(t *testing.T) {
+	provider := &pagedCandidateProvider{Provider: memory.New(memory.Config{}), hits: map[string][]types.SearchHit{
+		"site": {{ID: "s1"}, {ID: "s2"}, {ID: "s3"}},
+	}, accuracy: map[string]types.TotalAccuracy{"site": types.TotalAccuracyApproximate}}
+	profile := &ranking.RankingProfile{Indexes: map[string]ranking.IndexProfile{"site": {Weight: 1}}}
+	search := &Search{provider: provider}
+	req := types.SearchRequest{Indexes: []string{"site"}, Page: 1, PerPage: 2}
+	_, state, err := search.searchCandidates(t.Context(), req, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := search.refillCandidates(t.Context(), req, state, ranking.CandidateConfig{Multiplier: 1, MaxPerIndex: 4, MaxRefillRounds: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.TotalAccuracy != types.TotalAccuracyLowerBound {
+		t.Fatalf("approximate provider total was promoted: %#v", page)
+	}
+}
+
+func TestNormalizeLegacyCandidatePageReportsBoundedAccuracy(t *testing.T) {
+	partial := normalizeLegacyCandidatePage(types.SearchResultPage{Hits: make([]types.SearchHit, 2), Total: 5, TotalAccuracy: types.TotalAccuracyExact}, 2)
+	if partial.TotalAccuracy != types.TotalAccuracyLowerBound {
+		t.Fatalf("partial legacy page = %#v", partial)
+	}
+	exhausted := normalizeLegacyCandidatePage(types.SearchResultPage{Hits: make([]types.SearchHit, 2), Total: 2, TotalAccuracy: types.TotalAccuracyExact}, 2)
+	if exhausted.TotalAccuracy != types.TotalAccuracyExact {
+		t.Fatalf("exhausted legacy page = %#v", exhausted)
+	}
+	unknown := normalizeLegacyCandidatePage(types.SearchResultPage{Hits: make([]types.SearchHit, 2), Total: 2, TotalAccuracy: types.TotalAccuracy("future")}, 2)
+	if unknown.TotalAccuracy != types.TotalAccuracyLowerBound {
+		t.Fatalf("unknown provider accuracy was promoted: %#v", unknown)
+	}
 }
 
 func (s staticEditorialStore) ListApplicable(context.Context, types.SearchRequest) ([]types.EditorialRankRule, error) {
