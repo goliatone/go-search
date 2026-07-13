@@ -1,5 +1,24 @@
 # Changelog
 
+# [0.11.3](https://github.com/goliatone/go-search/compare/v0.11.2...v0.11.3) - (2026-07-13)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Fusion and profile ranking ([fb48bb3](https://github.com/goliatone/go-search/commit/fb48bb3dd7a8c5b84cade7e0fc349e518c1a5aee))  - (goliatone)
+- Code quality ([7c2f428](https://github.com/goliatone/go-search/commit/7c2f428e83a11eb0fbc18e8143d949e2378aa647))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.11.3 ([3ead8a5](https://github.com/goliatone/go-search/commit/3ead8a54378dbfcbb3a491f4e800ca2f9d9540e6))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.11.2 ([dbeb326](https://github.com/goliatone/go-search/commit/dbeb326814e28e03be0bc5d5af5b154941d10928))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([0f17eb4](https://github.com/goliatone/go-search/commit/0f17eb409e32dd7723af98be317e4472e7a9bcc6))  - (goliatone)
+
 # [0.11.2](https://github.com/goliatone/go-search/compare/v0.11.1...v0.11.2) - (2026-07-13)
 
 ## <!-- 1 -->🐛 Bug Fixes
