@@ -14,6 +14,7 @@ import (
 	"github.com/goliatone/go-search/planner"
 	"github.com/goliatone/go-search/providers"
 	"github.com/goliatone/go-search/query"
+	tsapi "github.com/typesense/typesense-go/v3/typesense/api"
 )
 
 func TestTypesenseProviderContractSuite(t *testing.T) {
@@ -40,6 +41,46 @@ func TestTypesenseProviderBoundedEntityFacetsDeduplicateRetrievalUnits(t *testin
 	}
 	if len(page.Facets) != 1 || page.Facets[0].Accuracy != types.FacetCountAccuracyExact || len(page.Facets[0].Values) != 1 || page.Facets[0].Values[0].Count != 2 {
 		t.Fatalf("facets=%#v", page.Facets)
+	}
+}
+
+func TestTypesenseProviderAcceptsAliasForIdenticalPhysicalSchema(t *testing.T) {
+	physical := newIntegrationProvider(t)
+	ctx := context.Background()
+	def := integrationIndexDefinition("alias-schema")
+	if err := physical.EnsureIndex(ctx, def); err != nil {
+		t.Fatal(err)
+	}
+	if err := physical.UpsertDocuments(ctx, def.Name, []types.Document{{ID: "doc-1", Index: def.Name, Title: "Alias readiness"}}); err != nil {
+		t.Fatal(err)
+	}
+	physical.mu.RLock()
+	physicalName := physical.indexes[def.Name].collectionName
+	physical.mu.RUnlock()
+	aliasName := physicalName + "__active"
+	if _, err := physical.client.Aliases().Upsert(ctx, aliasName, &tsapi.CollectionAliasSchema{CollectionName: physicalName}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = physical.client.Alias(aliasName).Delete(context.Background()) })
+
+	aliased, err := New(Config{
+		ServerURL:         testkit.Integration.Typesense.ServerURL,
+		APIKey:            testkit.Integration.Typesense.APIKey,
+		CollectionNamer:   func(string) string { return aliasName },
+		ConnectionTimeout: testkit.Integration.Typesense.ConnectionTimeout,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := aliased.EnsureIndex(ctx, def); err != nil {
+		t.Fatalf("ensure through alias: %v", err)
+	}
+	page, err := aliased.Search(ctx, types.SearchRequest{Indexes: []string{def.Name}, Query: "Alias", Page: 1, PerPage: 10})
+	if err != nil {
+		t.Fatalf("search through alias: %v", err)
+	}
+	if page.Total != 1 || len(page.Hits) != 1 || page.Hits[0].ID != "doc-1" {
+		t.Fatalf("alias search = %#v", page)
 	}
 }
 

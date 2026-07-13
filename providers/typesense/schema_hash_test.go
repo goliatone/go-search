@@ -82,3 +82,17 @@ func TestCollectionSchemaHashTreatsDefaultIndexedFieldsLikeTypesenseResponse(t *
 		t.Fatalf("expected schema hash %q to match response hash %q", got, want)
 	}
 }
+
+func TestCollectionSchemaHashIgnoresPhysicalCollectionName(t *testing.T) {
+	schema := &tsapi.CollectionSchema{
+		Name:   "site_content__active",
+		Fields: []tsapi.Field{{Name: "title", Type: "string", Index: new(true), Optional: new(true)}},
+	}
+	response := &tsapi.CollectionResponse{
+		Name:   "site_content__gen_20260712",
+		Fields: []tsapi.Field{{Name: "title", Type: "string", Index: new(true), Optional: new(true)}},
+	}
+	if got, want := collectionSchemaHash(schema), collectionResponseHash(response); got != want {
+		t.Fatalf("logical schema hash %q must ignore physical collection name; response hash = %q", got, want)
+	}
+}
