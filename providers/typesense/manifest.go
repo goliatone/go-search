@@ -16,7 +16,7 @@ import (
 // projected document with a fresh Typesense export. It catches successful API
 // writes that stored stale, truncated, or otherwise incorrect public identity,
 // visibility, locale, URL, or facet fields before a generation is activated.
-func (p *Provider) VerifyDocumentManifest(ctx context.Context, index string, docs []types.Document) error {
+func (p *Provider) VerifyDocumentManifest(ctx context.Context, index string, docs []types.Document) (resultErr error) {
 	runtime, err := p.runtimeFor(index)
 	if err != nil {
 		return err
@@ -38,7 +38,11 @@ func (p *Provider) VerifyDocumentManifest(ctx context.Context, index string, doc
 	if err != nil {
 		return errs.Wrap(err, map[string]any{"index": index, "collection": runtime.collectionName, "operation": "export_manifest"})
 	}
-	defer reader.Close()
+	defer func() {
+		if err := reader.Close(); err != nil && resultErr == nil {
+			resultErr = errs.Wrap(err, map[string]any{"index": index, "collection": runtime.collectionName, "operation": "close_manifest_export"})
+		}
+	}()
 	actual := map[string]string{}
 	decoder := json.NewDecoder(reader)
 	for {
