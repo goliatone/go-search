@@ -22,6 +22,15 @@ type Provider interface {
 type SearchBatcher interface {
 	SearchBatch(ctx context.Context, requests []types.SearchRequest) ([]types.SearchResultPage, error)
 }
+
+// DefinitionHealthProvider inspects canonical index definitions without
+// registering, creating, or otherwise mutating provider state. It is useful for
+// operational health checks that run in a process which did not call
+// EnsureIndex, such as a standalone CLI invocation.
+type DefinitionHealthProvider interface {
+	HealthDefinitions(ctx context.Context, definitions []types.IndexDefinition) (types.HealthStatus, error)
+}
+
 type EvidenceAggregator interface {
 	AggregateEvidence(context.Context, types.EvidenceRequest) (map[string]*types.MatchEvidenceSummary, error)
 }
