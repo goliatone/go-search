@@ -88,23 +88,25 @@ func (q *Search) Query(ctx context.Context, req types.SearchRequest) (types.Sear
 		if plan.Profile != nil {
 			providerReq.PerPage = candidateWindow(plan.Request, plan.Profile.Candidates)
 		} else {
-			providerReq.PerPage = 0
+			providerReq.PerPage = candidateWindow(plan.Request, defaultCandidateConfig())
 		}
 		providerReq.GroupBy = ""
 		if plan.Request.GroupBy != "" {
 			providerReq.Facets = nil
 		}
 	}
-	page, err := q.searchCandidates(ctx, providerReq, plan.Profile)
+	page, candidates, err := q.searchCandidates(ctx, providerReq, plan.Profile)
 	if err != nil {
 		observe.Count(ctx, q.metrics, q.logger, "search.query.error.count", 1, labels)
 		return types.SearchResultPage{}, err
 	}
 	if requiresPost && plan.Profile != nil {
-		page, err = q.refillCandidates(ctx, providerReq, page, plan.Profile.Candidates)
+		page, err = q.refillCandidates(ctx, providerReq, candidates, plan.Profile.Candidates)
 		if err != nil {
 			return types.SearchResultPage{}, err
 		}
+	} else if requiresPost {
+		page = normalizeLegacyCandidatePage(page, providerReq.PerPage)
 	}
 	page = annotateSearchPageLocales(page, plan.Locale)
 	page = filterSearchPage(ctx, plan.Request, page, q.planner.ScopeGuard())
@@ -121,13 +123,6 @@ func (q *Search) Query(ctx context.Context, req types.SearchRequest) (types.Sear
 	}
 	page.Page = plan.Request.Page
 	page.PerPage = plan.Request.PerPage
-	if plan.Profile != nil {
-		if page.Total >= providerReq.PerPage {
-			page.TotalAccuracy = types.TotalAccuracyLowerBound
-		} else {
-			page.TotalAccuracy = types.TotalAccuracyExact
-		}
-	}
 	rankedAt := q.clock.Now()
 	var groupedFacets []types.SearchFacet
 	if plan.Request.GroupBy != "" && len(plan.Request.Facets) > 0 {
@@ -189,9 +184,25 @@ func (q *Search) attachEvidence(ctx context.Context, req types.SearchRequest, pa
 	}
 }
 
-func (q *Search) searchCandidates(ctx context.Context, req types.SearchRequest, profile *ranking.RankingProfile) (types.SearchResultPage, error) {
-	if profile == nil || len(req.Indexes) < 2 {
-		return q.provider.Search(ctx, req)
+type candidateIndexState struct {
+	index         string
+	hits          []types.SearchHit
+	total         int
+	fetched       int
+	rounds        int
+	exhausted     bool
+	providerExact bool
+}
+
+type candidateSearchState struct {
+	profile *ranking.RankingProfile
+	indexes []*candidateIndexState
+}
+
+func (q *Search) searchCandidates(ctx context.Context, req types.SearchRequest, profile *ranking.RankingProfile) (types.SearchResultPage, *candidateSearchState, error) {
+	if profile == nil {
+		page, err := q.provider.Search(ctx, req)
+		return page, nil, err
 	}
 	requests := make([]types.SearchRequest, 0, len(req.Indexes))
 	for _, index := range req.Indexes {
@@ -201,62 +212,144 @@ func (q *Search) searchCandidates(ctx context.Context, req types.SearchRequest, 
 	}
 	pages, err := searchPages(ctx, q.provider, requests)
 	if err != nil {
-		return types.SearchResultPage{}, err
+		return types.SearchResultPage{}, nil, err
 	}
-	lists := make([]ranking.RankedList, 0, len(pages))
-	total := 0
+	state := &candidateSearchState{profile: profile, indexes: make([]*candidateIndexState, 0, len(pages))}
+	retentionCap := profile.Candidates.MaxPerIndex
+	if retentionCap < 1 {
+		retentionCap = max(1, req.PerPage)
+	}
 	for i, page := range pages {
-		weight := profile.Indexes[req.Indexes[i]].Weight
-		lists = append(lists, ranking.RankedList{Index: req.Indexes[i], Weight: weight, Hits: page.Hits})
-		total += page.Total
+		hits := page.Hits
+		truncated := false
+		if len(hits) > retentionCap {
+			hits = hits[:retentionCap]
+			truncated = true
+		}
+		fetched := len(hits)
+		providerExact := candidateTotalExact(page.TotalAccuracy)
+		state.indexes = append(state.indexes, &candidateIndexState{
+			index: req.Indexes[i], hits: append([]types.SearchHit(nil), hits...), total: page.Total,
+			fetched: fetched, rounds: 1, providerExact: providerExact,
+			exhausted: providerExact && !truncated && (fetched >= page.Total || fetched < req.PerPage),
+		})
 	}
-	return types.SearchResultPage{Hits: ranking.FuseRRF(lists, 60), Page: req.Page, PerPage: req.PerPage, Total: total, Metadata: map[string]any{"fusion": "rrf"}}, nil
+	return renderCandidateState(req, state), state, nil
 }
 
-func (q *Search) refillCandidates(ctx context.Context, req types.SearchRequest, page types.SearchResultPage, cfg ranking.CandidateConfig) (types.SearchResultPage, error) {
-	seen := len(page.Hits)
-	rounds := 1
-	for rounds < cfg.MaxRefillRounds && seen < cfg.MaxPerIndex && page.Total > seen {
-		next := req
-		next.Page = rounds + 1
-		remaining := cfg.MaxPerIndex - seen
-		if next.PerPage > remaining {
-			next.PerPage = remaining
+func (q *Search) refillCandidates(ctx context.Context, req types.SearchRequest, state *candidateSearchState, cfg ranking.CandidateConfig) (types.SearchResultPage, error) {
+	if state == nil {
+		return types.SearchResultPage{}, errs.ConfigurationError("candidate state is required for profiled refill", nil)
+	}
+	for round := 2; round <= cfg.MaxRefillRounds; round++ {
+		requests := make([]types.SearchRequest, 0, len(state.indexes))
+		targets := make([]*candidateIndexState, 0, len(state.indexes))
+		for _, index := range state.indexes {
+			if index.exhausted || index.fetched >= cfg.MaxPerIndex {
+				continue
+			}
+			next := req
+			next.Indexes = []string{index.index}
+			next.Page = index.rounds + 1
+			// Keep the original page size stable: offset-based providers derive the
+			// page offset from it. The retained candidate slice is capped below.
+			next.PerPage = req.PerPage
+			requests = append(requests, next)
+			targets = append(targets, index)
 		}
-		extra, err := q.provider.Search(ctx, next)
+		if len(requests) == 0 {
+			break
+		}
+		pages, err := searchPages(ctx, q.provider, requests)
 		if err != nil {
 			return types.SearchResultPage{}, err
 		}
-		if len(extra.Hits) == 0 {
-			break
+		for i, page := range pages {
+			index := targets[i]
+			index.rounds++
+			index.total = page.Total
+			index.providerExact = index.providerExact && candidateTotalExact(page.TotalAccuracy)
+			remaining := cfg.MaxPerIndex - index.fetched
+			extra := page.Hits
+			if len(extra) > remaining {
+				extra = extra[:remaining]
+			}
+			index.hits = append(index.hits, extra...)
+			index.fetched += len(extra)
+			index.exhausted = index.providerExact && (len(page.Hits) < requests[i].PerPage || index.fetched >= page.Total)
 		}
-		page.Hits = append(page.Hits, extra.Hits...)
-		if len(page.Hits) > cfg.MaxPerIndex {
-			page.Hits = page.Hits[:cfg.MaxPerIndex]
-		}
-		seen += len(extra.Hits)
-		if seen > cfg.MaxPerIndex {
-			seen = cfg.MaxPerIndex
-		}
-		rounds++
+	}
+	return renderCandidateState(req, state), nil
+}
+
+func renderCandidateState(req types.SearchRequest, state *candidateSearchState) types.SearchResultPage {
+	lists := make([]ranking.RankedList, 0, len(state.indexes))
+	exact := true
+	maxRounds, candidateCount := 0, 0
+	for _, index := range state.indexes {
+		grouped := ranking.GroupEntities(index.hits, 1)
+		lists = append(lists, ranking.RankedList{Index: index.index, Weight: state.profile.Indexes[index.index].Weight, Hits: grouped})
+		exact = exact && index.providerExact && index.exhausted
+		maxRounds = max(maxRounds, index.rounds)
+		candidateCount += index.fetched
+	}
+	var hits []types.SearchHit
+	if len(lists) == 1 {
+		hits = lists[0].Hits
+	} else {
+		hits = ranking.FuseRRF(lists, 60)
+	}
+	accuracy := types.TotalAccuracyLowerBound
+	if exact {
+		accuracy = types.TotalAccuracyExact
+	}
+	return types.SearchResultPage{Hits: hits, Page: req.Page, PerPage: req.PerPage, Total: len(hits), TotalAccuracy: accuracy, Metadata: map[string]any{"fusion": "rrf", "candidate_rounds": maxRounds, "candidate_count": candidateCount}}
+}
+
+func candidateTotalExact(accuracy types.TotalAccuracy) bool {
+	// Empty is the legacy provider contract and remains exact unless the provider
+	// explicitly declares another accuracy. Unknown future values remain
+	// conservative instead of being promoted to exact.
+	return accuracy == "" || accuracy == types.TotalAccuracyExact
+}
+
+func normalizeLegacyCandidatePage(page types.SearchResultPage, window int) types.SearchResultPage {
+	fetched := len(page.Hits)
+	exhausted := candidatePageExhausted(page, window)
+	page.TotalAccuracy = types.TotalAccuracyLowerBound
+	if exhausted {
+		page.TotalAccuracy = types.TotalAccuracyExact
 	}
 	if page.Metadata == nil {
 		page.Metadata = map[string]any{}
 	}
-	page.Metadata["candidate_rounds"] = rounds
-	page.Metadata["candidate_count"] = seen
-	return page, nil
+	page.Metadata["candidate_rounds"] = 1
+	page.Metadata["candidate_count"] = fetched
+	page.Metadata["candidate_window"] = window
+	return page
+}
+
+func candidatePageExhausted(page types.SearchResultPage, window int) bool {
+	return candidateTotalExact(page.TotalAccuracy) && (len(page.Hits) >= page.Total || len(page.Hits) < window)
+}
+
+func defaultCandidateConfig() ranking.CandidateConfig {
+	return ranking.CandidateConfig{Multiplier: 5, MaxPerIndex: 250, MaxRefillRounds: 2}
 }
 
 func candidateWindow(req types.SearchRequest, cfg ranking.CandidateConfig) int {
-	window := req.Page * req.PerPage * cfg.Multiplier
-	if window > cfg.MaxPerIndex {
-		window = cfg.MaxPerIndex
+	cap := max(1, cfg.MaxPerIndex)
+	page := max(1, req.Page)
+	perPage := max(1, req.PerPage)
+	multiplier := max(1, cfg.Multiplier)
+	if perPage >= cap || page > cap/perPage {
+		return cap
 	}
-	if window < req.PerPage {
-		window = req.PerPage
+	window := page * perPage
+	if multiplier > cap/window {
+		return cap
 	}
-	return window
+	return min(window*multiplier, cap)
 }
 
 func requiresPostProcessing(req types.SearchRequest, rules []types.EditorialRankRule, guard types.ScopeGuard) bool {
@@ -272,7 +365,7 @@ func (q *Search) buildGroupedDisjunctiveFacets(ctx context.Context, plan planner
 	if plan.Profile != nil {
 		baseProviderReq.PerPage = plan.Profile.Candidates.MaxPerIndex
 	} else {
-		baseProviderReq.PerPage = 0
+		baseProviderReq.PerPage = candidateWindow(plan.Request, defaultCandidateConfig())
 	}
 	baseProviderReq.GroupBy = ""
 	baseProviderReq.Facets = nil
@@ -300,7 +393,14 @@ func (q *Search) buildGroupedDisjunctiveFacets(ctx context.Context, plan planner
 		page = annotateSearchPageLocales(page, plan.Locale)
 		hits := filterAuthorizedHits(ctx, countRequest.Actor, page.Hits, q.planner.ScopeGuard())
 		hits = ranking.ApplyRulesToHits(countRequest, hits, rules, now)
-		out = append(out, buildGroupedFacet(facetReq, plan.Request.Filters, hits))
+		facet := buildGroupedFacet(facetReq, plan.Request.Filters, hits)
+		if !candidatePageExhausted(page, baseProviderReq.PerPage) {
+			facet.Accuracy = types.FacetCountAccuracyLowerBound
+			for j := range facet.Values {
+				facet.Values[j].EntityIDsComplete = false
+			}
+		}
+		out = append(out, facet)
 	}
 	return out, nil
 }

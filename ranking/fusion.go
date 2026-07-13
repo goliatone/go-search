@@ -22,7 +22,7 @@ func FuseRRF(lists []RankedList, k float64) []types.SearchHit {
 			w = 1
 		}
 		for i, hit := range list.Hits {
-			id := hit.ID
+			id := ResultID(hit)
 			if hit.Document != nil && hit.Document.Index != "" {
 				list.Index = hit.Document.Index
 			}
@@ -30,6 +30,7 @@ func FuseRRF(lists []RankedList, k float64) []types.SearchHit {
 			merged, ok := byID[id]
 			if !ok {
 				merged = hit
+				merged.ResultID = id
 				merged.BaseScore = 0
 				merged.FinalScore = 0
 				merged.Score = 0

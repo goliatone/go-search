@@ -2,11 +2,14 @@ package ranking
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 
 	"github.com/goliatone/go-search/pkg/types"
 )
+
+const MaxIndexWeight = 100.0
 
 type CandidateConfig struct{ Multiplier, MaxPerIndex, MaxRefillRounds int }
 type IndexProfile struct {
@@ -35,6 +38,9 @@ func (p RankingProfile) Validate() error {
 	for index, cfg := range p.Indexes {
 		if strings.TrimSpace(index) == "" {
 			return fmt.Errorf("index name is required")
+		}
+		if math.IsNaN(cfg.Weight) || math.IsInf(cfg.Weight, 0) || cfg.Weight < 0 || cfg.Weight > MaxIndexWeight {
+			return fmt.Errorf("index weight for %q must be finite, non-negative, and at most %.4g", index, MaxIndexWeight)
 		}
 		seen := map[string]bool{}
 		for _, field := range cfg.QueryFields {
