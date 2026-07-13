@@ -72,6 +72,22 @@ func TestTypesenseProviderAcceptsAliasForIdenticalPhysicalSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	health, err := aliased.HealthDefinitions(ctx, []types.IndexDefinition{def})
+	if err != nil {
+		t.Fatalf("definition health through alias: %v", err)
+	}
+	if !health.Healthy || len(health.Indexes) != 1 || !health.Indexes[0].Ready {
+		t.Fatalf("definition health = %#v", health)
+	}
+	if health.Indexes[0].Documents != 1 {
+		t.Fatalf("definition health documents = %d, want 1", health.Indexes[0].Documents)
+	}
+	if health.Indexes[0].Metadata["collection_name"] != aliasName || health.Indexes[0].Metadata["active_collection_name"] != physicalName {
+		t.Fatalf("definition health routing metadata = %#v", health.Indexes[0].Metadata)
+	}
+	if health.Indexes[0].Metadata["schema_match"] != true {
+		t.Fatalf("definition health schema metadata = %#v", health.Indexes[0].Metadata)
+	}
 	if err := aliased.EnsureIndex(ctx, def); err != nil {
 		t.Fatalf("ensure through alias: %v", err)
 	}
