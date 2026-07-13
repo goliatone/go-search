@@ -29,3 +29,11 @@ type EvidenceAggregator interface {
 type RegistrationResetter interface {
 	ResetRegistration(ctx context.Context, index, registrationKey string) error
 }
+
+// RecordReplacementProvider preserves the enumerated source record identity
+// through provider decorators. It is optional for normal indexing, but enables
+// generation-repair code to prove that every listed record was projected even
+// when multiple records share the same canonical source identity.
+type RecordReplacementProvider interface {
+	ReplaceRecordDocuments(ctx context.Context, index, registrationKey, recordID string, sourceIDs []string, docs []types.Document) error
+}
