@@ -13,16 +13,38 @@ func filterSearchPage(ctx context.Context, req types.SearchRequest, page types.S
 		return page
 	}
 	if len(page.Groups) > 0 {
+		originalHitCount := groupedHitCount(page.Groups)
 		page.Groups = filterAuthorizedGroups(ctx, req.Actor, page.Groups, guard)
 		page.Hits = flattenGroupHits(page.Groups)
+		if len(page.Hits) == originalHitCount {
+			// Provider facets and totals describe the full filtered result set, while
+			// the returned hits are only a bounded page. When the guard removes
+			// nothing, retain that complete information (including entity identity
+			// sets and accuracy) instead of rebuilding it from the page window.
+			return page
+		}
 		page.Total = len(page.Groups)
 		page.Facets = buildFacets(req.Facets, req.Filters, page.Hits)
+		page.TotalAccuracy = types.TotalAccuracyLowerBound
 		return page
 	}
+	originalHitCount := len(page.Hits)
 	page.Hits = filterAuthorizedHits(ctx, req.Actor, page.Hits, guard)
+	if len(page.Hits) == originalHitCount {
+		return page
+	}
 	page.Total = len(page.Hits)
 	page.Facets = buildFacets(req.Facets, req.Filters, page.Hits)
+	page.TotalAccuracy = types.TotalAccuracyLowerBound
 	return page
+}
+
+func groupedHitCount(groups []types.SearchGroup) int {
+	total := 0
+	for _, group := range groups {
+		total += len(group.Hits)
+	}
+	return total
 }
 
 func filterSuggestResult(ctx context.Context, actor types.ActorRef, result types.SuggestResult, guard types.ScopeGuard, limit int) types.SuggestResult {
@@ -82,6 +104,15 @@ func buildFacets(requests []types.FacetRequest, filters types.FilterExpr, hits [
 	}
 	out := make([]types.SearchFacet, 0, len(requests))
 	for _, facetReq := range requests {
+		if facetReq.CountBy == types.FacetCountByResultID {
+			facet := types.BuildEntityFacet(facetReq, entityFacetIdentities(facetReq.Field, hits), types.SelectedFacetValues(filters, facetReq.Field))
+			// Guard filtering only sees the bounded candidate window. Its rebuilt
+			// identity set is therefore a safe lower bound, never an exact global
+			// count.
+			facet.Accuracy = types.FacetCountAccuracyLowerBound
+			out = append(out, facet)
+			continue
+		}
 		counts := map[string]int{}
 		for _, hit := range hits {
 			if hit.Document == nil {
@@ -94,6 +125,31 @@ func buildFacets(requests []types.FacetRequest, filters types.FilterExpr, hits [
 		out = append(out, types.BuildFacet(facetReq, counts, types.SelectedFacetValues(filters, facetReq.Field)))
 	}
 	return out
+}
+
+func entityFacetIdentities(field string, hits []types.SearchHit) map[string]map[string]struct{} {
+	identities := map[string]map[string]struct{}{}
+	for _, hit := range hits {
+		if hit.Document == nil {
+			continue
+		}
+		resultID := ranking.ResultID(hit)
+		if resultID == "" {
+			resultID = hit.Document.ID
+		}
+		if resultID == "" {
+			continue
+		}
+		for _, value := range hit.Document.Facets[field] {
+			set := identities[value]
+			if set == nil {
+				set = map[string]struct{}{}
+				identities[value] = set
+			}
+			set[resultID] = struct{}{}
+		}
+	}
+	return identities
 }
 
 func buildGroupedFacet(request types.FacetRequest, filters types.FilterExpr, hits []types.SearchHit) types.SearchFacet {

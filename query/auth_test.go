@@ -222,6 +222,79 @@ func TestSearchFiltersUnauthorizedHitsGroupsAndFacets(t *testing.T) {
 	}
 }
 
+func TestSearchScopeGuardPreservesProviderEntityFacetsWhenAllHitsAreAuthorized(t *testing.T) {
+	registry := indexing.NewRegistry()
+	def := types.IndexDefinition{Name: "content", FilterableFields: []string{"topic"}}
+	if err := registry.Register(def, nil); err != nil {
+		t.Fatalf("register index: %v", err)
+	}
+	provider := memory.New(memory.Config{})
+	if err := provider.EnsureIndex(context.Background(), def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	docs := []types.Document{
+		{ID: "event-1-title", Index: "content", Title: "Prayer", ResultID: "event:1", Facets: map[string][]string{"topic": {"practice"}}},
+		{ID: "event-1-transcript", Index: "content", Body: "Prayer", ResultID: "event:1", Facets: map[string][]string{"topic": {"practice"}}},
+		{ID: "event-2-title", Index: "content", Title: "Prayer", ResultID: "event:2", Facets: map[string][]string{"topic": {"practice"}}},
+	}
+	if err := provider.UpsertDocuments(context.Background(), "content", docs); err != nil {
+		t.Fatalf("upsert docs: %v", err)
+	}
+	allowed := map[string]struct{}{}
+	for _, doc := range docs {
+		allowed[doc.ID] = struct{}{}
+	}
+	p, err := planner.New(planner.Config{Registry: registry, ScopeGuard: allowListScopeGuard{allowed: allowed}})
+	if err != nil {
+		t.Fatalf("new planner: %v", err)
+	}
+	search, err := NewSearch(SearchConfig{Planner: p, Provider: provider})
+	if err != nil {
+		t.Fatalf("new search query: %v", err)
+	}
+	page, err := search.Query(context.Background(), types.SearchRequest{
+		Indexes: []string{"content"}, Query: "Prayer", Page: 1, PerPage: 10,
+		Facets: []types.FacetRequest{{Field: "topic", CountBy: types.FacetCountByResultID, IdentityLimit: 10}},
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(page.Facets) != 1 || len(page.Facets[0].Values) != 1 {
+		t.Fatalf("entity facets = %+v", page.Facets)
+	}
+	value := page.Facets[0].Values[0]
+	if value.Count != 2 || !reflect.DeepEqual(value.EntityIDs, []string{"event:1", "event:2"}) {
+		t.Fatalf("entity facet value = %+v", value)
+	}
+	if page.Facets[0].Accuracy != types.FacetCountAccuracyExact {
+		t.Fatalf("accuracy = %q", page.Facets[0].Accuracy)
+	}
+}
+
+func TestSearchScopeGuardRebuildsEntityFacetsAsUniqueLowerBound(t *testing.T) {
+	page := types.SearchResultPage{
+		Hits: []types.SearchHit{
+			{ID: "a1", ResultID: "event:1", Document: &types.Document{ID: "a1", ResultID: "event:1", Facets: map[string][]string{"topic": {"practice"}}}},
+			{ID: "a2", ResultID: "event:1", Document: &types.Document{ID: "a2", ResultID: "event:1", Facets: map[string][]string{"topic": {"practice"}}}},
+			{ID: "denied", ResultID: "event:2", Document: &types.Document{ID: "denied", ResultID: "event:2", Facets: map[string][]string{"topic": {"practice"}}}},
+		},
+		Total: 3,
+	}
+	filtered := filterSearchPage(context.Background(), types.SearchRequest{
+		Facets: []types.FacetRequest{{Field: "topic", CountBy: types.FacetCountByResultID, IdentityLimit: 10}},
+	}, page, allowListScopeGuard{allowed: map[string]struct{}{"a1": {}, "a2": {}}})
+	if len(filtered.Facets) != 1 || len(filtered.Facets[0].Values) != 1 {
+		t.Fatalf("facets = %+v", filtered.Facets)
+	}
+	value := filtered.Facets[0].Values[0]
+	if value.Count != 1 || !reflect.DeepEqual(value.EntityIDs, []string{"event:1"}) {
+		t.Fatalf("entity facet value = %+v", value)
+	}
+	if filtered.Facets[0].Accuracy != types.FacetCountAccuracyLowerBound || filtered.TotalAccuracy != types.TotalAccuracyLowerBound {
+		t.Fatalf("accuracy = %q total_accuracy = %q", filtered.Facets[0].Accuracy, filtered.TotalAccuracy)
+	}
+}
+
 func TestSuggestFiltersUnauthorizedSuggestionsAfterOverfetch(t *testing.T) {
 	registry := indexing.NewRegistry()
 	def := types.IndexDefinition{Name: "media"}
