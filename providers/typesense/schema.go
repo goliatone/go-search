@@ -220,9 +220,10 @@ func providerHintFieldTypes(hints map[string]any) (map[string]string, error) {
 }
 
 func collectionSchemaHash(schema *tsapi.CollectionSchema) string {
-	normalized := normalizedCollectionSchema{
-		Name: schema.Name,
-	}
+	// Collection names are deployment identities, not schema identities. A
+	// definition may be served through an alias or a generation collection whose
+	// physical name differs while its field contract is identical.
+	normalized := normalizedCollectionSchema{}
 	for _, field := range schema.Fields {
 		if field.Name == "id" {
 			continue
@@ -245,9 +246,7 @@ func collectionSchemaHash(schema *tsapi.CollectionSchema) string {
 }
 
 func collectionResponseHash(schema *tsapi.CollectionResponse) string {
-	normalized := normalizedCollectionSchema{
-		Name: schema.Name,
-	}
+	normalized := normalizedCollectionSchema{}
 	for _, field := range schema.Fields {
 		if field.Name == "id" {
 			continue
@@ -270,7 +269,6 @@ func collectionResponseHash(schema *tsapi.CollectionResponse) string {
 }
 
 type normalizedCollectionSchema struct {
-	Name   string            `json:"name"`
 	Fields []normalizedField `json:"fields"`
 }
 
