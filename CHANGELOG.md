@@ -1,5 +1,23 @@
 # Changelog
 
+# [0.12.0](https://github.com/goliatone/go-search/compare/v0.11.3...v0.12.0) - (2026-07-13)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.12.0 ([2dd50ef](https://github.com/goliatone/go-search/commit/2dd50eff9dc347c184648b62307b395592187b8f))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Health definitions ([ed55906](https://github.com/goliatone/go-search/commit/ed5590665ae515240ab77a4cfc81bb243f80eade))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.11.3 ([bdb793b](https://github.com/goliatone/go-search/commit/bdb793b35032a38c53ef92ecf6fa532d588c15a3))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([ccc3276](https://github.com/goliatone/go-search/commit/ccc3276a1ac910c9ba9b776b4e06467af32a0cb1))  - (goliatone)
+
 # [0.11.3](https://github.com/goliatone/go-search/compare/v0.11.2...v0.11.3) - (2026-07-13)
 
 ## <!-- 1 -->🐛 Bug Fixes
