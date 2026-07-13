@@ -445,6 +445,74 @@ func (p *Provider) Health(ctx context.Context, req types.HealthRequest) (types.H
 	}, nil
 }
 
+// HealthDefinitions inspects the durable Typesense collections represented by
+// definitions without registering them in this provider instance. Collection
+// retrieval resolves aliases, while schema hashing deliberately ignores the
+// physical collection name, so the result is valid for generation-backed
+// deployments as well as direct collections.
+func (p *Provider) HealthDefinitions(ctx context.Context, definitions []types.IndexDefinition) (types.HealthStatus, error) {
+	indexes := make([]types.IndexHealth, 0, len(definitions))
+	healthy := true
+	for _, def := range definitions {
+		schema, expectedHash, err := buildCollectionSchema(p.cfg, def)
+		if err != nil {
+			return types.HealthStatus{}, err
+		}
+
+		indexHealth := types.IndexHealth{
+			Name: def.Name,
+			Metadata: map[string]any{
+				"collection_name":      schema.Name,
+				"schema_hash":          expectedHash,
+				"expected_schema_hash": expectedHash,
+			},
+		}
+		collection, err := p.client.Collection(schema.Name).Retrieve(ctx)
+		if err != nil {
+			if !isTypesenseStatus(err, http.StatusNotFound) {
+				return types.HealthStatus{}, errs.Wrap(err, map[string]any{
+					"provider":   p.Name(),
+					"index":      def.Name,
+					"collection": schema.Name,
+				})
+			}
+			healthy = false
+			indexHealth.Message = "collection not found"
+			indexes = append(indexes, indexHealth)
+			continue
+		}
+
+		actualHash := collectionResponseHash(collection)
+		indexHealth.Metadata["actual_schema_hash"] = actualHash
+		indexHealth.Metadata["active_collection_name"] = collection.Name
+		indexHealth.Metadata["schema_match"] = actualHash == expectedHash
+		if collection.NumDocuments != nil {
+			indexHealth.Documents = int(*collection.NumDocuments)
+		}
+		if actualHash != expectedHash {
+			healthy = false
+			indexHealth.Message = "collection schema does not match index definition"
+		} else {
+			indexHealth.Ready = true
+		}
+		indexes = append(indexes, indexHealth)
+	}
+
+	sort.SliceStable(indexes, func(i, j int) bool {
+		return indexes[i].Name < indexes[j].Name
+	})
+	return types.HealthStatus{
+		Provider:  p.Name(),
+		Healthy:   healthy,
+		CheckedAt: p.cfg.Clock.Now(),
+		Indexes:   indexes,
+		Metadata: map[string]any{
+			"server_url": strings.TrimSpace(p.cfg.ServerURL),
+			"mode":       "definition_inspection",
+		},
+	}, nil
+}
+
 func (p *Provider) searchSingleIndex(ctx context.Context, index string, req types.SearchRequest) (types.SearchResultPage, error) {
 	runtime, err := p.runtimeFor(index)
 	if err != nil {
