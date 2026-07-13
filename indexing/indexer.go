@@ -174,9 +174,15 @@ func (i *Indexer) indexRecord(ctx context.Context, index, registrationKey, recor
 	if err != nil {
 		return nil, err
 	}
-	if err := i.provider.ReplaceDocuments(ctx, index, registration.RegistrationKey, sourceIDs, docs); err != nil {
+	var replaceErr error
+	if recordAware, ok := i.provider.(providers.RecordReplacementProvider); ok {
+		replaceErr = recordAware.ReplaceRecordDocuments(ctx, index, registration.RegistrationKey, recordID, sourceIDs, docs)
+	} else {
+		replaceErr = i.provider.ReplaceDocuments(ctx, index, registration.RegistrationKey, sourceIDs, docs)
+	}
+	if replaceErr != nil {
 		observe.Count(ctx, i.metrics, i.logger, "search.index_record.error.count", 1, map[string]string{"index": index})
-		return nil, err
+		return nil, replaceErr
 	}
 	if bumpGeneration {
 		if err := i.bumpGeneration(ctx, index); err != nil {
