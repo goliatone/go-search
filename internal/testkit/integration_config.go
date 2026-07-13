@@ -7,6 +7,8 @@ import (
 )
 
 const (
+	EnvTypesenseURL    = "GO_SEARCH_TEST_TYPESENSE_URL"
+	EnvTypesenseAPIKey = "GO_SEARCH_TEST_TYPESENSE_API_KEY"
 	// EnvPostgresDSN enables Postgres integration tests without requiring a
 	// repo-local override file.
 	EnvPostgresDSN = "GO_SEARCH_TEST_POSTGRES_DSN"
@@ -35,6 +37,8 @@ var Integration = integrationConfigFromEnv()
 func integrationConfigFromEnv() IntegrationConfig {
 	return IntegrationConfig{
 		Typesense: TypesenseIntegrationConfig{
+			ServerURL:         strings.TrimSpace(os.Getenv(EnvTypesenseURL)),
+			APIKey:            strings.TrimSpace(os.Getenv(EnvTypesenseAPIKey)),
 			ConnectionTimeout: 5 * time.Second,
 		},
 		Postgres: PostgresIntegrationConfig{
