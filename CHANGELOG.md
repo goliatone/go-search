@@ -1,5 +1,28 @@
 # Changelog
 
+# [0.11.2](https://github.com/goliatone/go-search/compare/v0.11.1...v0.11.2) - (2026-07-13)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Replace record document error ([676ed99](https://github.com/goliatone/go-search/commit/676ed99be273706e8f2cd0bdce3998cf7abcf941))  - (goliatone)
+- Normalize collection shcmea ([a72bc98](https://github.com/goliatone/go-search/commit/a72bc986424b2a06f1fe391257088a7dc93dad09))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.11.2 ([c78e49d](https://github.com/goliatone/go-search/commit/c78e49d20d29dd6d1ee1f3df61d968231ec62b24))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Typesense manifesto ([90bc8ae](https://github.com/goliatone/go-search/commit/90bc8ae8cbc7a41a3cc167bfd1ddff4440f1b03a))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.11.1 ([46cf930](https://github.com/goliatone/go-search/commit/46cf930c6418d8bf8666e9982280981a0288b840))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([936efb4](https://github.com/goliatone/go-search/commit/936efb44d336b9ca3664d9e586f283803ba9d0a9))  - (goliatone)
+
 # [0.11.1](https://github.com/goliatone/go-search/compare/v0.11.0...v0.11.1) - (2026-07-13)
 
 ## <!-- 1 -->🐛 Bug Fixes
