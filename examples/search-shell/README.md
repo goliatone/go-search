@@ -10,6 +10,8 @@ explicit `replace` directives.
 
 ```bash
 cd examples/search-shell
+APP_AUTH__SIGNING_KEY="$(openssl rand -base64 32)" \
+APP_AUTH__DEMO_PASSWORD="$(openssl rand -base64 18)" \
 go run ./cmd/demo
 ```
 
@@ -73,7 +75,7 @@ The operations page and `/api/demo/health` status payload expose the active prov
 
 ## URLs
 
-Default address is `:8484`:
+Default address is loopback-only at `127.0.0.1:8484`:
 
 - `http://localhost:8484/`
 - `http://localhost:8484/healthz`
@@ -86,7 +88,16 @@ Default address is `:8484`:
 
 ## Demo Credentials
 
-- `admin` / `admin.pwd`
+The username defaults to `admin`. Signing keys and passwords are generated
+cryptographically for each process unless configured explicitly; they are never
+rendered or logged. Set `APP_AUTH__SIGNING_KEY` and
+`APP_AUTH__DEMO_PASSWORD` to stable values (at least 32 and 12 characters,
+respectively) when browser login is needed.
+
+Operations, statistics, editorial management, reindexing, and user mutations
+require an authenticated admin session. Cookie-authenticated mutations also
+require the CSRF token issued by an authenticated safe request; bearer-token
+clients are not subject to browser CSRF checks.
 
 ## Notes
 

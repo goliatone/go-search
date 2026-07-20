@@ -101,18 +101,6 @@ func main() {
 			"GET " + joinURL(baseURL, "/api/v1/site/search/suggest?q=sea&locale=en"),
 		},
 	)
-	for _, credential := range appCore.DemoCredentials {
-		appCore.Logger.Info("demo auth credential",
-			"username", credential.Username,
-			"email", credential.Email,
-			"password", credential.Password,
-			"role", credential.Role,
-		)
-	}
-	if token := strings.TrimSpace(appCore.DemoToken); token != "" {
-		appCore.Logger.Info("demo bearer token", "token", token)
-	}
-
 	if err := appCore.Serve(); err != nil {
 		appCore.Logger.Error("server stopped", "error", err)
 		os.Exit(1)

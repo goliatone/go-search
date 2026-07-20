@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -71,7 +73,7 @@ func Defaults() AppConfig {
 		Name: "go-search shell",
 		Env:  "development",
 		Server: ServerConfig{
-			Address:     ":8484",
+			Address:     "127.0.0.1:8484",
 			PrintRoutes: true,
 		},
 		Admin: AdminConfig{
@@ -80,10 +82,10 @@ func Defaults() AppConfig {
 			DefaultLocale: "en",
 		},
 		Auth: AuthConfig{
-			SigningKey:   "search-shell-dev-signing-key",
+			SigningKey:   randomSecret(32),
 			DemoUsername: "admin",
 			DemoEmail:    "admin@example.com",
-			DemoPassword: "admin.pwd",
+			DemoPassword: randomSecret(18),
 		},
 		Features: FeatureConfig{
 			Dashboard: true,
@@ -133,7 +135,28 @@ func Load() (AppConfig, error) {
 
 	applyEnv(&cfg)
 	normalize(&cfg)
+	if err := cfg.Validate(); err != nil {
+		return AppConfig{}, err
+	}
 	return cfg, nil
+}
+
+// Validate rejects configurations that would make authentication predictable or
+// leave the server address ambiguous. Defaults use per-process cryptographic
+// secrets, while deployments can provide stable values through configuration.
+func (c AppConfig) Validate() error {
+	if strings.TrimSpace(c.Server.Address) == "" {
+		return fmt.Errorf("server address is required")
+	}
+	key := strings.TrimSpace(c.Auth.SigningKey)
+	if len(key) < 32 || key == "search-shell-dev-signing-key" {
+		return fmt.Errorf("auth signing key must be at least 32 characters and must not use the legacy demo key")
+	}
+	password := strings.TrimSpace(c.Auth.DemoPassword)
+	if len(password) < 12 || password == "admin.pwd" {
+		return fmt.Errorf("demo password must be at least 12 characters and must not use the legacy demo password")
+	}
+	return nil
 }
 
 func readFileFromWorkingDir(path string) ([]byte, error) {
@@ -258,10 +281,10 @@ func normalize(cfg *AppConfig) {
 	cfg.Admin.BasePath = firstNonEmpty(strings.TrimSpace(cfg.Admin.BasePath), "/admin")
 	cfg.Admin.Title = firstNonEmpty(strings.TrimSpace(cfg.Admin.Title), "Search Shell")
 	cfg.Admin.DefaultLocale = firstNonEmpty(strings.TrimSpace(cfg.Admin.DefaultLocale), "en")
-	cfg.Auth.SigningKey = firstNonEmpty(strings.TrimSpace(cfg.Auth.SigningKey), "search-shell-dev-signing-key")
+	cfg.Auth.SigningKey = firstNonEmpty(strings.TrimSpace(cfg.Auth.SigningKey), randomSecret(32))
 	cfg.Auth.DemoUsername = firstNonEmpty(strings.TrimSpace(cfg.Auth.DemoUsername), "admin")
 	cfg.Auth.DemoEmail = firstNonEmpty(strings.TrimSpace(cfg.Auth.DemoEmail), "admin@example.com")
-	cfg.Auth.DemoPassword = firstNonEmpty(strings.TrimSpace(cfg.Auth.DemoPassword), "admin.pwd")
+	cfg.Auth.DemoPassword = firstNonEmpty(strings.TrimSpace(cfg.Auth.DemoPassword), randomSecret(18))
 	cfg.SearchDemo.Provider = firstNonEmpty(strings.ToLower(strings.TrimSpace(cfg.SearchDemo.Provider)), "memory")
 	cfg.SearchDemo.IndexName = firstNonEmpty(strings.TrimSpace(cfg.SearchDemo.IndexName), "media_transcripts")
 	cfg.SearchDemo.DefaultLocale = firstNonEmpty(strings.TrimSpace(cfg.SearchDemo.DefaultLocale), cfg.Admin.DefaultLocale)
@@ -273,6 +296,17 @@ func normalize(cfg *AppConfig) {
 	if cfg.SearchDemo.ReindexBatchSize <= 0 {
 		cfg.SearchDemo.ReindexBatchSize = 25
 	}
+}
+
+func randomSecret(size int) string {
+	if size <= 0 {
+		return ""
+	}
+	buf := make([]byte, size)
+	if _, err := rand.Read(buf); err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(buf)
 }
 
 func envString(key, fallback string) string {

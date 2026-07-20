@@ -394,6 +394,12 @@ func New(cfg Config) (*Runtime, error) {
 		usersgosearch.NewUserProjector(usersgosearch.UserProjectorConfig{
 			Index:      usersIndex.Name,
 			SourceType: "user",
+			ResolveVisibility: func(_ context.Context, user userstypes.AuthUser, _ *userstypes.UserProfile, _ userstypes.ScopeFilter) types.Visibility {
+				return types.Visibility{
+					Roles:  []string{"admin", "support"},
+					Status: string(user.Status),
+				}
+			},
 		}),
 		func(record usersgosearch.UserRecord) string {
 			return record.User.ID.String()
@@ -2576,14 +2582,17 @@ func normalizeSearchSort(field, dir string) (string, string) {
 
 type demoScopeGuard struct{}
 
-func (demoScopeGuard) AllowSearch(context.Context, types.ActorRef, types.SearchRequest) bool {
-	return true
+func (demoScopeGuard) AllowSearch(ctx context.Context, actor types.ActorRef, req types.SearchRequest) bool {
+	return (types.DefaultScopeGuard{}).AllowSearch(ctx, actor, req)
 }
-func (demoScopeGuard) AllowSuggest(context.Context, types.ActorRef, types.SuggestRequest) bool {
-	return true
+func (demoScopeGuard) AllowSuggest(ctx context.Context, actor types.ActorRef, req types.SuggestRequest) bool {
+	return (types.DefaultScopeGuard{}).AllowSuggest(ctx, actor, req)
 }
 
-func (demoScopeGuard) AllowDocument(_ context.Context, actor types.ActorRef, doc types.Document) bool {
+func (demoScopeGuard) AllowDocument(ctx context.Context, actor types.ActorRef, doc types.Document) bool {
+	if !(types.DefaultScopeGuard{}).AllowDocument(ctx, actor, doc) {
+		return false
+	}
 	if !strings.EqualFold(strings.TrimSpace(doc.Type), "user") {
 		return true
 	}

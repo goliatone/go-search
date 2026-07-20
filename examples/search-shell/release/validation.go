@@ -143,6 +143,8 @@ func RunSearchV1RuntimeValidationProfile(ctx context.Context, cfg searchdemo.Con
 		Surface:     searchdemo.SurfaceUsers,
 		ActorRole:   "support",
 		ActorUserID: "00000000-0000-0000-0000-000000001002",
+		TenantID:    "00000000-0000-0000-0000-000000000101",
+		OrgID:       "00000000-0000-0000-0000-000000000201",
 	})
 	if err != nil {
 		return report, err
@@ -155,6 +157,8 @@ func RunSearchV1RuntimeValidationProfile(ctx context.Context, cfg searchdemo.Con
 		Surface:     searchdemo.SurfaceUsers,
 		ActorRole:   "support",
 		ActorUserID: "00000000-0000-0000-0000-000000001002",
+		TenantID:    "00000000-0000-0000-0000-000000000101",
+		OrgID:       "00000000-0000-0000-0000-000000000201",
 		Limit:       5,
 	})
 	if err != nil {
@@ -397,7 +401,15 @@ func RunSearchV1RouteValidationProfile(ctx context.Context, cfg config.AppConfig
 	}
 	report.Checks = append(report.Checks, "topic_landing")
 
-	editorialResp, err := appCore.Fiber.Test(httptest.NewRequest(http.MethodGet, "/api/demo/editorial", nil))
+	editorialReq := httptest.NewRequest(http.MethodGet, "/api/demo/editorial", nil)
+	if cfg.SearchDemo.EditorialEnabled {
+		token, tokenErr := appCore.Auther.TokenService().Generate(appCore.DemoIdentity, nil)
+		if tokenErr != nil {
+			return report, tokenErr
+		}
+		editorialReq.Header.Set("Authorization", "Bearer "+token)
+	}
+	editorialResp, err := appCore.Fiber.Test(editorialReq)
 	if err != nil {
 		return report, err
 	}

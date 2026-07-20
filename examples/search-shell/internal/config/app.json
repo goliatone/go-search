@@ -2,7 +2,7 @@
   "name": "go-search shell",
   "env": "development",
   "server": {
-    "address": ":8484",
+    "address": "127.0.0.1:8484",
     "print_routes": true
   },
   "admin": {
@@ -11,10 +11,8 @@
     "default_locale": "en"
   },
   "auth": {
-    "signing_key": "search-shell-dev-signing-key",
     "demo_username": "admin",
-    "demo_email": "admin@example.com",
-    "demo_password": "admin.pwd"
+    "demo_email": "admin@example.com"
   },
   "features": {
     "dashboard": true,

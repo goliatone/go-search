@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"path"
 	"strings"
@@ -17,11 +16,11 @@ import (
 )
 
 type DemoCredential struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Role     string `json:"role"`
+	ID           string `json:"id"`
+	Username     string `json:"username"`
+	Email        string `json:"email"`
+	PasswordHash string `json:"-"`
+	Role         string `json:"role"`
 }
 
 type DemoIdentity struct {
@@ -45,7 +44,7 @@ func (p *demoIdentityProvider) VerifyIdentity(_ context.Context, identifier, pas
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(password) != strings.TrimSpace(credential.Password) {
+	if err := auth.ComparePasswordAndHash(password, credential.PasswordHash); err != nil {
 		return nil, auth.ErrMismatchedHashAndPassword
 	}
 	return identityFromCredential(credential), nil
@@ -99,17 +98,20 @@ func (c authRuntimeConfig) GetAudience() []string           { return c.audience 
 func (c authRuntimeConfig) GetRejectedRouteKey() string     { return "search_shell_reject" }
 func (c authRuntimeConfig) GetRejectedRouteDefault() string { return c.rejectedRouteDefault }
 
-func setupAuth(adm *admin.Admin, cfg *config.AppConfig, logger *slog.Logger) (*auth.Auther, *auth.RouteAuthenticator, *admin.GoAuthAuthenticator, []DemoCredential, DemoIdentity, string, string, error) {
+func setupAuth(adm *admin.Admin, cfg *config.AppConfig) (*auth.Auther, *auth.RouteAuthenticator, *admin.GoAuthAuthenticator, DemoIdentity, string, authRuntimeConfig, error) {
 	if adm == nil {
-		return nil, nil, nil, nil, DemoIdentity{}, "", "", fmt.Errorf("admin instance is required")
+		return nil, nil, nil, DemoIdentity{}, "", authRuntimeConfig{}, fmt.Errorf("admin instance is required")
 	}
 	if cfg == nil {
-		return nil, nil, nil, nil, DemoIdentity{}, "", "", fmt.Errorf("config is required")
+		return nil, nil, nil, DemoIdentity{}, "", authRuntimeConfig{}, fmt.Errorf("config is required")
 	}
 
-	credentials := seedDemoCredentials(cfg)
+	credentials, err := seedDemoCredentials(cfg)
+	if err != nil {
+		return nil, nil, nil, DemoIdentity{}, "", authRuntimeConfig{}, err
+	}
 	if len(credentials) == 0 {
-		return nil, nil, nil, nil, DemoIdentity{}, "", "", fmt.Errorf("no demo credentials configured")
+		return nil, nil, nil, DemoIdentity{}, "", authRuntimeConfig{}, fmt.Errorf("no demo credentials configured")
 	}
 	primaryCredential := credentials[0]
 	demoIdentity := identityFromCredential(primaryCredential)
@@ -129,7 +131,7 @@ func setupAuth(adm *admin.Admin, cfg *config.AppConfig, logger *slog.Logger) (*a
 	auther := auth.NewAuthenticator(provider, authCfg)
 	routeAuth, err := auth.NewHTTPAuthenticator(auther, authCfg)
 	if err != nil {
-		return nil, nil, nil, nil, DemoIdentity{}, "", "", err
+		return nil, nil, nil, DemoIdentity{}, "", authRuntimeConfig{}, err
 	}
 
 	loginPath := path.Join(cfg.Admin.BasePath, "login")
@@ -146,19 +148,20 @@ func setupAuth(adm *admin.Admin, cfg *config.AppConfig, logger *slog.Logger) (*a
 		admin.WithAuthErrorHandler(makeAuthErrorHandler(loginPath)),
 	)
 
-	demoToken := ""
-	if tokenService := auther.TokenService(); tokenService != nil {
-		token, tokenErr := tokenService.Generate(demoIdentity, nil)
-		if tokenErr != nil {
-			if logger != nil {
-				logger.Warn("failed to mint demo token", "error", tokenErr)
-			}
-		} else {
-			demoToken = token
-		}
-	}
+	return auther, routeAuth, goAuth, demoIdentity, authCfg.GetContextKey(), authCfg, nil
+}
 
-	return auther, routeAuth, goAuth, credentials, demoIdentity, demoToken, authCfg.GetContextKey(), nil
+// DemoRouteProtection authenticates demo operations and adds origin/CSRF
+// protection whenever a browser session cookie is used.
+func (c *Core) DemoRouteProtection() (router.MiddlewareFunc, error) {
+	if c == nil || c.RouteAuthenticator == nil || strings.TrimSpace(c.routeAuthConfig.signingKey) == "" {
+		return nil, fmt.Errorf("demo route authentication is not configured")
+	}
+	return c.RouteAuthenticator.ProtectedBrowserRoute(
+		c.routeAuthConfig,
+		makeAuthErrorHandler(path.Join(c.Config.Admin.BasePath, "login")),
+		auth.BrowserProtectionConfig{AuthCookieName: c.AuthCookieName},
+	), nil
 }
 
 func makeAuthErrorHandler(loginPath string) func(router.Context, error) error {
@@ -175,10 +178,10 @@ func makeAuthErrorHandler(loginPath string) func(router.Context, error) error {
 	}
 }
 
-func seedDemoCredentials(cfg *config.AppConfig) []DemoCredential {
+func seedDemoCredentials(cfg *config.AppConfig) ([]DemoCredential, error) {
 	username := "admin"
 	email := "admin@example.com"
-	password := "admin.pwd"
+	password := ""
 	if cfg != nil {
 		if strings.TrimSpace(cfg.Auth.DemoUsername) != "" {
 			username = strings.TrimSpace(cfg.Auth.DemoUsername)
@@ -190,15 +193,19 @@ func seedDemoCredentials(cfg *config.AppConfig) []DemoCredential {
 			password = strings.TrimSpace(cfg.Auth.DemoPassword)
 		}
 	}
+	passwordHash, err := auth.HashPassword(password)
+	if err != nil {
+		return nil, fmt.Errorf("hash demo password: %w", err)
+	}
 	return []DemoCredential{
 		{
-			ID:       "demo-admin",
-			Username: username,
-			Email:    email,
-			Password: password,
-			Role:     string(auth.RoleAdmin),
+			ID:           "demo-admin",
+			Username:     username,
+			Email:        email,
+			PasswordHash: passwordHash,
+			Role:         string(auth.RoleAdmin),
 		},
-	}
+	}, nil
 }
 
 func identityFromCredential(credential DemoCredential) DemoIdentity {

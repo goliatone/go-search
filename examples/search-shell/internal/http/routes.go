@@ -201,15 +201,6 @@ li{margin:5px 0}
   </section>
 
   <section class="grid">
-    <section class="card">
-      <h2>Demo Auth</h2>
-      <ul>
-        {{range .Credentials}}
-        <li><code>{{.Username}}</code> / <code>{{.Password}}</code></li>
-        {{end}}
-      </ul>
-      <pre>{{.DemoToken}}</pre>
-    </section>
     {{if .EditorialEnabled}}
     <section class="card">
       <h2>Editorial Snapshot</h2>
@@ -365,10 +356,6 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
       <input type="hidden" name="locale" value="{{.Locale}}" />
       {{if .CacheDisabled}}<input type="hidden" name="cache_disabled" value="true" />{{end}}
       <input type="hidden" name="accept_language" value="{{.AcceptLanguage}}" />
-      <input type="hidden" name="tenant_id" value="{{.TenantID}}" />
-      <input type="hidden" name="org_id" value="{{.OrgID}}" />
-      <input type="hidden" name="actor_user_id" value="{{.ActorUserID}}" />
-      <input type="hidden" name="actor_role" value="{{.ActorRole}}" />
       <input type="hidden" name="group" value="{{if .Group}}true{{else}}false{{end}}" />
       {{if .LandingSlug}}<input type="hidden" name="landing_slug" value="{{.LandingSlug}}" />{{end}}
       {{if .Topics}}<input type="hidden" name="topics" value="{{join .Topics ","}}" />{{end}}
@@ -448,30 +435,6 @@ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,s
         <div class="filter-group">
           <label class="filter-label" for="filterAcceptLanguage">Accept-Language override</label>
           <input type="text" class="filter-input" id="filterAcceptLanguage" value="{{.AcceptLanguage}}" placeholder="fr-CA,fr;q=0.9,en;q=0.8" />
-        </div>
-
-        <div class="filter-group">
-          <label class="filter-label" for="filterTenantID">Tenant scope</label>
-          <input type="text" class="filter-input" id="filterTenantID" value="{{.TenantID}}" placeholder="tenant uuid" />
-        </div>
-
-        <div class="filter-group">
-          <label class="filter-label" for="filterOrgID">Org scope</label>
-          <input type="text" class="filter-input" id="filterOrgID" value="{{.OrgID}}" placeholder="org uuid" />
-        </div>
-
-        <div class="filter-group">
-          <label class="filter-label" for="filterActorUserID">Actor user</label>
-          <input type="text" class="filter-input" id="filterActorUserID" value="{{.ActorUserID}}" placeholder="user uuid" />
-        </div>
-
-        <div class="filter-group">
-          <label class="filter-label" for="filterActorRole">Actor role</label>
-          <select class="filter-select" id="filterActorRole">
-            <option value="" {{if eq .ActorRole ""}}selected{{end}}>None</option>
-            <option value="admin" {{if eq .ActorRole "admin"}}selected{{end}}>Admin</option>
-            <option value="support" {{if eq .ActorRole "support"}}selected{{end}}>Support</option>
-          </select>
         </div>
 
         <div class="filter-group">
@@ -678,11 +641,7 @@ async function fetchSuggestions(query) {
     const locale = document.getElementById('filterLocale')?.value || '';
     const cacheDisabled = document.getElementById('filterCacheDisabled')?.checked ? 'true' : '';
     const acceptLanguage = document.getElementById('filterAcceptLanguage')?.value || '';
-    const tenantID = document.getElementById('filterTenantID')?.value || '';
-    const orgID = document.getElementById('filterOrgID')?.value || '';
-    const actorUserID = document.getElementById('filterActorUserID')?.value || '';
-    const actorRole = document.getElementById('filterActorRole')?.value || '';
-    const resp = await fetch('{{.SuggestPath}}?q=' + encodeURIComponent(query) + '&surface=' + encodeURIComponent(surface) + '&locale=' + encodeURIComponent(locale) + '&cache_disabled=' + encodeURIComponent(cacheDisabled) + '&accept_language=' + encodeURIComponent(acceptLanguage) + '&tenant_id=' + encodeURIComponent(tenantID) + '&org_id=' + encodeURIComponent(orgID) + '&actor_user_id=' + encodeURIComponent(actorUserID) + '&actor_role=' + encodeURIComponent(actorRole) + '&limit=5');
+    const resp = await fetch('{{.SuggestPath}}?q=' + encodeURIComponent(query) + '&surface=' + encodeURIComponent(surface) + '&locale=' + encodeURIComponent(locale) + '&cache_disabled=' + encodeURIComponent(cacheDisabled) + '&accept_language=' + encodeURIComponent(acceptLanguage) + '&limit=5');
     const data = await resp.json();
     if (data.result && data.result.items && data.result.items.length > 0) {
       suggestions.innerHTML = data.result.items.map(item =>
@@ -729,11 +688,6 @@ function applyFilters() {
   const acceptLanguage = document.getElementById('filterAcceptLanguage').value.trim();
   if (acceptLanguage) params.set('accept_language', acceptLanguage);
   else params.delete('accept_language');
-
-  setOptionalParam(params, 'tenant_id', document.getElementById('filterTenantID').value);
-  setOptionalParam(params, 'org_id', document.getElementById('filterOrgID').value);
-  setOptionalParam(params, 'actor_user_id', document.getElementById('filterActorUserID').value);
-  setOptionalParam(params, 'actor_role', document.getElementById('filterActorRole').value);
 
   const topics = document.getElementById('filterTopic').value
     .split(',')
@@ -967,20 +921,18 @@ type link struct {
 }
 
 type homeView struct {
-	Name             string                `json:"name"`
-	Env              string                `json:"env"`
-	Address          string                `json:"address"`
-	AdminBasePath    string                `json:"admin_base_path"`
-	ConfigPath       string                `json:"config_path"`
-	StartedAt        string                `json:"started_at"`
-	DemoToken        string                `json:"demo_token"`
-	Provider         string                `json:"provider"`
-	Links            []link                `json:"links"`
-	Credentials      []core.DemoCredential `json:"credentials"`
-	Search           searchdemo.Status     `json:"search"`
-	SearchJSON       string                `json:"search_json"`
-	RulesJSON        string                `json:"rules_json"`
-	EditorialEnabled bool                  `json:"editorial_enabled"`
+	Name             string            `json:"name"`
+	Env              string            `json:"env"`
+	Address          string            `json:"address"`
+	AdminBasePath    string            `json:"admin_base_path"`
+	ConfigPath       string            `json:"config_path"`
+	StartedAt        string            `json:"started_at"`
+	Provider         string            `json:"provider"`
+	Links            []link            `json:"links"`
+	Search           searchdemo.Status `json:"search"`
+	SearchJSON       string            `json:"search_json"`
+	RulesJSON        string            `json:"rules_json"`
+	EditorialEnabled bool              `json:"editorial_enabled"`
 }
 
 type searchView struct {
@@ -1006,10 +958,6 @@ type searchView struct {
 	PublishedYearLTE   *int
 	DurationSecondsGTE *int
 	DurationSecondsLTE *int
-	TenantID           string
-	OrgID              string
-	ActorUserID        string
-	ActorRole          string
 	Group              bool
 	SortField          string
 	SortDir            string
@@ -1068,31 +1016,35 @@ func Register(appCore *core.Core) error {
 	if appCore == nil || appCore.Router == nil {
 		return fmt.Errorf("core router is not initialized")
 	}
+	protected, err := appCore.DemoRouteProtection()
+	if err != nil {
+		return err
+	}
 
 	appCore.Router.Get("/", homeHandler(appCore)).SetName("shell.home")
 	appCore.Router.Get("/healthz", healthHandler(appCore)).SetName("shell.healthz")
 	appCore.Router.Get("/readyz", readyHandler(appCore)).SetName("shell.readyz")
 	appCore.Router.Get("/demo/search", searchPageHandler(appCore, "Search Demo", "/demo/search", "/api/demo/search", "/api/demo/suggest")).SetName("shell.demo.search")
 	appCore.Router.Get("/demo/topics/:topic_slug", topicLandingHandler(appCore)).SetName("shell.demo.topic")
-	appCore.Router.Get("/demo/ops", opsPageHandler(appCore)).SetName("shell.demo.ops")
+	appCore.Router.Get("/demo/ops", opsPageHandler(appCore), protected).SetName("shell.demo.ops")
 	appCore.Router.Get("/api/demo/health", searchHealthAPIHandler(appCore)).SetName("shell.demo.health")
-	appCore.Router.Get("/api/demo/stats", searchStatsAPIHandler(appCore)).SetName("shell.demo.stats")
+	appCore.Router.Get("/api/demo/stats", searchStatsAPIHandler(appCore), protected).SetName("shell.demo.stats")
 	appCore.Router.Get("/api/demo/search", searchAPIHandler(appCore)).SetName("shell.demo.search.api")
 	appCore.Router.Get("/api/demo/suggest", suggestAPIHandler(appCore)).SetName("shell.demo.suggest.api")
 	if editorialEnabled(appCore) {
-		appCore.Router.Get("/api/demo/editorial", editorialListAPIHandler(appCore)).SetName("shell.demo.editorial.list")
-		appCore.Router.Post("/api/demo/editorial/upsert", editorialUpsertAPIHandler(appCore)).SetName("shell.demo.editorial.upsert")
-		appCore.Router.Post("/api/demo/editorial/enable", editorialToggleAPIHandler(appCore, true)).SetName("shell.demo.editorial.enable")
-		appCore.Router.Post("/api/demo/editorial/disable", editorialToggleAPIHandler(appCore, false)).SetName("shell.demo.editorial.disable")
-		appCore.Router.Post("/api/demo/editorial/delete", editorialDeleteAPIHandler(appCore)).SetName("shell.demo.editorial.delete")
+		appCore.Router.Get("/api/demo/editorial", editorialListAPIHandler(appCore), protected).SetName("shell.demo.editorial.list")
+		appCore.Router.Post("/api/demo/editorial/upsert", editorialUpsertAPIHandler(appCore), protected).SetName("shell.demo.editorial.upsert")
+		appCore.Router.Post("/api/demo/editorial/enable", editorialToggleAPIHandler(appCore, true), protected).SetName("shell.demo.editorial.enable")
+		appCore.Router.Post("/api/demo/editorial/disable", editorialToggleAPIHandler(appCore, false), protected).SetName("shell.demo.editorial.disable")
+		appCore.Router.Post("/api/demo/editorial/delete", editorialDeleteAPIHandler(appCore), protected).SetName("shell.demo.editorial.delete")
 	}
-	appCore.Router.Post("/api/demo/ensure", ensureAPIHandler(appCore)).SetName("shell.demo.ensure")
-	appCore.Router.Post("/api/demo/reindex", reindexAPIHandler(appCore)).SetName("shell.demo.reindex")
-	appCore.Router.Post("/api/demo/users/create", userCreateAPIHandler(appCore)).SetName("shell.demo.users.create")
-	appCore.Router.Post("/api/demo/users/update", userUpdateAPIHandler(appCore)).SetName("shell.demo.users.update")
-	appCore.Router.Post("/api/demo/users/lifecycle", userLifecycleAPIHandler(appCore)).SetName("shell.demo.users.lifecycle")
-	appCore.Router.Post("/api/demo/users/profile", userProfileAPIHandler(appCore)).SetName("shell.demo.users.profile")
-	appCore.Router.Post("/api/demo/users/role", userRoleAPIHandler(appCore)).SetName("shell.demo.users.role")
+	appCore.Router.Post("/api/demo/ensure", ensureAPIHandler(appCore), protected).SetName("shell.demo.ensure")
+	appCore.Router.Post("/api/demo/reindex", reindexAPIHandler(appCore), protected).SetName("shell.demo.reindex")
+	appCore.Router.Post("/api/demo/users/create", userCreateAPIHandler(appCore), protected).SetName("shell.demo.users.create")
+	appCore.Router.Post("/api/demo/users/update", userUpdateAPIHandler(appCore), protected).SetName("shell.demo.users.update")
+	appCore.Router.Post("/api/demo/users/lifecycle", userLifecycleAPIHandler(appCore), protected).SetName("shell.demo.users.lifecycle")
+	appCore.Router.Post("/api/demo/users/profile", userProfileAPIHandler(appCore), protected).SetName("shell.demo.users.profile")
+	appCore.Router.Post("/api/demo/users/role", userRoleAPIHandler(appCore), protected).SetName("shell.demo.users.role")
 
 	return quicksite.RegisterSiteRoutes(
 		appCore.Router,
@@ -1163,19 +1115,13 @@ func homeHandler(appCore *core.Core) router.HandlerFunc {
 			AdminBasePath:    cfg.Admin.BasePath,
 			ConfigPath:       cfg.ConfigPath,
 			StartedAt:        appCore.StartedAt.Format(time.RFC3339),
-			DemoToken:        strings.TrimSpace(appCore.DemoToken),
 			Provider:         appCore.Search.ProviderName(),
 			Links:            links,
-			Credentials:      appCore.DemoCredentials,
 			Search:           status,
 			SearchJSON:       prettyJSON(status),
 			RulesJSON:        rulesJSON,
 			EditorialEnabled: editorialEnabled(appCore),
 		}
-		if view.DemoToken == "" {
-			view.DemoToken = "(token mint failed)"
-		}
-
 		var out bytes.Buffer
 		if err := homeTemplate.Execute(&out, view); err != nil {
 			return c.JSON(500, map[string]any{"error": "failed to render home page", "details": err.Error()})
@@ -1265,10 +1211,6 @@ func renderSearchPage(c router.Context, appCore *core.Core, title, actionPath, a
 		PublishedYearLTE:   request.PublishedYearLTE,
 		DurationSecondsGTE: request.DurationSecondsGTE,
 		DurationSecondsLTE: request.DurationSecondsLTE,
-		TenantID:           request.TenantID,
-		OrgID:              request.OrgID,
-		ActorUserID:        request.ActorUserID,
-		ActorRole:          request.ActorRole,
 		Group:              request.Group,
 		SortField:          request.SortField,
 		SortDir:            request.SortDir,
@@ -1368,10 +1310,6 @@ func suggestAPIHandler(appCore *core.Core) router.HandlerFunc {
 			Locale:         strings.TrimSpace(c.Query("locale")),
 			CacheDisabled:  strings.EqualFold(strings.TrimSpace(c.Query("cache_disabled")), "true"),
 			AcceptLanguage: resolveAcceptLanguage(c.Query("accept_language"), c.Header("Accept-Language")),
-			TenantID:       strings.TrimSpace(c.Query("tenant_id")),
-			OrgID:          strings.TrimSpace(c.Query("org_id")),
-			ActorUserID:    strings.TrimSpace(c.Query("actor_user_id")),
-			ActorRole:      strings.TrimSpace(c.Query("actor_role")),
 			Limit:          atoiDefault(c.Query("limit"), 5),
 		})
 		result, err := appCore.Search.Suggest(c.Context(), request)
@@ -1602,10 +1540,6 @@ func parseSearchRequest(c router.Context) searchdemo.SearchRequest {
 		PublishedYearLTE:   optionalInt(c.Query("published_year_lte")),
 		DurationSecondsGTE: optionalInt(c.Query("duration_seconds_gte")),
 		DurationSecondsLTE: optionalInt(c.Query("duration_seconds_lte")),
-		TenantID:           strings.TrimSpace(c.Query("tenant_id")),
-		OrgID:              strings.TrimSpace(c.Query("org_id")),
-		ActorUserID:        strings.TrimSpace(c.Query("actor_user_id")),
-		ActorRole:          strings.TrimSpace(c.Query("actor_role")),
 		Group:              strings.EqualFold(strings.TrimSpace(c.Query("group")), "true"),
 		Page:               atoiDefault(c.Query("page"), 1),
 		PerPage:            atoiDefault(c.Query("per_page"), 10),
@@ -1653,18 +1587,6 @@ func buildSearchURL(basePath string, state searchView, page int) string {
 	}
 	if state.DurationSecondsLTE != nil {
 		params.Set("duration_seconds_lte", strconv.Itoa(*state.DurationSecondsLTE))
-	}
-	if tenantID := strings.TrimSpace(state.TenantID); tenantID != "" {
-		params.Set("tenant_id", tenantID)
-	}
-	if orgID := strings.TrimSpace(state.OrgID); orgID != "" {
-		params.Set("org_id", orgID)
-	}
-	if actorUserID := strings.TrimSpace(state.ActorUserID); actorUserID != "" {
-		params.Set("actor_user_id", actorUserID)
-	}
-	if actorRole := strings.TrimSpace(state.ActorRole); actorRole != "" {
-		params.Set("actor_role", actorRole)
 	}
 	params.Set("group", strconv.FormatBool(state.Group))
 	if page > 0 {

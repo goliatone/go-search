@@ -45,9 +45,8 @@ type Core struct {
 	AuthCookieName     string
 	Auther             *auth.Auther
 	RouteAuthenticator *auth.RouteAuthenticator
-	DemoCredentials    []DemoCredential
 	DemoIdentity       DemoIdentity
-	DemoToken          string
+	routeAuthConfig    authRuntimeConfig
 }
 
 func New(_ context.Context, cfg *config.AppConfig) (*Core, error) {
@@ -74,7 +73,11 @@ func New(_ context.Context, cfg *config.AppConfig) (*Core, error) {
 		return nil, fmt.Errorf("build admin: %w", err)
 	}
 
-	auther, routeAuth, authn, demoCredentials, demoIdentity, demoToken, authCookieName, err := setupAuth(adm, cfg, logger)
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("validate config: %w", err)
+	}
+
+	auther, routeAuth, authn, demoIdentity, authCookieName, routeAuthConfig, err := setupAuth(adm, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("setup auth: %w", err)
 	}
@@ -184,9 +187,8 @@ func New(_ context.Context, cfg *config.AppConfig) (*Core, error) {
 		AuthCookieName:     authCookieName,
 		Auther:             auther,
 		RouteAuthenticator: routeAuth,
-		DemoCredentials:    demoCredentials,
 		DemoIdentity:       demoIdentity,
-		DemoToken:          demoToken,
+		routeAuthConfig:    routeAuthConfig,
 	}, nil
 }
 
