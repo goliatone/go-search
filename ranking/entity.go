@@ -92,12 +92,19 @@ func AggregateEvidence(hits []types.SearchHit, maxSamples int) map[string]*types
 		}
 		counts[id][location]++
 		if len(samples[id][location]) < maxSamples && hit.Document != nil {
-			samples[id][location] = append(samples[id][location], types.MatchEvidenceSample{DocumentID: hit.Document.ID, Field: hit.Document.MatchField, ChunkOrdinal: hit.Document.ChunkOrdinal, Anchor: hit.Anchor})
+			samples[id][location] = append(samples[id][location], types.MatchEvidenceSample{
+				DocumentID:   hit.Document.ID,
+				Field:        hit.Document.MatchField,
+				Locale:       hit.Document.Locale,
+				Snippet:      types.BoundedSearchSnippet(hit.Snippet),
+				ChunkOrdinal: hit.Document.ChunkOrdinal,
+				Anchor:       hit.Anchor,
+			})
 		}
 	}
 	out := map[string]*types.MatchEvidenceSummary{}
 	for id, locations := range counts {
-		summary := &types.MatchEvidenceSummary{Exact: true}
+		summary := &types.MatchEvidenceSummary{Exact: true, Status: types.EvidenceStatusComplete}
 		keys := []string{}
 		for key := range locations {
 			keys = append(keys, key)
