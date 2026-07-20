@@ -35,9 +35,9 @@ func TestBuildMediaProjectionNeverFabricatesDomainFacts(t *testing.T) {
 
 func TestDurationBucketPolicyUsesContiguousHalfOpenBounds(t *testing.T) {
 	policy := DurationBucketPolicy{Buckets: []DurationBucketRange{
-		{Key: "under_30", MinSeconds: 0, MaxSeconds: intRef(1800)},
-		{Key: "30_60", MinSeconds: 1800, MaxSeconds: intRef(3660)},
-		{Key: "61_90", MinSeconds: 3660, MaxSeconds: intRef(5460)},
+		{Key: "under_30", MinSeconds: 0, MaxSeconds: new(1800)},
+		{Key: "30_60", MinSeconds: 1800, MaxSeconds: new(3660)},
+		{Key: "61_90", MinSeconds: 3660, MaxSeconds: new(5460)},
 		{Key: "over_90", MinSeconds: 5460},
 	}}
 	for seconds, want := range map[int]string{1799: "under_30", 1800: "30_60", 3659: "30_60", 3660: "61_90", 5459: "61_90", 5460: "over_90"} {
@@ -50,7 +50,7 @@ func TestDurationBucketPolicyUsesContiguousHalfOpenBounds(t *testing.T) {
 
 func TestDurationBucketPolicyRejectsDuplicateKeys(t *testing.T) {
 	policy := DurationBucketPolicy{Buckets: []DurationBucketRange{
-		{Key: "short", MinSeconds: 0, MaxSeconds: intRef(10)},
+		{Key: "short", MinSeconds: 0, MaxSeconds: new(10)},
 		{Key: "short", MinSeconds: 10},
 	}}
 	if err := policy.Validate(); err == nil {

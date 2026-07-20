@@ -22,10 +22,10 @@ func TestBuildAndMergeEntityFacetsDeduplicateGlobalIdentities(t *testing.T) {
 
 func BenchmarkBuildEntityFacetBounded(b *testing.B) {
 	identities := map[string]map[string]struct{}{}
-	for bucket := 0; bucket < 20; bucket++ {
+	for bucket := range 20 {
 		value := string(rune('a' + bucket))
 		identities[value] = map[string]struct{}{}
-		for entity := 0; entity < 250; entity++ {
+		for entity := range 250 {
 			identities[value][value+":"+string(rune(entity))] = struct{}{}
 		}
 	}

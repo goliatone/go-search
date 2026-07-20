@@ -210,9 +210,9 @@ func TestTranscriptProjectorUsesExplicitFoundationContracts(t *testing.T) {
 		Metadata:   map[string]any{"track_revision": "r2"},
 	}
 	policy := DurationBucketPolicy{Buckets: []DurationBucketRange{
-		{Key: "under_30", MinSeconds: 0, MaxSeconds: intRef(1800)},
-		{Key: "30_60", MinSeconds: 1800, MaxSeconds: intRef(3660)},
-		{Key: "61_90", MinSeconds: 3660, MaxSeconds: intRef(5460)},
+		{Key: "under_30", MinSeconds: 0, MaxSeconds: new(1800)},
+		{Key: "30_60", MinSeconds: 1800, MaxSeconds: new(3660)},
+		{Key: "61_90", MinSeconds: 3660, MaxSeconds: new(5460)},
 		{Key: "over_90", MinSeconds: 5460},
 	}}
 	docs, err := NewTranscriptProjector(TranscriptProjectorConfig{Index: "media", SourceType: "transcript", MergeVersion: "v2", DurationBuckets: policy}).Project(context.Background(), record)

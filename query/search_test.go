@@ -79,10 +79,7 @@ func (p *pagedCandidateProvider) Search(_ context.Context, req types.SearchReque
 	p.requests = append(p.requests, req)
 	index := req.Indexes[0]
 	all := p.hits[index]
-	start := (max(1, req.Page) - 1) * req.PerPage
-	if start > len(all) {
-		start = len(all)
-	}
+	start := min((max(1, req.Page)-1)*req.PerPage, len(all))
 	end := min(len(all), start+req.PerPage)
 	return types.SearchResultPage{Hits: append([]types.SearchHit(nil), all[start:end]...), Page: req.Page, PerPage: req.PerPage, Total: len(all), TotalAccuracy: p.accuracy[index]}, nil
 }
