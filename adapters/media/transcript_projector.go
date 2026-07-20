@@ -34,20 +34,28 @@ type MediaRecord struct {
 }
 
 type TranscriptRecord struct {
-	ID       string
-	Media    MediaRecord
-	Track    types.TranscriptTrack
-	Content  string
-	Format   string
-	Metadata map[string]any
+	ID             string
+	Media          MediaRecord
+	Track          types.TranscriptTrack
+	Content        string
+	Format         string
+	Metadata       map[string]any
+	ResultID       string
+	ResultType     string
+	MatchLocation  string
+	MatchField     string
+	ParentType     string
+	Visibility     types.Visibility
+	ParentMetadata map[string]any
 }
 
 type TranscriptProjectorConfig struct {
-	Index        string
-	SourceType   string
-	MergeVersion string
-	MaxChars     int
-	MaxGapMS     int64
+	Index           string
+	SourceType      string
+	MergeVersion    string
+	MaxChars        int
+	MaxGapMS        int64
+	DurationBuckets DurationBucketPolicy
 }
 
 type TranscriptProjector struct {
@@ -70,7 +78,10 @@ func NewTranscriptProjector(cfg TranscriptProjectorConfig) *TranscriptProjector 
 
 func (p *TranscriptProjector) Project(_ context.Context, record TranscriptRecord) ([]types.Document, error) {
 	trackLocale := locale.Normalize(record.Track.Locale)
-	archiveFields := BuildArchiveProjection(record.Media, trackLocale)
+	mediaFields, err := BuildMediaProjection(record.Media, trackLocale, p.cfg.DurationBuckets)
+	if err != nil {
+		return nil, err
+	}
 	cues, err := subtitle.Parse(record.Format, record.Content)
 	if err != nil {
 		return nil, err
@@ -85,6 +96,11 @@ func (p *TranscriptProjector) Project(_ context.Context, record TranscriptRecord
 		SourceType:      p.cfg.SourceType,
 		SourceID:        record.ID,
 		ParentID:        record.Media.ID,
+		ParentType:      record.ParentType,
+		ResultID:        record.ResultID,
+		ResultType:      record.ResultType,
+		MatchLocation:   record.MatchLocation,
+		MatchField:      record.MatchField,
 		Locale:          trackLocale,
 		Version:         p.cfg.MergeVersion,
 		BaseURL:         record.Media.URL,
@@ -93,49 +109,52 @@ func (p *TranscriptProjector) Project(_ context.Context, record TranscriptRecord
 		ParentURL:       record.Media.URL,
 		ParentThumbnail: record.Media.Thumbnail,
 		ParentFacets: map[string][]string{
-			"topic":              compact(archiveFields.TopicLeaf),
-			"topic_hierarchy":    append([]string(nil), archiveFields.TopicHierarchy...),
-			"category":           compact(archiveFields.CategoryLeaf),
-			"category_hierarchy": append([]string(nil), archiveFields.CategoryHierarchy...),
-			"people":             append([]string(nil), archiveFields.People...),
-			"subject":            append([]string(nil), archiveFields.Subjects...),
-			"text":               append([]string(nil), archiveFields.Texts...),
-			"deity":              append([]string(nil), archiveFields.Deities...),
+			"topic":              compact(mediaFields.TopicLeaf),
+			"topic_hierarchy":    append([]string(nil), mediaFields.TopicHierarchy...),
+			"category":           compact(mediaFields.CategoryLeaf),
+			"category_hierarchy": append([]string(nil), mediaFields.CategoryHierarchy...),
+			"people":             append([]string(nil), mediaFields.People...),
+			"subject":            append([]string(nil), mediaFields.Subjects...),
+			"text":               append([]string(nil), mediaFields.Texts...),
+			"deity":              append([]string(nil), mediaFields.Deities...),
 			"locale":             compact(trackLocale),
-			"decade":             compact(archiveFields.Decade),
-			"duration_bucket":    compact(archiveFields.DurationBucket),
-			"location":           compact(archiveFields.Location),
-			"sangha":             compact(archiveFields.Sangha),
-			"format":             compact(archiveFields.Format),
-			"series":             compact(archiveFields.Series),
+			"decade":             compact(mediaFields.Decade),
+			"duration_bucket":    compact(mediaFields.DurationBucket),
+			"location":           compact(mediaFields.Location),
+			"sangha":             compact(mediaFields.Sangha),
+			"format":             compact(mediaFields.Format),
+			"series":             compact(mediaFields.Series),
 		},
 		ParentFields: map[string]any{
-			"topic":              archiveFields.TopicLeaf,
-			"topic_hierarchy":    append([]string(nil), archiveFields.TopicHierarchy...),
-			"category":           archiveFields.CategoryLeaf,
-			"category_hierarchy": append([]string(nil), archiveFields.CategoryHierarchy...),
-			"people":             append([]string(nil), archiveFields.People...),
-			"subject":            append([]string(nil), archiveFields.Subjects...),
-			"text":               append([]string(nil), archiveFields.Texts...),
-			"deity":              append([]string(nil), archiveFields.Deities...),
-			"location":           archiveFields.Location,
-			"sangha":             archiveFields.Sangha,
-			"format":             archiveFields.Format,
-			"series":             archiveFields.Series,
-			"decade":             archiveFields.Decade,
-			"duration_bucket":    archiveFields.DurationBucket,
-			"published_year":     archiveFields.PublishedYear,
-			"result_badge":       archiveFields.Badge,
+			"topic":              mediaFields.TopicLeaf,
+			"topic_hierarchy":    append([]string(nil), mediaFields.TopicHierarchy...),
+			"category":           mediaFields.CategoryLeaf,
+			"category_hierarchy": append([]string(nil), mediaFields.CategoryHierarchy...),
+			"people":             append([]string(nil), mediaFields.People...),
+			"subject":            append([]string(nil), mediaFields.Subjects...),
+			"text":               append([]string(nil), mediaFields.Texts...),
+			"deity":              append([]string(nil), mediaFields.Deities...),
+			"location":           mediaFields.Location,
+			"sangha":             mediaFields.Sangha,
+			"format":             mediaFields.Format,
+			"series":             mediaFields.Series,
+			"decade":             mediaFields.Decade,
+			"duration_bucket":    mediaFields.DurationBucket,
+			"published_year":     mediaFields.PublishedYear,
+			"result_badge":       mediaFields.Badge,
 			"parent_title":       record.Media.Title,
 			"parent_summary":     record.Media.Summary,
 			"parent_url":         record.Media.URL,
 			"parent_thumbnail":   record.Media.Thumbnail,
 		},
 		ParentNumeric: map[string]float64{
-			"published_year":   float64(archiveFields.PublishedYear),
-			"duration_seconds": float64(archiveFields.DurationSeconds),
+			"published_year":   float64(mediaFields.PublishedYear),
+			"duration_seconds": float64(mediaFields.DurationSeconds),
 		},
-		Track: record.Track,
+		ParentMetadata: record.ParentMetadata,
+		Metadata:       record.Metadata,
+		Visibility:     record.Visibility,
+		Track:          record.Track,
 	}), nil
 }
 

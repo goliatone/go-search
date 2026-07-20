@@ -1,6 +1,7 @@
 package media
 
 import (
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -30,7 +31,7 @@ const (
 	FieldResultBadge            = "result_badge"
 )
 
-type ArchiveProjection struct {
+type MediaProjection struct {
 	TopicLeaf         string
 	TopicHierarchy    []string
 	CategoryLeaf      string
@@ -50,6 +51,65 @@ type ArchiveProjection struct {
 	Badge             string
 }
 
+// ArchiveProjection is retained as a source-compatible alias for one release line.
+// Deprecated: use MediaProjection and BuildMediaProjection.
+type ArchiveProjection = MediaProjection
+
+type DurationBucketRange struct {
+	Key        string `json:"key"`
+	MinSeconds int    `json:"min_seconds"`
+	MaxSeconds *int   `json:"max_seconds,omitempty"`
+}
+
+type DurationBucketPolicy struct {
+	Buckets []DurationBucketRange `json:"buckets"`
+}
+
+func (p DurationBucketPolicy) Validate() error {
+	if len(p.Buckets) == 0 {
+		return fmt.Errorf("duration bucket policy requires at least one bucket")
+	}
+	expectedMin := 0
+	seenKeys := map[string]struct{}{}
+	for index, bucket := range p.Buckets {
+		key := strings.TrimSpace(bucket.Key)
+		if key == "" {
+			return fmt.Errorf("duration bucket %d requires a key", index)
+		}
+		if _, exists := seenKeys[key]; exists {
+			return fmt.Errorf("duration bucket key %q is duplicated", key)
+		}
+		seenKeys[key] = struct{}{}
+		if bucket.MinSeconds != expectedMin {
+			return fmt.Errorf("duration bucket %q must start at %d", bucket.Key, expectedMin)
+		}
+		if bucket.MaxSeconds == nil {
+			if index != len(p.Buckets)-1 {
+				return fmt.Errorf("only the final duration bucket may omit max_seconds")
+			}
+			continue
+		}
+		if *bucket.MaxSeconds <= bucket.MinSeconds {
+			return fmt.Errorf("duration bucket %q must have increasing bounds", bucket.Key)
+		}
+		expectedMin = *bucket.MaxSeconds
+	}
+	if p.Buckets[len(p.Buckets)-1].MaxSeconds != nil {
+		return fmt.Errorf("final duration bucket must be unbounded")
+	}
+	return nil
+}
+
+func DefaultDurationBucketPolicy() DurationBucketPolicy {
+	return DurationBucketPolicy{Buckets: []DurationBucketRange{
+		{Key: "0-5 min", MinSeconds: 0, MaxSeconds: intRef(301)},
+		{Key: "5-15 min", MinSeconds: 301, MaxSeconds: intRef(901)},
+		{Key: "15-30 min", MinSeconds: 901, MaxSeconds: intRef(1801)},
+		{Key: "30-60 min", MinSeconds: 1801, MaxSeconds: intRef(3601)},
+		{Key: "60+ min", MinSeconds: 3601},
+	}}
+}
+
 type LandingPreset struct {
 	Slug        string
 	Title       string
@@ -57,34 +117,34 @@ type LandingPreset struct {
 	FacetFilter map[string][]string
 }
 
-func BuildArchiveProjection(record MediaRecord, trackLocale string) ArchiveProjection {
-	defaults := inferredArchiveMetadata(record)
+func BuildMediaProjection(record MediaRecord, trackLocale string, policy DurationBucketPolicy) (MediaProjection, error) {
+	if len(policy.Buckets) == 0 {
+		policy = DefaultDurationBucketPolicy()
+	}
+	if err := policy.Validate(); err != nil {
+		return MediaProjection{}, err
+	}
 	topicPath := normalizePath(record.TopicPath)
 	if len(topicPath) == 0 && strings.TrimSpace(record.Topic) != "" {
-		topicPath = pathFromHierarchy(defaults.TopicHierarchy)
-	}
-	if len(topicPath) == 0 && strings.TrimSpace(record.Topic) != "" {
-		topicPath = []string{"Teaching Topics", strings.TrimSpace(record.Topic)}
+		topicPath = []string{strings.TrimSpace(record.Topic)}
 	}
 	categoryPath := normalizePath(record.CategoryPath)
-	if len(categoryPath) == 0 {
-		categoryPath = pathFromHierarchy(defaults.CategoryHierarchy)
-	}
-	projection := ArchiveProjection{
+	projection := MediaProjection{
 		TopicHierarchy:    HierarchicalFacetValues(topicPath),
 		CategoryHierarchy: HierarchicalFacetValues(categoryPath),
-		People:            firstNonEmptySlice(compactStrings(record.People), defaults.People),
-		Subjects:          firstNonEmptySlice(compactStrings(record.Subjects), defaults.Subjects),
-		Texts:             firstNonEmptySlice(compactStrings(record.Texts), defaults.Texts),
-		Deities:           firstNonEmptySlice(compactStrings(record.Deities), defaults.Deities),
-		Location:          firstNonEmpty(strings.TrimSpace(record.Location), defaults.Location),
-		Sangha:            firstNonEmpty(strings.TrimSpace(record.Sangha), defaults.Sangha),
-		Format:            firstNonEmpty(strings.TrimSpace(record.Format), defaults.Format),
-		Series:            firstNonEmpty(strings.TrimSpace(record.Series), defaults.Series),
-		DurationSeconds:   max(record.DurationSeconds, defaults.DurationSeconds),
-		PublishedYear:     max(publishedYear(record.PublishedAt), defaults.PublishedYear),
-		Badge:             firstNonEmpty(strings.TrimSpace(record.Badge), strings.TrimSpace(record.Format), defaults.Badge, trackLocale),
+		People:            compactStrings(record.People),
+		Subjects:          compactStrings(record.Subjects),
+		Texts:             compactStrings(record.Texts),
+		Deities:           compactStrings(record.Deities),
+		Location:          strings.TrimSpace(record.Location),
+		Sangha:            strings.TrimSpace(record.Sangha),
+		Format:            strings.TrimSpace(record.Format),
+		Series:            strings.TrimSpace(record.Series),
+		DurationSeconds:   max(record.DurationSeconds, 0),
+		PublishedYear:     publishedYear(record.PublishedAt),
+		Badge:             strings.TrimSpace(record.Badge),
 	}
+	_ = trackLocale // locale is caller data but does not synthesize projection facts.
 	if len(topicPath) > 0 {
 		projection.TopicLeaf = topicPath[len(topicPath)-1]
 	}
@@ -92,91 +152,19 @@ func BuildArchiveProjection(record MediaRecord, trackLocale string) ArchiveProje
 		projection.CategoryLeaf = categoryPath[len(categoryPath)-1]
 	}
 	if projection.DurationSeconds > 0 {
-		projection.DurationBucket = DurationBucket(projection.DurationSeconds)
+		projection.DurationBucket, _ = DurationBucketWithPolicy(projection.DurationSeconds, policy)
 	}
 	if projection.PublishedYear > 0 {
 		projection.Decade = DecadeBucket(projection.PublishedYear)
 	}
-	return projection
+	return projection, nil
 }
 
-func inferredArchiveMetadata(record MediaRecord) ArchiveProjection {
-	switch strings.ToLower(strings.TrimSpace(record.Topic)) {
-	case "architecture":
-		return ArchiveProjection{
-			TopicHierarchy:    HierarchicalFacetValues([]string{"Teaching Topics", "Architecture"}),
-			CategoryHierarchy: HierarchicalFacetValues([]string{"Teaching Categories", "Commentary"}),
-			People:            []string{"Codex Team"},
-			Subjects:          []string{"Search Architecture"},
-			Texts:             []string{"Search Blueprint"},
-			Location:          "Boulder",
-			Sangha:            "Archive Engineering",
-			Format:            "Teaching",
-			Series:            "Search V1",
-			DurationSeconds:   1800,
-			PublishedYear:     2024,
-			Badge:             "Blueprint",
-		}
-	case "localization":
-		return ArchiveProjection{
-			TopicHierarchy:    HierarchicalFacetValues([]string{"Teaching Topics", "Localization"}),
-			CategoryHierarchy: HierarchicalFacetValues([]string{"Teaching Categories", "Commentary"}),
-			People:            []string{"Localization Team"},
-			Subjects:          []string{"Locale Planning"},
-			Texts:             []string{"Locale Search Matrix"},
-			Location:          "Madrid",
-			Sangha:            "Translation Sangha",
-			Format:            "Teaching",
-			Series:            "Locale Planning",
-			DurationSeconds:   2400,
-			PublishedYear:     2023,
-			Badge:             "Locale",
-		}
-	case "ranking":
-		return ArchiveProjection{
-			TopicHierarchy:    HierarchicalFacetValues([]string{"Teaching Topics", "Ranking"}),
-			CategoryHierarchy: HierarchicalFacetValues([]string{"Teaching Categories", "Empowerment"}),
-			People:            []string{"Editorial Team"},
-			Subjects:          []string{"Editorial Ranking"},
-			Texts:             []string{"Ranking Playbook"},
-			Location:          "New York",
-			Sangha:            "Editorial Sangha",
-			Format:            "Workshop",
-			Series:            "Search Operations",
-			DurationSeconds:   3300,
-			PublishedYear:     2022,
-			Badge:             "Editorial",
-		}
-	case "indexing":
-		return ArchiveProjection{
-			TopicHierarchy:    HierarchicalFacetValues([]string{"Teaching Topics", "Indexing"}),
-			CategoryHierarchy: HierarchicalFacetValues([]string{"Teaching Categories", "Commentary"}),
-			People:            []string{"Indexing Team"},
-			Subjects:          []string{"Document Projection"},
-			Texts:             []string{"Indexer Registry"},
-			Location:          "Portland",
-			Sangha:            "Systems Sangha",
-			Format:            "Seminar",
-			Series:            "Search V1",
-			DurationSeconds:   2700,
-			PublishedYear:     2021,
-			Badge:             "Indexing",
-		}
-	default:
-		return ArchiveProjection{
-			CategoryHierarchy: HierarchicalFacetValues([]string{"Teaching Categories", "Teaching"}),
-			People:            []string{"Archive Team"},
-			Subjects:          []string{"Archive Search"},
-			Texts:             []string{"Transcript Archive"},
-			Location:          "Online",
-			Sangha:            "Archive Sangha",
-			Format:            "Teaching",
-			Series:            "Archive Library",
-			DurationSeconds:   1500,
-			PublishedYear:     2020,
-			Badge:             "Archive",
-		}
-	}
+// BuildArchiveProjection is a deprecated, non-fabricating compatibility wrapper.
+// Deprecated: use BuildMediaProjection.
+func BuildArchiveProjection(record MediaRecord, trackLocale string) ArchiveProjection {
+	projection, _ := BuildMediaProjection(record, trackLocale, DefaultDurationBucketPolicy())
+	return projection
 }
 
 func HierarchicalFacetValues(path []string) []string {
@@ -192,21 +180,26 @@ func HierarchicalFacetValues(path []string) []string {
 }
 
 func DurationBucket(seconds int) string {
-	switch {
-	case seconds <= 0:
-		return ""
-	case seconds <= 300:
-		return "0-5 min"
-	case seconds <= 900:
-		return "5-15 min"
-	case seconds <= 1800:
-		return "15-30 min"
-	case seconds <= 3600:
-		return "30-60 min"
-	default:
-		return "60+ min"
-	}
+	value, _ := DurationBucketWithPolicy(seconds, DefaultDurationBucketPolicy())
+	return value
 }
+
+func DurationBucketWithPolicy(seconds int, policy DurationBucketPolicy) (string, error) {
+	if err := policy.Validate(); err != nil {
+		return "", err
+	}
+	if seconds <= 0 {
+		return "", nil
+	}
+	for _, bucket := range policy.Buckets {
+		if seconds >= bucket.MinSeconds && (bucket.MaxSeconds == nil || seconds < *bucket.MaxSeconds) {
+			return bucket.Key, nil
+		}
+	}
+	return "", nil
+}
+
+func intRef(value int) *int { return &value }
 
 func DecadeBucket(year int) string {
 	if year <= 0 {
@@ -300,27 +293,4 @@ func publishedYear(value any) int {
 	default:
 		return 0
 	}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func firstNonEmptySlice(values []string, fallback []string) []string {
-	if len(values) > 0 {
-		return values
-	}
-	return append([]string(nil), fallback...)
-}
-
-func pathFromHierarchy(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	return types.SplitFacetPath(values[len(values)-1], types.DefaultFacetPathSeparator)
 }

@@ -18,17 +18,18 @@ type GlobalSearchResult struct {
 }
 
 type SiteSearchRequest struct {
-	Query    string              `json:"q"`
-	Locale   string              `json:"locale,omitempty"`
-	Page     int                 `json:"page,omitempty"`
-	PerPage  int                 `json:"per_page,omitempty"`
-	Sort     string              `json:"sort,omitempty"`
-	Filters  map[string][]string `json:"filters,omitempty"`
-	Ranges   []SiteSearchRange   `json:"ranges,omitempty"`
-	Actor    any                 `json:"actor,omitempty"`
-	Request  any                 `json:"request,omitempty"`
-	Metadata map[string]any      `json:"metadata,omitempty"`
-	Variant  string              `json:"variant,omitempty"`
+	Query         string              `json:"q"`
+	Locale        string              `json:"locale,omitempty"`
+	Page          int                 `json:"page,omitempty"`
+	PerPage       int                 `json:"per_page,omitempty"`
+	Sort          string              `json:"sort,omitempty"`
+	Filters       map[string][]string `json:"filters,omitempty"`
+	Ranges        []SiteSearchRange   `json:"ranges,omitempty"`
+	Actor         any                 `json:"actor,omitempty"`
+	Request       any                 `json:"request,omitempty"`
+	Metadata      map[string]any      `json:"metadata,omitempty"`
+	Variant       string              `json:"variant,omitempty"`
+	MaxCandidates int                 `json:"max_candidates,omitempty"`
 }
 
 type SiteSearchRange struct {
@@ -144,6 +145,12 @@ func ToSearchRequest(indexes []string, req SiteSearchRequest) types.SearchReques
 			metadata = map[string]any{}
 		}
 		metadata["search_variant"] = variant
+	}
+	if req.MaxCandidates > 0 {
+		if metadata == nil {
+			metadata = map[string]any{}
+		}
+		metadata["max_candidates"] = req.MaxCandidates
 	}
 	return types.SearchRequest{
 		Indexes:  indexesFromMetadata(indexes, req.Metadata),
