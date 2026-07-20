@@ -85,9 +85,12 @@ func TestRuntimeUsersSurfaceFiltersByScopeAndSupportVisibility(t *testing.T) {
 	}
 
 	tenantAResult, err := runtime.Search(context.Background(), SearchRequest{
-		Query:    "admin",
-		Surface:  SurfaceUsers,
-		TenantID: "00000000-0000-0000-0000-000000000101",
+		Query:       "admin",
+		Surface:     SurfaceUsers,
+		TenantID:    "00000000-0000-0000-0000-000000000101",
+		OrgID:       "00000000-0000-0000-0000-000000000201",
+		ActorUserID: "00000000-0000-0000-0000-000000001001",
+		ActorRole:   "admin",
 	})
 	if err != nil {
 		t.Fatalf("tenant search: %v", err)
@@ -105,6 +108,8 @@ func TestRuntimeUsersSurfaceFiltersByScopeAndSupportVisibility(t *testing.T) {
 		Surface:     SurfaceUsers,
 		ActorRole:   "support",
 		ActorUserID: "00000000-0000-0000-0000-000000001002",
+		TenantID:    "00000000-0000-0000-0000-000000000101",
+		OrgID:       "00000000-0000-0000-0000-000000000201",
 	})
 	if err != nil {
 		t.Fatalf("support search: %v", err)
@@ -945,6 +950,8 @@ func TestRuntimeActorSensitiveSearchBypassesCache(t *testing.T) {
 		Surface:     SurfaceUsers,
 		ActorRole:   "support",
 		ActorUserID: "00000000-0000-0000-0000-000000001002",
+		TenantID:    "00000000-0000-0000-0000-000000000101",
+		OrgID:       "00000000-0000-0000-0000-000000000201",
 	}
 	if _, err := runtime.Search(ctx, req); err != nil {
 		t.Fatalf("search 1: %v", err)

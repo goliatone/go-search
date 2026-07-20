@@ -113,7 +113,7 @@ func TestCompileSearchParamsAddsLocaleFilterGroupingAndSortBoost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile search params: %v", err)
 	}
-	if params.FilterBy == nil || *params.FilterBy != "locale:=[en,bo,``]" {
+	if params.FilterBy == nil || !strings.Contains(*params.FilterBy, "locale:=[en,bo,``]") || !strings.Contains(*params.FilterBy, "scope_tenant_id:=``") {
 		t.Fatalf("expected locale filter, got %+v", params.FilterBy)
 	}
 	if params.GroupBy == nil || *params.GroupBy != "parent_id" {
@@ -167,7 +167,7 @@ func TestCompileSearchParamsCompilesExistsExprToShadowField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile search params: %v", err)
 	}
-	if params.FilterBy == nil || *params.FilterBy != "__exists_topic:=true" {
+	if params.FilterBy == nil || !strings.Contains(*params.FilterBy, "__exists_topic:=true") {
 		t.Fatalf("expected exists shadow filter, got %+v", params.FilterBy)
 	}
 }
@@ -187,7 +187,7 @@ func TestCompileSearchParamsKeepsIDAsProviderNeutralFilterField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile search params: %v", err)
 	}
-	if params.FilterBy == nil || *params.FilterBy != "document_id:=segment-1" {
+	if params.FilterBy == nil || !strings.Contains(*params.FilterBy, "document_id:=segment-1") {
 		t.Fatalf("expected id filter to compile to document_id storage field, got %+v", params.FilterBy)
 	}
 }
@@ -207,7 +207,7 @@ func TestCompileSearchParamsCompilesIDExistsExprToDocumentShadowField(t *testing
 	if err != nil {
 		t.Fatalf("compile search params: %v", err)
 	}
-	if params.FilterBy == nil || *params.FilterBy != "__exists_document_id:=true" {
+	if params.FilterBy == nil || !strings.Contains(*params.FilterBy, "__exists_document_id:=true") {
 		t.Fatalf("expected id exists filter to compile to document_id shadow field, got %+v", params.FilterBy)
 	}
 }
@@ -238,8 +238,7 @@ func TestCompileSearchParamsAddsScopeFilters(t *testing.T) {
 	for _, fragment := range []string{
 		"scope_tenant_id:=tenant-a",
 		"scope_org_id:=org-1",
-		"scope_labels:=role=member",
-		"scope_labels:=surface=support",
+		"scope_labels_fingerprint:=" + scopeLabelsFingerprint(map[string]string{"role": "member", "surface": "support"}),
 	} {
 		if !strings.Contains(filter, fragment) {
 			t.Fatalf("expected filter fragment %q in %q", fragment, filter)

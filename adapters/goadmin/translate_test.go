@@ -84,6 +84,54 @@ func TestVariantUsesExtensionMetadataWithoutMutatingInput(t *testing.T) {
 	}
 }
 
+func TestSiteRequestsTranslateActorIdentityWithoutAliasingMetadata(t *testing.T) {
+	actor := map[string]any{
+		"actor_id":        "user-7",
+		"tenant_id":       "tenant-2",
+		"organization_id": "org-3",
+		"role":            "editor",
+		"metadata":        map[string]any{"permission": "search.private"},
+	}
+	searchReq := ToSearchRequest(nil, SiteSearchRequest{Actor: actor})
+	suggestReq := ToSuggestRequest(nil, SiteSuggestRequest{Actor: actor})
+	for name, got := range map[string]types.ActorRef{"search": searchReq.Actor, "suggest": suggestReq.Actor} {
+		if got.UserID != "user-7" || got.TenantID != "tenant-2" || got.OrgID != "org-3" {
+			t.Fatalf("%s actor identity = %#v", name, got)
+		}
+		if got.Metadata["role"] != "editor" || got.Metadata["permission"] != "search.private" {
+			t.Fatalf("%s actor metadata = %#v", name, got.Metadata)
+		}
+	}
+	searchReq.Actor.Metadata["permission"] = "changed"
+	if actor["metadata"].(map[string]any)["permission"] != "search.private" {
+		t.Fatalf("translated actor aliases input metadata: %#v", actor)
+	}
+}
+
+func TestSiteRequestsAcceptTypedActorRef(t *testing.T) {
+	actor := &types.ActorRef{UserID: "typed-1", Metadata: map[string]any{"role": "viewer"}}
+	got := ToSearchRequest(nil, SiteSearchRequest{Actor: actor}).Actor
+	if got.UserID != "typed-1" || got.Metadata["role"] != "viewer" {
+		t.Fatalf("typed actor = %#v", got)
+	}
+	got.Metadata["role"] = "changed"
+	if actor.Metadata["role"] != "viewer" {
+		t.Fatalf("translated typed actor aliases input: %#v", actor)
+	}
+}
+
+func TestSiteRequestsTranslateStructuredActorPayload(t *testing.T) {
+	type actorPayload struct {
+		ActorID        string
+		OrganizationID string
+		Role           string
+	}
+	got := ToSearchRequest(nil, SiteSearchRequest{Actor: actorPayload{ActorID: "struct-1", OrganizationID: "org-9", Role: "reviewer"}}).Actor
+	if got.UserID != "struct-1" || got.OrgID != "org-9" || got.Metadata["role"] != "reviewer" {
+		t.Fatalf("structured actor = %#v", got)
+	}
+}
+
 func TestToSearchRequestCombinesTermAndRangeFilters(t *testing.T) {
 	req := ToSearchRequest([]string{"media"}, SiteSearchRequest{
 		Query:   "archive",

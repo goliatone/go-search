@@ -46,10 +46,6 @@ func TestBuildSearchURLPreservesStateAndEscapesValues(t *testing.T) {
 		PublishedYearGTE:   ptrInt(2020),
 		PublishedYearLTE:   ptrInt(2024),
 		DurationSecondsGTE: ptrInt(900),
-		TenantID:           "tenant-1",
-		OrgID:              "org-1",
-		ActorUserID:        "user-1",
-		ActorRole:          "support",
 		Group:              false,
 		SortField:          media.FieldPublishedYear,
 		SortDir:            "desc",
@@ -89,11 +85,10 @@ func TestBuildSearchURLPreservesStateAndEscapesValues(t *testing.T) {
 	if params.Get("duration_seconds_gte") != "900" {
 		t.Fatalf("duration_seconds_gte = %q", params.Get("duration_seconds_gte"))
 	}
-	if params.Get("tenant_id") != "tenant-1" || params.Get("org_id") != "org-1" {
-		t.Fatalf("scope params = %q/%q", params.Get("tenant_id"), params.Get("org_id"))
-	}
-	if params.Get("actor_user_id") != "user-1" || params.Get("actor_role") != "support" {
-		t.Fatalf("actor params = %q/%q", params.Get("actor_user_id"), params.Get("actor_role"))
+	for _, forbidden := range []string{"tenant_id", "org_id", "actor_user_id", "actor_role"} {
+		if params.Has(forbidden) {
+			t.Fatalf("untrusted identity parameter %q was preserved", forbidden)
+		}
 	}
 	if params.Get("group") != "false" {
 		t.Fatalf("group = %q", params.Get("group"))
@@ -269,7 +264,7 @@ func TestDemoAPIsRoundTripCacheDisabledFlag(t *testing.T) {
 			name string
 			url  string
 		}{
-			{name: "search", url: "/api/demo/search?q=search&cache_disabled=true"},
+			{name: "search", url: "/api/demo/search?q=search&cache_disabled=true&tenant_id=forged&org_id=forged&actor_user_id=forged&actor_role=admin"},
 			{name: "suggest", url: "/api/demo/suggest?q=search&cache_disabled=true"},
 		} {
 			req := httptest.NewRequest(http.MethodGet, tc.url, nil)
@@ -288,6 +283,89 @@ func TestDemoAPIsRoundTripCacheDisabledFlag(t *testing.T) {
 			}
 			if body.Request["cache_disabled"] != true {
 				t.Fatalf("%s cache_disabled = %#v", tc.name, body.Request["cache_disabled"])
+			}
+			if tc.name == "search" {
+				for _, key := range []string{"tenant_id", "org_id", "actor_user_id", "actor_role"} {
+					value, _ := body.Request[key].(string)
+					if value = strings.TrimSpace(value); value != "" {
+						t.Fatalf("untrusted %s was accepted: %q", key, value)
+					}
+				}
+			}
+		}
+
+		token, err := appCore.Auther.TokenService().Generate(appCore.DemoIdentity, nil)
+		if err != nil {
+			t.Fatalf("generate token: %v", err)
+		}
+		req := httptest.NewRequest(http.MethodGet, "/api/demo/stats", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := appCore.Fiber.Test(req)
+		if err != nil {
+			t.Fatalf("authenticated stats: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("authenticated stats status = %d, want %d", resp.StatusCode, http.StatusOK)
+		}
+	})
+}
+
+func TestPrivilegedDemoRoutesRequireAuthentication(t *testing.T) {
+	commandregistry.WithTestRegistry(func() {
+		cfg := config.Defaults()
+		appCore, err := core.New(context.Background(), &cfg)
+		if err != nil {
+			t.Fatalf("new core: %v", err)
+		}
+		t.Cleanup(func() { _ = appCore.Shutdown(context.Background()) })
+		if err := Register(appCore); err != nil {
+			t.Fatalf("register routes: %v", err)
+		}
+
+		for _, tc := range []struct {
+			method string
+			path   string
+		}{
+			{method: http.MethodGet, path: "/api/demo/stats"},
+			{method: http.MethodGet, path: "/api/demo/editorial"},
+			{method: http.MethodPost, path: "/api/demo/ensure"},
+			{method: http.MethodPost, path: "/api/demo/reindex"},
+			{method: http.MethodPost, path: "/api/demo/users/create"},
+		} {
+			resp, err := appCore.Fiber.Test(httptest.NewRequest(tc.method, tc.path, nil))
+			if err != nil {
+				t.Fatalf("%s %s: %v", tc.method, tc.path, err)
+			}
+			if resp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("%s %s status = %d, want %d", tc.method, tc.path, resp.StatusCode, http.StatusUnauthorized)
+			}
+		}
+	})
+}
+
+func TestHomeDoesNotExposeAuthenticationSecrets(t *testing.T) {
+	commandregistry.WithTestRegistry(func() {
+		cfg := config.Defaults()
+		appCore, err := core.New(context.Background(), &cfg)
+		if err != nil {
+			t.Fatalf("new core: %v", err)
+		}
+		t.Cleanup(func() { _ = appCore.Shutdown(context.Background()) })
+		if err := Register(appCore); err != nil {
+			t.Fatalf("register routes: %v", err)
+		}
+
+		resp, err := appCore.Fiber.Test(httptest.NewRequest(http.MethodGet, "/", nil))
+		if err != nil {
+			t.Fatalf("GET /: %v", err)
+		}
+		var body bytes.Buffer
+		if _, err := body.ReadFrom(resp.Body); err != nil {
+			t.Fatalf("read response: %v", err)
+		}
+		for _, secret := range []string{cfg.Auth.SigningKey, cfg.Auth.DemoPassword} {
+			if strings.Contains(body.String(), secret) {
+				t.Fatal("home page exposed an authentication secret")
 			}
 		}
 	})

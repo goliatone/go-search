@@ -250,8 +250,14 @@ func TestTranscriptProjectorPartialRecordDoesNotReceiveSyntheticFacts(t *testing
 			t.Fatalf("synthetic facet %s=%#v", field, values)
 		}
 	}
-	if doc.Numeric[FieldPublishedYear] != 0 || doc.Numeric[FieldDurationSeconds] != 0 {
+	if _, exists := doc.Numeric[FieldPublishedYear]; exists {
+		t.Fatalf("synthetic publication fact: %#v", doc.Numeric)
+	}
+	if _, exists := doc.Numeric[FieldDurationSeconds]; exists {
 		t.Fatalf("synthetic numeric facts: %#v", doc.Numeric)
+	}
+	if _, exists := doc.Fields[FieldPublishedYear]; exists {
+		t.Fatalf("synthetic publication field: %#v", doc.Fields)
 	}
 	if doc.Visibility.Public {
 		t.Fatal("ambiguous visibility became public")

@@ -492,7 +492,7 @@ func TestSearchUsesPlannerCompiledLocaleRequest(t *testing.T) {
 	}
 	provider := &capturingSearchProvider{
 		page: types.SearchResultPage{
-			Hits: []types.SearchHit{{ID: "doc-1", Locale: "es"}},
+			Hits: []types.SearchHit{{ID: "doc-1", Locale: "es", Document: &types.Document{ID: "doc-1", Locale: "es"}}},
 		},
 	}
 	search, err := NewSearch(SearchConfig{Planner: p, Provider: provider})

@@ -135,6 +135,13 @@ func TestProviderEnforcesScopeForSearchAndSuggest(t *testing.T) {
 	if len(suggest.Items) != 1 || suggest.Items[0].ID != "doc-1" {
 		t.Fatalf("expected only tenant-a suggestion, got %+v", suggest.Items)
 	}
+	page, err = provider.Search(ctx, types.SearchRequest{Indexes: []string{"media"}, Query: "prayer", Page: 1, PerPage: 10})
+	if err != nil {
+		t.Fatalf("unscoped search: %v", err)
+	}
+	if page.Total != 0 {
+		t.Fatalf("unscoped search returned tenant documents: %+v", page.Hits)
+	}
 }
 
 func TestProviderPreferParentSuggestionsAreDeduplicated(t *testing.T) {
