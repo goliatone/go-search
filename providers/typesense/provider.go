@@ -145,7 +145,7 @@ func (p *Provider) AggregateEvidence(ctx context.Context, in types.EvidenceReque
 	}
 	out := map[string]*types.MatchEvidenceSummary{}
 	for i, page := range pages {
-		summary := &types.MatchEvidenceSummary{Exact: true}
+		summary := &types.MatchEvidenceSummary{Exact: true, Status: types.EvidenceStatusComplete}
 		for _, facet := range page.Facets {
 			if facet.Field != "match_location" {
 				continue
@@ -154,7 +154,7 @@ func (p *Provider) AggregateEvidence(ctx context.Context, in types.EvidenceReque
 				location := types.MatchEvidenceLocation{Location: value.Value, Count: value.Count}
 				for _, hit := range page.Hits {
 					if hit.Document != nil && hit.Document.MatchLocation == value.Value && len(location.Samples) < in.MaxSamplesPerLocation {
-						location.Samples = append(location.Samples, types.MatchEvidenceSample{DocumentID: hit.ID, Field: hit.Document.MatchField, ChunkOrdinal: hit.Document.ChunkOrdinal, Anchor: hit.Anchor})
+						location.Samples = append(location.Samples, types.MatchEvidenceSample{DocumentID: hit.ID, Field: hit.Document.MatchField, Locale: hit.Locale, Snippet: types.BoundedSearchSnippet(hit.Snippet), ChunkOrdinal: hit.Document.ChunkOrdinal, Anchor: hit.Anchor})
 					}
 				}
 				summary.Locations = append(summary.Locations, location)
