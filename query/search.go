@@ -157,6 +157,7 @@ func (q *Search) attachEvidence(ctx context.Context, req types.SearchRequest, pa
 			page.Metadata = map[string]any{}
 		}
 		page.Metadata["evidence_diagnostic"] = "provider does not support batched evidence"
+		setEvidenceStatus(page.Hits, types.EvidenceStatusUnsupported, "provider does not support batched evidence")
 		return
 	}
 	ids := make([]string, 0, len(page.Hits))
@@ -169,18 +170,36 @@ func (q *Search) attachEvidence(ctx context.Context, req types.SearchRequest, pa
 			page.Metadata = map[string]any{}
 		}
 		page.Metadata["evidence_diagnostic"] = "aggregation_failed"
+		setEvidenceStatus(page.Hits, types.EvidenceStatusUnavailable, "aggregation_failed")
 		return
 	}
 	for i := range page.Hits {
 		summary, ok := summaries[ranking.ResultID(page.Hits[i])]
-		if !ok || summary == nil || !summary.Exact {
+		if !ok || summary == nil {
 			if page.Metadata == nil {
 				page.Metadata = map[string]any{}
 			}
 			page.Metadata["evidence_diagnostic"] = "incomplete_aggregation"
+			page.Hits[i].Evidence = &types.MatchEvidenceSummary{Status: types.EvidenceStatusPartial, Diagnostic: "incomplete_aggregation"}
 			continue
 		}
+		if summary.Status == "" {
+			if summary.Exact {
+				summary.Status = types.EvidenceStatusComplete
+			} else {
+				summary.Status = types.EvidenceStatusPartial
+				if summary.Diagnostic == "" {
+					summary.Diagnostic = "incomplete_aggregation"
+				}
+			}
+		}
 		page.Hits[i].Evidence = summary
+	}
+}
+
+func setEvidenceStatus(hits []types.SearchHit, status types.EvidenceStatus, diagnostic string) {
+	for i := range hits {
+		hits[i].Evidence = &types.MatchEvidenceSummary{Status: status, Diagnostic: diagnostic}
 	}
 }
 
