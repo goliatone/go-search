@@ -197,3 +197,63 @@ praise to tara
 		t.Fatalf("result badge = %#v", got)
 	}
 }
+
+func TestTranscriptProjectorUsesExplicitFoundationContracts(t *testing.T) {
+	record := TranscriptRecord{
+		ID:       "track-1",
+		Media:    MediaRecord{ID: "video-1", Title: "Entity title", Summary: "Entity summary", URL: "/video/1", DurationSeconds: 1800},
+		Track:    types.TranscriptTrack{Locale: "bo", SourceFormat: "srt"},
+		Format:   "srt",
+		Content:  "1\n00:00:01,000 --> 00:00:02,000\ncued transcript text\n",
+		ResultID: "event-1", ResultType: "archive_event", MatchLocation: "transcript", MatchField: "body", ParentType: "archive_session",
+		Visibility: types.Visibility{Public: true, Status: "published"},
+		Metadata:   map[string]any{"track_revision": "r2"},
+	}
+	policy := DurationBucketPolicy{Buckets: []DurationBucketRange{
+		{Key: "under_30", MinSeconds: 0, MaxSeconds: intRef(1800)},
+		{Key: "30_60", MinSeconds: 1800, MaxSeconds: intRef(3660)},
+		{Key: "61_90", MinSeconds: 3660, MaxSeconds: intRef(5460)},
+		{Key: "over_90", MinSeconds: 5460},
+	}}
+	docs, err := NewTranscriptProjector(TranscriptProjectorConfig{Index: "media", SourceType: "transcript", MergeVersion: "v2", DurationBuckets: policy}).Project(context.Background(), record)
+	if err != nil || len(docs) != 1 {
+		t.Fatalf("project: docs=%#v err=%v", docs, err)
+	}
+	doc := docs[0]
+	if doc.ResultID != "event-1" || doc.ResultType != "archive_event" || doc.MatchLocation != "transcript" || doc.MatchField != "body" || doc.ChunkOrdinal == nil || *doc.ChunkOrdinal != 0 {
+		t.Fatalf("identity/evidence projection: %#v", doc)
+	}
+	if !doc.Visibility.Public || doc.Visibility.Status != "published" || doc.Summary != "Entity summary" || doc.Body != "cued transcript text" {
+		t.Fatalf("visibility/entity projection: %#v", doc)
+	}
+	if got := doc.Facets[FacetFieldDurationBucket]; len(got) != 1 || got[0] != "30_60" {
+		t.Fatalf("custom duration policy: %#v", got)
+	}
+	if doc.Metadata["track_revision"] != "r2" {
+		t.Fatalf("transcript metadata missing: %#v", doc.Metadata)
+	}
+}
+
+func TestTranscriptProjectorPartialRecordDoesNotReceiveSyntheticFacts(t *testing.T) {
+	record := TranscriptRecord{
+		ID: "track-1", Media: MediaRecord{ID: "video-1", Topic: "architecture"},
+		Track: types.TranscriptTrack{Locale: "en", SourceFormat: "srt"}, Format: "srt",
+		Content: "1\n00:00:01,000 --> 00:00:02,000\ntext\n",
+	}
+	docs, err := NewTranscriptProjector(TranscriptProjectorConfig{SourceType: "transcript"}).Project(context.Background(), record)
+	if err != nil || len(docs) != 1 {
+		t.Fatalf("project: docs=%#v err=%v", docs, err)
+	}
+	doc := docs[0]
+	for _, field := range []string{"people", "location", "series", "published_year", "duration_seconds"} {
+		if values := doc.Facets[field]; len(values) != 0 {
+			t.Fatalf("synthetic facet %s=%#v", field, values)
+		}
+	}
+	if doc.Numeric[FieldPublishedYear] != 0 || doc.Numeric[FieldDurationSeconds] != 0 {
+		t.Fatalf("synthetic numeric facts: %#v", doc.Numeric)
+	}
+	if doc.Visibility.Public {
+		t.Fatal("ambiguous visibility became public")
+	}
+}

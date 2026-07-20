@@ -79,3 +79,30 @@ func TestBuildSegmentDocumentsCanonicalizesLocaleFields(t *testing.T) {
 		t.Fatalf("track locale metadata = %#v", got)
 	}
 }
+
+func TestBuildSegmentDocumentsCopiesIdentityOrdinalAndVisibility(t *testing.T) {
+	docs := BuildSegmentDocuments([]Cue{{Start: 1000, End: 2000, Text: "one"}, {Start: 3000, End: 4000, Text: "two"}}, DocumentOptions{
+		SourceType: "transcript", SourceID: "track-1", Version: "v2", Locale: "en",
+		ParentID: "video-1", ParentType: "teaching", ResultID: "event-1", ResultType: "event",
+		MatchLocation: "transcript", MatchField: "body", ParentSummary: "Public summary",
+		Visibility: types.Visibility{Public: true, Status: "published"},
+	})
+	if len(docs) != 2 || docs[0].ChunkOrdinal == nil || *docs[0].ChunkOrdinal != 0 || docs[1].ChunkOrdinal == nil || *docs[1].ChunkOrdinal != 1 {
+		t.Fatalf("ordinals: %#v", docs)
+	}
+	for _, doc := range docs {
+		if doc.ResultID != "event-1" || doc.ResultType != "event" || doc.MatchLocation != "transcript" || doc.MatchField != "body" {
+			t.Fatalf("identity contract missing: %#v", doc)
+		}
+		if !doc.Visibility.Public || doc.Summary != "Public summary" || doc.Summary == doc.Body {
+			t.Fatalf("visibility or entity summary contract missing: %#v", doc)
+		}
+	}
+}
+
+func TestBuildSegmentDocumentsDefaultsToNonPublic(t *testing.T) {
+	docs := BuildSegmentDocuments([]Cue{{Text: "cue"}}, DocumentOptions{SourceType: "transcript", SourceID: "track", Version: "v1"})
+	if len(docs) != 1 || docs[0].Visibility.Public {
+		t.Fatalf("ambiguous visibility became public: %#v", docs)
+	}
+}

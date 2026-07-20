@@ -42,6 +42,48 @@ func TestToSearchRequestPrefersIndexesMetadataWhenPresent(t *testing.T) {
 	}
 }
 
+func TestFoundationContractsTranslateLosslessly(t *testing.T) {
+	ordinal := 2
+	page := types.SearchResultPage{
+		TotalAccuracy: types.TotalAccuracyExact,
+		Counts:        map[string]types.SearchCount{"transcript_matches": {Value: 0, Accuracy: types.CountAccuracyExact}},
+		Hits: []types.SearchHit{{
+			ID: "event-1",
+			Evidence: &types.MatchEvidenceSummary{
+				Exact:  true,
+				Status: types.EvidenceStatusComplete,
+				Locations: []types.MatchEvidenceLocation{{
+					Location: "transcript",
+					Count:    1,
+					Samples: []types.MatchEvidenceSample{{
+						DocumentID:   "segment-1",
+						Locale:       "bo",
+						Snippet:      &types.SearchSnippet{Text: "text", Highlighted: "<mark>text</mark>"},
+						ChunkOrdinal: &ordinal,
+					}},
+				}},
+			},
+		}},
+	}
+	got := SiteResultFromPage(page)
+	if got.TotalAccuracy != "exact" || got.Counts["transcript_matches"].Accuracy != "exact" || got.Hits[0].Evidence.Locations[0].Samples[0].Locale != "bo" {
+		t.Fatalf("lossy translation: %#v", got)
+	}
+	got.Counts["transcript_matches"] = SiteSearchCount{Value: 9}
+	got.Hits[0].Evidence.Locations[0].Samples[0].Snippet.Text = "changed"
+	if page.Counts["transcript_matches"].Value != 0 || page.Hits[0].Evidence.Locations[0].Samples[0].Snippet.Text != "text" {
+		t.Fatal("adapter result aliases source values")
+	}
+}
+
+func TestVariantUsesExtensionMetadataWithoutMutatingInput(t *testing.T) {
+	metadata := map[string]any{"existing": true}
+	req := ToSearchRequest(nil, SiteSearchRequest{Variant: "transcripts", Metadata: metadata})
+	if req.Metadata["search_variant"] != "transcripts" || metadata["search_variant"] != nil {
+		t.Fatalf("variant metadata contract: req=%#v input=%#v", req.Metadata, metadata)
+	}
+}
+
 func TestToSearchRequestCombinesTermAndRangeFilters(t *testing.T) {
 	req := ToSearchRequest([]string{"media"}, SiteSearchRequest{
 		Query:   "archive",
