@@ -47,3 +47,13 @@ func TestDurationBucketPolicyUsesContiguousHalfOpenBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestDurationBucketPolicyRejectsDuplicateKeys(t *testing.T) {
+	policy := DurationBucketPolicy{Buckets: []DurationBucketRange{
+		{Key: "short", MinSeconds: 0, MaxSeconds: intRef(10)},
+		{Key: "short", MinSeconds: 10},
+	}}
+	if err := policy.Validate(); err == nil {
+		t.Fatal("expected duplicate duration bucket key to fail")
+	}
+}

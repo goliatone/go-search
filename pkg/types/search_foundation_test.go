@@ -25,6 +25,9 @@ func TestEvidenceAndCountAvailabilityContracts(t *testing.T) {
 	if err := (MatchEvidenceSummary{Status: EvidenceStatusUnavailable}).Validate(); err == nil {
 		t.Fatal("expected unavailable evidence without diagnostic to fail")
 	}
+	if err := (MatchEvidenceSummary{Exact: true, Status: EvidenceStatusPartial, Diagnostic: "bounded"}).Validate(); err == nil {
+		t.Fatal("expected partial evidence marked exact to fail")
+	}
 	if err := (SearchCount{Accuracy: CountAccuracyExact, Value: 0}).Validate(); err != nil {
 		t.Fatalf("exact zero: %v", err)
 	}

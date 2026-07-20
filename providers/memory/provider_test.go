@@ -8,11 +8,46 @@ import (
 	"github.com/goliatone/go-search/providers"
 )
 
+type evidenceAllowGuard map[string]bool
+
+func (evidenceAllowGuard) AllowSearch(context.Context, types.ActorRef, types.SearchRequest) bool {
+	return true
+}
+func (evidenceAllowGuard) AllowSuggest(context.Context, types.ActorRef, types.SuggestRequest) bool {
+	return true
+}
+func (g evidenceAllowGuard) AllowDocument(_ context.Context, _ types.ActorRef, doc types.Document) bool {
+	return g[doc.ID]
+}
+
 func TestProviderContractSuite(t *testing.T) {
 	providers.RunContractSuite(t, func(t *testing.T) providers.Provider {
 		t.Helper()
 		return New(Config{})
 	})
+}
+
+func TestAggregateEvidenceHonorsVisibilityGuard(t *testing.T) {
+	provider := New(Config{})
+	ctx := context.Background()
+	if err := provider.UpsertDocuments(ctx, "media", []types.Document{
+		{ID: "allowed", ResultID: "event:1", MatchLocation: "transcript", Body: "prayer", Locale: "en"},
+		{ID: "denied", ResultID: "event:1", MatchLocation: "transcript", Body: "prayer", Locale: "en"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := provider.AggregateEvidence(ctx, types.EvidenceRequest{
+		Search:    types.SearchRequest{Indexes: []string{"media"}, Query: "prayer", Locale: "en"},
+		ResultIDs: []string{"event:1"}, MaxSamplesPerLocation: 3,
+		Guard: evidenceAllowGuard{"allowed": true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := evidence["event:1"]
+	if got == nil || len(got.Locations) != 1 || got.Locations[0].Count != 1 || got.Locations[0].Samples[0].DocumentID != "allowed" {
+		t.Fatalf("visibility guard leaked evidence: %#v", got)
+	}
 }
 
 func TestProviderEntityFacetsCountResultOnceAcrossIndexesAndUnits(t *testing.T) {

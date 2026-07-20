@@ -78,8 +78,8 @@ func TestFoundationContractsTranslateLosslessly(t *testing.T) {
 
 func TestVariantUsesExtensionMetadataWithoutMutatingInput(t *testing.T) {
 	metadata := map[string]any{"existing": true}
-	req := ToSearchRequest(nil, SiteSearchRequest{Variant: "transcripts", Metadata: metadata})
-	if req.Metadata["search_variant"] != "transcripts" || metadata["search_variant"] != nil {
+	req := ToSearchRequest(nil, SiteSearchRequest{Variant: "transcripts", MaxCandidates: 100, Metadata: metadata})
+	if req.Metadata["search_variant"] != "transcripts" || req.Metadata["max_candidates"] != 100 || metadata["search_variant"] != nil || metadata["max_candidates"] != nil {
 		t.Fatalf("variant metadata contract: req=%#v input=%#v", req.Metadata, metadata)
 	}
 }
