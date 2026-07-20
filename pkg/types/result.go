@@ -1,17 +1,23 @@
 package types
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+	"unicode/utf8"
+)
 
 type SearchResultPage struct {
-	Hits          []SearchHit    `json:"hits"`
-	Groups        []SearchGroup  `json:"groups"`
-	Facets        []SearchFacet  `json:"facets"`
-	Page          int            `json:"page"`
-	PerPage       int            `json:"per_page"`
-	Total         int            `json:"total"`
-	TotalAccuracy TotalAccuracy  `json:"total_accuracy,omitempty"`
-	DurationMS    int64          `json:"duration_ms"`
-	Metadata      map[string]any `json:"metadata"`
+	Hits          []SearchHit            `json:"hits"`
+	Groups        []SearchGroup          `json:"groups"`
+	Facets        []SearchFacet          `json:"facets"`
+	Page          int                    `json:"page"`
+	PerPage       int                    `json:"per_page"`
+	Total         int                    `json:"total"`
+	TotalAccuracy TotalAccuracy          `json:"total_accuracy,omitempty"`
+	Counts        map[string]SearchCount `json:"counts,omitempty"`
+	DurationMS    int64                  `json:"duration_ms"`
+	Metadata      map[string]any         `json:"metadata"`
 }
 
 type TotalAccuracy string
@@ -21,6 +27,38 @@ const (
 	TotalAccuracyLowerBound  TotalAccuracy = "lower_bound"
 	TotalAccuracyApproximate TotalAccuracy = "approximate"
 )
+
+// CountAccuracy describes the confidence of an application-defined named count.
+type CountAccuracy string
+
+const (
+	CountAccuracyExact       CountAccuracy = "exact"
+	CountAccuracyLowerBound  CountAccuracy = "lower_bound"
+	CountAccuracyApproximate CountAccuracy = "approximate"
+	CountAccuracyUnavailable CountAccuracy = "unavailable"
+)
+
+// SearchCount is an optional application-defined count alongside the primary total.
+// Consumers must ignore Value when Accuracy is unavailable.
+type SearchCount struct {
+	Value      int           `json:"value"`
+	Accuracy   CountAccuracy `json:"accuracy"`
+	Diagnostic string        `json:"diagnostic,omitempty"`
+}
+
+func (c SearchCount) Validate() error {
+	switch c.Accuracy {
+	case CountAccuracyExact, CountAccuracyLowerBound, CountAccuracyApproximate:
+		return nil
+	case CountAccuracyUnavailable:
+		if strings.TrimSpace(c.Diagnostic) == "" {
+			return fmt.Errorf("unavailable search count requires a diagnostic")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported search count accuracy %q", c.Accuracy)
+	}
+}
 
 type SearchHit struct {
 	ID         string                   `json:"id"`
@@ -46,19 +84,53 @@ type SearchHit struct {
 
 type MatchEvidenceSummary struct {
 	Exact      bool                    `json:"exact"`
+	Status     EvidenceStatus          `json:"status,omitempty"`
 	Locations  []MatchEvidenceLocation `json:"locations"`
 	Diagnostic string                  `json:"diagnostic,omitempty"`
 }
+
+type EvidenceStatus string
+
+const (
+	EvidenceStatusComplete    EvidenceStatus = "complete"
+	EvidenceStatusPartial     EvidenceStatus = "partial"
+	EvidenceStatusUnsupported EvidenceStatus = "unsupported"
+	EvidenceStatusUnavailable EvidenceStatus = "unavailable"
+)
+
+func (s MatchEvidenceSummary) Validate() error {
+	status := s.Status
+	if status == "" && s.Exact {
+		status = EvidenceStatusComplete
+	}
+	switch status {
+	case EvidenceStatusComplete:
+		if !s.Exact {
+			return fmt.Errorf("complete evidence must be exact")
+		}
+		return nil
+	case EvidenceStatusPartial, EvidenceStatusUnsupported, EvidenceStatusUnavailable:
+		if strings.TrimSpace(s.Diagnostic) == "" {
+			return fmt.Errorf("%s evidence requires a diagnostic", status)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported evidence status %q", s.Status)
+	}
+}
+
 type MatchEvidenceLocation struct {
 	Location string                `json:"location"`
 	Count    int                   `json:"count"`
 	Samples  []MatchEvidenceSample `json:"samples,omitempty"`
 }
 type MatchEvidenceSample struct {
-	DocumentID   string       `json:"document_id"`
-	Field        string       `json:"field,omitempty"`
-	ChunkOrdinal *int         `json:"chunk_ordinal,omitempty"`
-	Anchor       *MediaAnchor `json:"anchor,omitempty"`
+	DocumentID   string         `json:"document_id"`
+	Field        string         `json:"field,omitempty"`
+	Locale       string         `json:"locale,omitempty"`
+	Snippet      *SearchSnippet `json:"snippet,omitempty"`
+	ChunkOrdinal *int           `json:"chunk_ordinal,omitempty"`
+	Anchor       *MediaAnchor   `json:"anchor,omitempty"`
 }
 type EvidenceRequest struct {
 	Search                SearchRequest `json:"search"`
@@ -77,6 +149,31 @@ type SearchParent struct {
 type SearchSnippet struct {
 	Text        string `json:"text"`
 	Highlighted string `json:"highlighted"`
+}
+
+const MaxEvidenceSnippetBytes = 1024
+
+// BoundedSearchSnippet defensively copies a snippet and truncates each string at
+// a valid UTF-8 rune boundary.
+func BoundedSearchSnippet(in *SearchSnippet) *SearchSnippet {
+	if in == nil {
+		return nil
+	}
+	return &SearchSnippet{
+		Text:        truncateUTF8(in.Text, MaxEvidenceSnippetBytes),
+		Highlighted: truncateUTF8(in.Highlighted, MaxEvidenceSnippetBytes),
+	}
+}
+
+func truncateUTF8(value string, maxBytes int) string {
+	if maxBytes <= 0 || len(value) <= maxBytes {
+		return value
+	}
+	value = value[:maxBytes]
+	for !utf8.ValidString(value) {
+		value = value[:len(value)-1]
+	}
+	return value
 }
 
 type SearchGroup struct {
