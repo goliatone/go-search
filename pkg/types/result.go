@@ -49,6 +49,9 @@ type SearchCount struct {
 func (c SearchCount) Validate() error {
 	switch c.Accuracy {
 	case CountAccuracyExact, CountAccuracyLowerBound, CountAccuracyApproximate:
+		if c.Value < 0 {
+			return fmt.Errorf("available search count cannot be negative")
+		}
 		return nil
 	case CountAccuracyUnavailable:
 		if strings.TrimSpace(c.Diagnostic) == "" {
@@ -110,6 +113,9 @@ func (s MatchEvidenceSummary) Validate() error {
 		}
 		return nil
 	case EvidenceStatusPartial, EvidenceStatusUnsupported, EvidenceStatusUnavailable:
+		if s.Exact {
+			return fmt.Errorf("%s evidence cannot be exact", status)
+		}
 		if strings.TrimSpace(s.Diagnostic) == "" {
 			return fmt.Errorf("%s evidence requires a diagnostic", status)
 		}
@@ -136,6 +142,7 @@ type EvidenceRequest struct {
 	Search                SearchRequest `json:"search"`
 	ResultIDs             []string      `json:"result_ids"`
 	MaxSamplesPerLocation int           `json:"max_samples_per_location"`
+	Guard                 ScopeGuard    `json:"-"`
 }
 
 type SearchParent struct {
