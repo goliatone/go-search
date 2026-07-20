@@ -1,5 +1,26 @@
 # Changelog
 
+# [0.13.0](https://github.com/goliatone/go-search/compare/v0.12.0...v0.13.0) - (2026-07-20)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.13.0 ([70869c2](https://github.com/goliatone/go-search/commit/70869c28b3b2fbfd2d56e86aa7dd87e9346992e0))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Scope guard to search ([10f7c06](https://github.com/goliatone/go-search/commit/10f7c0690ee65c1e4f5e298a0091c228cae7224d))  - (goliatone)
+- Media projection fields ([487b876](https://github.com/goliatone/go-search/commit/487b87670a06b7263883ae17731314baaaf667cc))  - (goliatone)
+- Count accuracy and sampling ([25f0f55](https://github.com/goliatone/go-search/commit/25f0f55c9f760f0d6505e1a72d7532ed8c1fbf84))  - (goliatone)
+- Ranking evidence sampling ([44d7cc1](https://github.com/goliatone/go-search/commit/44d7cc175fd74a17dc4ab3c52bf72d564a322996))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.12.0 ([91ba10c](https://github.com/goliatone/go-search/commit/91ba10c50d6f8b5078dc2cbbeb3d35b3daadd5b3))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([60a9e65](https://github.com/goliatone/go-search/commit/60a9e65dfdc98cae4abdc9c8fe6c1816343a957e))  - (goliatone)
+
 # [0.12.0](https://github.com/goliatone/go-search/compare/v0.11.3...v0.12.0) - (2026-07-13)
 
 ## <!-- 13 -->📦 Bumps
