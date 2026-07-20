@@ -1,0 +1,2 @@
+ALTER TABLE search_job_dispatches
+    ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 0;

@@ -45,21 +45,17 @@ func (s *Store) Get(ctx context.Context, index string) (int64, error) {
 }
 
 func (s *Store) Bump(ctx context.Context, index string) (int64, error) {
-	current, err := s.Get(ctx, index)
-	if err != nil {
-		return 0, err
-	}
-	next := current + 1
 	model := GenerationModel{
 		IndexName:     index,
-		Generation:    next,
+		Generation:    1,
 		LastIndexedAt: s.clock.Now().Unix(),
 	}
-	_, err = s.db.NewInsert().
+	err := s.db.NewInsert().
 		Model(&model).
 		On("CONFLICT (index_name) DO UPDATE").
-		Set("generation = EXCLUDED.generation").
+		Set("generation = search_generations.generation + 1").
 		Set("last_indexed_at = EXCLUDED.last_indexed_at").
-		Exec(ctx)
-	return next, err
+		Returning("generation").
+		Scan(ctx)
+	return model.Generation, err
 }

@@ -9,6 +9,7 @@ import (
 type DispatchModel struct {
 	bun.BaseModel `bun:"table:search_job_dispatches,alias:sjd"`
 	DispatchID    string         `bun:"dispatch_id,pk"`
+	Revision      int64          `bun:"revision,notnull"`
 	OperationKey  string         `bun:"operation_key,unique,notnull"`
 	BatchID       string         `bun:"batch_id,nullzero"`
 	BatchPosition int            `bun:"batch_position,notnull"`

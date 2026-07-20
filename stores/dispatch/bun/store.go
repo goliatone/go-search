@@ -30,8 +30,10 @@ func (s *Store) Upsert(ctx context.Context, snapshot jobs.DispatchSnapshot) erro
 		Set("batch_id = EXCLUDED.batch_id").
 		Set("batch_position = EXCLUDED.batch_position").
 		Set("state = EXCLUDED.state").
+		Set("revision = EXCLUDED.revision").
 		Set("updated_at = EXCLUDED.updated_at").
 		Set("snapshot = EXCLUDED.snapshot").
+		Where("search_job_dispatches.revision < EXCLUDED.revision OR (search_job_dispatches.revision = EXCLUDED.revision AND search_job_dispatches.updated_at < EXCLUDED.updated_at)").
 		Exec(ctx)
 	return err
 }
@@ -97,6 +99,9 @@ func (s *Store) ListBatch(ctx context.Context, batchID string) ([]jobs.DispatchS
 }
 
 func toModel(snapshot jobs.DispatchSnapshot) (DispatchModel, error) {
+	if snapshot.Revision < 1 {
+		snapshot.Revision = 1
+	}
 	raw, err := json.Marshal(snapshot)
 	if err != nil {
 		return DispatchModel{}, err
@@ -107,6 +112,7 @@ func toModel(snapshot jobs.DispatchSnapshot) (DispatchModel, error) {
 	}
 	return DispatchModel{
 		DispatchID:    snapshot.DispatchID,
+		Revision:      snapshot.Revision,
 		OperationKey:  snapshot.OperationKey,
 		BatchID:       snapshot.BatchID,
 		BatchPosition: snapshot.BatchPosition,
@@ -129,6 +135,9 @@ func toSnapshot(model DispatchModel) (jobs.DispatchSnapshot, error) {
 	var snapshot jobs.DispatchSnapshot
 	if err := json.Unmarshal(raw, &snapshot); err != nil {
 		return jobs.DispatchSnapshot{}, err
+	}
+	if snapshot.Revision < model.Revision {
+		snapshot.Revision = model.Revision
 	}
 	return snapshot, nil
 }
