@@ -28,6 +28,7 @@ type SiteSearchRequest struct {
 	Actor    any                 `json:"actor,omitempty"`
 	Request  any                 `json:"request,omitempty"`
 	Metadata map[string]any      `json:"metadata,omitempty"`
+	Variant  string              `json:"variant,omitempty"`
 }
 
 type SiteSearchRange struct {
@@ -37,32 +38,68 @@ type SiteSearchRange struct {
 }
 
 type SiteSearchResultPage struct {
-	Hits     []SiteSearchHit   `json:"hits"`
-	Facets   []SiteSearchFacet `json:"facets,omitempty"`
-	Page     int               `json:"page"`
-	PerPage  int               `json:"per_page"`
-	Total    int               `json:"total"`
-	Metadata map[string]any    `json:"metadata,omitempty"`
+	Hits          []SiteSearchHit            `json:"hits"`
+	Facets        []SiteSearchFacet          `json:"facets,omitempty"`
+	Page          int                        `json:"page"`
+	PerPage       int                        `json:"per_page"`
+	Total         int                        `json:"total"`
+	TotalAccuracy string                     `json:"total_accuracy,omitempty"`
+	Counts        map[string]SiteSearchCount `json:"counts,omitempty"`
+	Metadata      map[string]any             `json:"metadata,omitempty"`
+}
+
+type SiteSearchCount struct {
+	Value      int    `json:"value"`
+	Accuracy   string `json:"accuracy"`
+	Diagnostic string `json:"diagnostic,omitempty"`
+}
+
+type SiteMatchEvidence struct {
+	Exact      bool                        `json:"exact"`
+	Status     string                      `json:"status,omitempty"`
+	Locations  []SiteMatchEvidenceLocation `json:"locations"`
+	Diagnostic string                      `json:"diagnostic,omitempty"`
+}
+
+type SiteMatchEvidenceLocation struct {
+	Location string                    `json:"location"`
+	Count    int                       `json:"count"`
+	Samples  []SiteMatchEvidenceSample `json:"samples,omitempty"`
+}
+
+type SiteMatchEvidenceSample struct {
+	DocumentID   string             `json:"document_id"`
+	Field        string             `json:"field,omitempty"`
+	Locale       string             `json:"locale,omitempty"`
+	Snippet      *SiteSearchSnippet `json:"snippet,omitempty"`
+	ChunkOrdinal *int               `json:"chunk_ordinal,omitempty"`
+	Anchor       *types.MediaAnchor `json:"anchor,omitempty"`
+}
+
+type SiteSearchSnippet struct {
+	Text        string `json:"text"`
+	Highlighted string `json:"highlighted"`
 }
 
 type SiteSearchHit struct {
-	ID              string         `json:"id"`
-	Type            string         `json:"type,omitempty"`
-	Title           string         `json:"title,omitempty"`
-	Summary         string         `json:"summary,omitempty"`
-	URL             string         `json:"url,omitempty"`
-	Locale          string         `json:"locale,omitempty"`
-	Score           float64        `json:"score,omitempty"`
-	Fields          map[string]any `json:"fields,omitempty"`
-	Snippet         string         `json:"snippet,omitempty"`
-	Highlighted     string         `json:"highlighted,omitempty"`
-	ParentID        string         `json:"parent_id,omitempty"`
-	ParentTitle     string         `json:"parent_title,omitempty"`
-	ParentURL       string         `json:"parent_url,omitempty"`
-	ParentThumbnail string         `json:"parent_thumbnail,omitempty"`
-	ParentSummary   string         `json:"parent_summary,omitempty"`
-	Anchor          any            `json:"anchor,omitempty"`
-	Metadata        map[string]any `json:"metadata,omitempty"`
+	ID              string             `json:"id"`
+	Type            string             `json:"type,omitempty"`
+	Title           string             `json:"title,omitempty"`
+	Summary         string             `json:"summary,omitempty"`
+	URL             string             `json:"url,omitempty"`
+	Locale          string             `json:"locale,omitempty"`
+	Score           float64            `json:"score,omitempty"`
+	Fields          map[string]any     `json:"fields,omitempty"`
+	Snippet         string             `json:"snippet,omitempty"`
+	Highlighted     string             `json:"highlighted,omitempty"`
+	ParentID        string             `json:"parent_id,omitempty"`
+	ParentTitle     string             `json:"parent_title,omitempty"`
+	ParentURL       string             `json:"parent_url,omitempty"`
+	ParentThumbnail string             `json:"parent_thumbnail,omitempty"`
+	ParentSummary   string             `json:"parent_summary,omitempty"`
+	Anchor          any                `json:"anchor,omitempty"`
+	Metadata        map[string]any     `json:"metadata,omitempty"`
+	Evidence        *SiteMatchEvidence `json:"match_evidence,omitempty"`
 }
 
 type SiteSearchFacet struct {
@@ -92,6 +129,7 @@ type SiteSuggestRequest struct {
 	Actor    any                 `json:"actor,omitempty"`
 	Request  any                 `json:"request,omitempty"`
 	Metadata map[string]any      `json:"metadata,omitempty"`
+	Variant  string              `json:"variant,omitempty"`
 }
 
 type SiteSuggestResult struct {
@@ -100,6 +138,13 @@ type SiteSuggestResult struct {
 }
 
 func ToSearchRequest(indexes []string, req SiteSearchRequest) types.SearchRequest {
+	metadata := cloneMetadata(req.Metadata)
+	if variant := strings.TrimSpace(req.Variant); variant != "" {
+		if metadata == nil {
+			metadata = map[string]any{}
+		}
+		metadata["search_variant"] = variant
+	}
 	return types.SearchRequest{
 		Indexes:  indexesFromMetadata(indexes, req.Metadata),
 		Query:    strings.TrimSpace(req.Query),
@@ -108,18 +153,25 @@ func ToSearchRequest(indexes []string, req SiteSearchRequest) types.SearchReques
 		PerPage:  positiveOr(req.PerPage, 10),
 		Sort:     parseSort(req.Sort),
 		Filters:  combineFilterExprs(filterExprFromMap(req.Filters), filterExprFromRanges(req.Ranges)),
-		Metadata: cloneMetadata(req.Metadata),
+		Metadata: metadata,
 		Request:  req.Request,
 	}
 }
 
 func ToSuggestRequest(indexes []string, req SiteSuggestRequest) types.SuggestRequest {
+	metadata := cloneMetadata(req.Metadata)
+	if variant := strings.TrimSpace(req.Variant); variant != "" {
+		if metadata == nil {
+			metadata = map[string]any{}
+		}
+		metadata["search_variant"] = variant
+	}
 	return types.SuggestRequest{
 		Indexes:  indexesFromMetadata(indexes, req.Metadata),
 		Query:    strings.TrimSpace(req.Query),
 		Locale:   strings.TrimSpace(req.Locale),
 		Limit:    positiveOr(req.Limit, 8),
-		Metadata: cloneMetadata(req.Metadata),
+		Metadata: metadata,
 		Actor:    types.ActorRef{},
 	}
 }
@@ -158,12 +210,14 @@ func GlobalResultsFromPage(page types.SearchResultPage, fallbackType string) []G
 
 func SiteResultFromPage(page types.SearchResultPage) SiteSearchResultPage {
 	out := SiteSearchResultPage{
-		Hits:     make([]SiteSearchHit, 0, len(page.Hits)),
-		Facets:   make([]SiteSearchFacet, 0, len(page.Facets)),
-		Page:     page.Page,
-		PerPage:  page.PerPage,
-		Total:    page.Total,
-		Metadata: cloneMetadata(page.Metadata),
+		Hits:          make([]SiteSearchHit, 0, len(page.Hits)),
+		Facets:        make([]SiteSearchFacet, 0, len(page.Facets)),
+		Page:          page.Page,
+		PerPage:       page.PerPage,
+		Total:         page.Total,
+		TotalAccuracy: string(page.TotalAccuracy),
+		Counts:        translateCounts(page.Counts),
+		Metadata:      cloneMetadata(page.Metadata),
 	}
 	for _, facet := range page.Facets {
 		item := SiteSearchFacet{
@@ -219,6 +273,7 @@ func SiteResultFromPage(page types.SearchResultPage) SiteSearchResultPage {
 			ParentSummary:   strings.TrimSpace(asString(hit.Fields["parent_summary"])),
 			Anchor:          hit.Anchor,
 			Metadata:        metadata,
+			Evidence:        translateEvidence(hit.Evidence),
 		}
 		if item.Fields == nil {
 			item.Fields = map[string]any{}
@@ -250,6 +305,52 @@ func SiteResultFromPage(page types.SearchResultPage) SiteSearchResultPage {
 		out.Metadata["groups"] = page.Groups
 	}
 	return out
+}
+
+func translateCounts(in map[string]types.SearchCount) map[string]SiteSearchCount {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]SiteSearchCount, len(in))
+	for key, count := range in {
+		out[key] = SiteSearchCount{Value: count.Value, Accuracy: string(count.Accuracy), Diagnostic: count.Diagnostic}
+	}
+	return out
+}
+
+func translateEvidence(in *types.MatchEvidenceSummary) *SiteMatchEvidence {
+	if in == nil {
+		return nil
+	}
+	out := &SiteMatchEvidence{Exact: in.Exact, Status: string(in.Status), Diagnostic: in.Diagnostic, Locations: make([]SiteMatchEvidenceLocation, 0, len(in.Locations))}
+	for _, location := range in.Locations {
+		mapped := SiteMatchEvidenceLocation{Location: location.Location, Count: location.Count, Samples: make([]SiteMatchEvidenceSample, 0, len(location.Samples))}
+		for _, sample := range location.Samples {
+			item := SiteMatchEvidenceSample{DocumentID: sample.DocumentID, Field: sample.Field, Locale: sample.Locale, ChunkOrdinal: cloneInt(sample.ChunkOrdinal), Anchor: cloneAnchor(sample.Anchor)}
+			if sample.Snippet != nil {
+				item.Snippet = &SiteSearchSnippet{Text: sample.Snippet.Text, Highlighted: sample.Snippet.Highlighted}
+			}
+			mapped.Samples = append(mapped.Samples, item)
+		}
+		out.Locations = append(out.Locations, mapped)
+	}
+	return out
+}
+
+func cloneInt(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	return &out
+}
+
+func cloneAnchor(value *types.MediaAnchor) *types.MediaAnchor {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	return &out
 }
 
 func SiteSuggestResultFromSuggest(result types.SuggestResult) SiteSuggestResult {
