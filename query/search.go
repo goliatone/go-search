@@ -164,7 +164,7 @@ func (q *Search) attachEvidence(ctx context.Context, req types.SearchRequest, pa
 	for _, hit := range page.Hits {
 		ids = append(ids, ranking.ResultID(hit))
 	}
-	summaries, err := aggregator.AggregateEvidence(ctx, types.EvidenceRequest{Search: req, ResultIDs: ids, MaxSamplesPerLocation: 3})
+	summaries, err := aggregator.AggregateEvidence(ctx, types.EvidenceRequest{Search: req, ResultIDs: ids, MaxSamplesPerLocation: 3, Guard: q.planner.ScopeGuard()})
 	if err != nil {
 		if page.Metadata == nil {
 			page.Metadata = map[string]any{}
