@@ -83,7 +83,13 @@ func (p *Provider) AggregateEvidence(_ context.Context, in types.EvidenceRequest
 			hits = append(hits, toHit(doc, score, in.Search))
 		}
 	}
-	return ranking.AggregateEvidence(hits, in.MaxSamplesPerLocation), nil
+	out := ranking.AggregateEvidence(hits, in.MaxSamplesPerLocation)
+	for id := range wanted {
+		if out[id] == nil {
+			out[id] = &types.MatchEvidenceSummary{Exact: true, Status: types.EvidenceStatusComplete}
+		}
+	}
+	return out, nil
 }
 
 func (p *Provider) EnsureIndex(_ context.Context, def types.IndexDefinition) error {
