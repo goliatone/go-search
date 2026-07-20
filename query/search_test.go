@@ -277,7 +277,7 @@ func (p *countingBatchProvider) SearchBatch(ctx context.Context, requests []type
 
 func TestSearchGroupsAfterEditorialRanking(t *testing.T) {
 	registry := indexing.NewRegistry()
-	def := types.IndexDefinition{Name: "media", GroupByDefault: "parent_id"}
+	def := types.IndexDefinition{Name: "media", GroupByDefault: "parent_id", FacetFields: []string{"topic", "format"}, FilterableFields: []string{"topic", "format"}}
 	if err := registry.Register(def, nil); err != nil {
 		t.Fatalf("register index: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestSearchGroupsAfterEditorialRanking(t *testing.T) {
 
 func TestSearchHideRuleRemovesParentGroup(t *testing.T) {
 	registry := indexing.NewRegistry()
-	def := types.IndexDefinition{Name: "media", GroupByDefault: "parent_id"}
+	def := types.IndexDefinition{Name: "media", GroupByDefault: "parent_id", FacetFields: []string{"topic", "format"}, FilterableFields: []string{"topic", "format"}}
 	if err := registry.Register(def, nil); err != nil {
 		t.Fatalf("register index: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestSearchHideRuleRemovesParentGroup(t *testing.T) {
 
 func TestSearchParentTargetDoesNotMatchUnrelatedHit(t *testing.T) {
 	registry := indexing.NewRegistry()
-	def := types.IndexDefinition{Name: "media", GroupByDefault: "parent_id"}
+	def := types.IndexDefinition{Name: "media", GroupByDefault: "parent_id", FacetFields: []string{"topic", "format"}, FilterableFields: []string{"topic", "format"}}
 	if err := registry.Register(def, nil); err != nil {
 		t.Fatalf("register index: %v", err)
 	}
@@ -483,7 +483,7 @@ func TestSearchParentTargetDoesNotMatchUnrelatedHit(t *testing.T) {
 
 func TestSearchGroupedDisjunctiveFacetsCountUniqueGroups(t *testing.T) {
 	registry := indexing.NewRegistry()
-	def := types.IndexDefinition{Name: "media", GroupByDefault: "parent_id"}
+	def := types.IndexDefinition{Name: "media", GroupByDefault: "parent_id", FacetFields: []string{"topic", "format"}, FilterableFields: []string{"topic", "format"}}
 	if err := registry.Register(def, nil); err != nil {
 		t.Fatalf("register index: %v", err)
 	}
@@ -622,7 +622,7 @@ func TestSearchGroupedDisjunctiveFacetsCountUniqueGroups(t *testing.T) {
 
 func TestSearchGroupedDisjunctiveFacetsUseBatchProviderWhenAvailable(t *testing.T) {
 	registry := indexing.NewRegistry()
-	def := types.IndexDefinition{Name: "media", GroupByDefault: "parent_id"}
+	def := types.IndexDefinition{Name: "media", GroupByDefault: "parent_id", FacetFields: []string{"topic", "format"}, FilterableFields: []string{"topic", "format"}}
 	if err := registry.Register(def, nil); err != nil {
 		t.Fatalf("register index: %v", err)
 	}

@@ -68,3 +68,32 @@ func TestProfileValidationRejectsInvalidFields(t *testing.T) {
 		t.Fatal("expected duplicate field error")
 	}
 }
+
+func TestRegistryDeepClonesImplementationOptions(t *testing.T) {
+	registry := NewRegistry("profile")
+	if err := registry.RegisterImplementation("rrf"); err != nil {
+		t.Fatal(err)
+	}
+	profile := RankingProfile{
+		Name: "profile", Version: "1",
+		Indexes:    map[string]IndexProfile{"media": {QueryFields: []types.QueryField{{Field: "title", Weight: 1}}}},
+		Candidates: CandidateConfig{Multiplier: 1, MaxPerIndex: 1, MaxRefillRounds: 1},
+		Fusion: ImplementationRef{ID: "rrf", Options: map[string]any{
+			"nested": map[string]any{"value": "original"},
+			"items":  []any{map[string]any{"value": "original"}},
+		}},
+	}
+	if err := registry.Register(profile); err != nil {
+		t.Fatal(err)
+	}
+	profile.Fusion.Options["nested"].(map[string]any)["value"] = "mutated"
+	resolved, ok := registry.Resolve("profile")
+	if !ok || resolved.Fusion.Options["nested"].(map[string]any)["value"] != "original" {
+		t.Fatalf("registration alias leaked: %+v", resolved.Fusion.Options)
+	}
+	resolved.Fusion.Options["items"].([]any)[0].(map[string]any)["value"] = "mutated"
+	again, _ := registry.Resolve("profile")
+	if again.Fusion.Options["items"].([]any)[0].(map[string]any)["value"] != "original" {
+		t.Fatalf("resolution alias leaked: %+v", again.Fusion.Options)
+	}
+}

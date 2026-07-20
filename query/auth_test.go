@@ -151,7 +151,7 @@ func (queryLocaleRuntime) DecodeMetadata(string, any) error { return nil }
 
 func TestSearchFiltersUnauthorizedHitsGroupsAndFacets(t *testing.T) {
 	registry := indexing.NewRegistry()
-	def := types.IndexDefinition{Name: "media", GroupByDefault: "parent_id"}
+	def := types.IndexDefinition{Name: "media", GroupByDefault: "parent_id", FacetFields: []string{"topic"}}
 	if err := registry.Register(def, nil); err != nil {
 		t.Fatalf("register index: %v", err)
 	}
@@ -222,9 +222,9 @@ func TestSearchFiltersUnauthorizedHitsGroupsAndFacets(t *testing.T) {
 	}
 }
 
-func TestSearchScopeGuardPreservesProviderEntityFacetsWhenAllHitsAreAuthorized(t *testing.T) {
+func TestSearchScopeGuardKeepsFacetCountsConservativeWhenPageHitsAreAuthorized(t *testing.T) {
 	registry := indexing.NewRegistry()
-	def := types.IndexDefinition{Name: "content", FilterableFields: []string{"topic"}}
+	def := types.IndexDefinition{Name: "content", FilterableFields: []string{"topic"}, FacetFields: []string{"topic"}}
 	if err := registry.Register(def, nil); err != nil {
 		t.Fatalf("register index: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestSearchScopeGuardPreservesProviderEntityFacetsWhenAllHitsAreAuthorized(t
 	if value.Count != 2 || !reflect.DeepEqual(value.EntityIDs, []string{"event:1", "event:2"}) {
 		t.Fatalf("entity facet value = %+v", value)
 	}
-	if page.Facets[0].Accuracy != types.FacetCountAccuracyExact {
+	if page.Facets[0].Accuracy != types.FacetCountAccuracyLowerBound {
 		t.Fatalf("accuracy = %q", page.Facets[0].Accuracy)
 	}
 }

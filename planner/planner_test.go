@@ -69,7 +69,7 @@ func (s stubLocaleRuntime) DecodeMetadata(string, any) error {
 
 func TestPlannerNormalizesAndValidates(t *testing.T) {
 	registry := indexing.NewRegistry()
-	_ = registry.Register(types.IndexDefinition{Name: "media", GroupByDefault: "parent_id"}, nil)
+	_ = registry.Register(types.IndexDefinition{Name: "media", GroupByDefault: "parent_id", SortableFields: []string{"title"}, FilterableFields: []string{"topic"}}, nil)
 	p, err := New(Config{Registry: registry})
 	if err != nil {
 		t.Fatalf("new planner: %v", err)
@@ -112,6 +112,36 @@ func TestPlannerRejectsInvalidFilterInPayload(t *testing.T) {
 	err := ValidateFilter(types.TermExpr{Field: "topic", Op: types.FilterOpIn, Value: "archive"})
 	if err == nil {
 		t.Fatalf("expected invalid in payload error")
+	}
+}
+
+func TestPlannerRejectsRequestsOverComplexityLimits(t *testing.T) {
+	registry := indexing.NewRegistry()
+	_ = registry.Register(types.IndexDefinition{Name: "media"}, nil)
+	p, err := New(Config{Registry: registry, Limits: types.RequestLimits{MaxPerPage: 10, MaxSuggestLimit: 3}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.BuildSearchPlan(context.Background(), types.SearchRequest{Indexes: []string{"media"}, Page: 1, PerPage: 11}); err == nil {
+		t.Fatal("expected search limit error")
+	}
+	if _, err := p.BuildSuggestPlan(context.Background(), types.SuggestRequest{Indexes: []string{"media"}, Limit: 4}); err == nil {
+		t.Fatal("expected suggest limit error")
+	}
+}
+
+func TestPlannerRejectsUndeclaredRequestFields(t *testing.T) {
+	registry := indexing.NewRegistry()
+	_ = registry.Register(types.IndexDefinition{Name: "media", SortableFields: []string{"title"}}, nil)
+	p, err := New(Config{Registry: registry})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.BuildSearchPlan(context.Background(), types.SearchRequest{
+		Indexes: []string{"media"}, Page: 1, PerPage: 10,
+		Sort: []types.Sort{{Field: "untrusted_field", Direction: types.SortAsc}},
+	}); err == nil {
+		t.Fatal("expected undeclared sort field error")
 	}
 }
 

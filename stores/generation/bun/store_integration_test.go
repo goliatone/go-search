@@ -3,6 +3,7 @@ package bunstore
 import (
 	"context"
 	"database/sql"
+	"sync"
 	"testing"
 
 	"github.com/goliatone/go-search/internal/testkit"
@@ -44,5 +45,31 @@ func TestGenerationStoreIntegration(t *testing.T) {
 	}
 	if generation != 1 {
 		t.Fatalf("expected stored generation 1, got %d", generation)
+	}
+
+	const workers = 16
+	var wg sync.WaitGroup
+	errs := make(chan error, workers)
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := store.Bump(ctx, "concurrent-media")
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent bump: %v", err)
+		}
+	}
+	generation, err = store.Get(ctx, "concurrent-media")
+	if err != nil {
+		t.Fatalf("get concurrent generation: %v", err)
+	}
+	if generation != workers {
+		t.Fatalf("concurrent generation = %d, want %d", generation, workers)
 	}
 }

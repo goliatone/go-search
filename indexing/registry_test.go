@@ -63,3 +63,30 @@ func TestRegistryResolveRegistrationRequiresKeyWhenAmbiguous(t *testing.T) {
 		t.Fatalf("registration key = %q", item.RegistrationKey)
 	}
 }
+
+func TestRegistryDeepClonesIndexDefinitions(t *testing.T) {
+	registry := NewRegistry()
+	def := types.IndexDefinition{
+		Name:             "content",
+		SearchableFields: []string{"title"},
+		ProviderHints:    map[string]any{"provider": map[string]any{"mode": "original"}},
+		Semantic: &types.SemanticIndexConfig{Fields: []types.EmbeddingField{{
+			Name: "embedding", SourceFields: []string{"body"}, Chunking: &types.ChunkingConfig{MaxCharacters: 100},
+		}}},
+	}
+	if err := registry.Register(def, nil); err != nil {
+		t.Fatal(err)
+	}
+	def.SearchableFields[0] = "mutated"
+	def.ProviderHints["provider"].(map[string]any)["mode"] = "mutated"
+	def.Semantic.Fields[0].SourceFields[0] = "mutated"
+	stored, _ := registry.GetIndex("content")
+	if stored.SearchableFields[0] != "title" || stored.ProviderHints["provider"].(map[string]any)["mode"] != "original" || stored.Semantic.Fields[0].SourceFields[0] != "body" {
+		t.Fatalf("registration alias leaked: %+v", stored)
+	}
+	stored.ProviderHints["provider"].(map[string]any)["mode"] = "mutated"
+	again, _ := registry.GetIndex("content")
+	if again.ProviderHints["provider"].(map[string]any)["mode"] != "original" {
+		t.Fatalf("lookup alias leaked: %+v", again.ProviderHints)
+	}
+}
