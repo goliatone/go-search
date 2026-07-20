@@ -51,6 +51,7 @@ func NewRegistry() *Registry {
 func (r *Registry) Register(def types.IndexDefinition, indexer RecordIndexer) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	def = def.Clone()
 	r.indexes[def.Name] = def
 	if indexer == nil {
 		return nil
@@ -92,7 +93,7 @@ func (r *Registry) GetIndex(name string) (types.IndexDefinition, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	def, ok := r.indexes[name]
-	return def, ok
+	return def.Clone(), ok
 }
 
 func (r *Registry) MustIndexer(name string, registrationKey string) (RecordIndexer, error) {
@@ -113,7 +114,7 @@ func (r *Registry) ResolveRegistration(index string, registrationKey string) (Re
 	key := strings.TrimSpace(registrationKey)
 	if key == "" {
 		if len(items) == 1 {
-			return items[0], nil
+			return cloneRegisteredSource(items[0]), nil
 		}
 		return RegisteredSource{}, errs.InvalidInput("registration key is required when an index has multiple registrations", map[string]any{
 			"index":              index,
@@ -122,7 +123,7 @@ func (r *Registry) ResolveRegistration(index string, registrationKey string) (Re
 	}
 	for _, item := range items {
 		if item.RegistrationKey == key {
-			return item, nil
+			return cloneRegisteredSource(item), nil
 		}
 	}
 	return RegisteredSource{}, errs.IndexingSourceMissing(index, map[string]any{"registration_key": key})
@@ -136,7 +137,9 @@ func (r *Registry) ListRegistrations(index string) []RegisteredSource {
 		return nil
 	}
 	out := make([]RegisteredSource, len(items))
-	copy(out, items)
+	for i := range items {
+		out[i] = cloneRegisteredSource(items[i])
+	}
 	return out
 }
 
@@ -145,11 +148,17 @@ func (r *Registry) ListIndexes() []types.IndexDefinition {
 	defer r.mu.RUnlock()
 	out := make([]types.IndexDefinition, 0, len(r.indexes))
 	for _, def := range r.indexes {
-		out = append(out, def)
+		out = append(out, def.Clone())
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		return out[i].Name < out[j].Name
 	})
+	return out
+}
+
+func cloneRegisteredSource(in RegisteredSource) RegisteredSource {
+	out := in
+	out.Definition = in.Definition.Clone()
 	return out
 }
 

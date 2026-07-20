@@ -102,10 +102,10 @@ func (p DurationBucketPolicy) Validate() error {
 
 func DefaultDurationBucketPolicy() DurationBucketPolicy {
 	return DurationBucketPolicy{Buckets: []DurationBucketRange{
-		{Key: "0-5 min", MinSeconds: 0, MaxSeconds: intRef(301)},
-		{Key: "5-15 min", MinSeconds: 301, MaxSeconds: intRef(901)},
-		{Key: "15-30 min", MinSeconds: 901, MaxSeconds: intRef(1801)},
-		{Key: "30-60 min", MinSeconds: 1801, MaxSeconds: intRef(3601)},
+		{Key: "0-5 min", MinSeconds: 0, MaxSeconds: new(301)},
+		{Key: "5-15 min", MinSeconds: 301, MaxSeconds: new(901)},
+		{Key: "15-30 min", MinSeconds: 901, MaxSeconds: new(1801)},
+		{Key: "30-60 min", MinSeconds: 1801, MaxSeconds: new(3601)},
 		{Key: "60+ min", MinSeconds: 3601},
 	}}
 }
@@ -198,8 +198,6 @@ func DurationBucketWithPolicy(seconds int, policy DurationBucketPolicy) (string,
 	}
 	return "", nil
 }
-
-func intRef(value int) *int { return &value }
 
 func DecadeBucket(year int) string {
 	if year <= 0 {

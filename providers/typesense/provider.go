@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/goliatone/go-search/internal/errs"
+	"github.com/goliatone/go-search/internal/requestvalidate"
 	"github.com/goliatone/go-search/pkg/types"
 	"github.com/goliatone/go-search/ranking"
 	tstypesense "github.com/typesense/typesense-go/v3/typesense"
@@ -33,11 +34,13 @@ type Config struct {
 	SuggestMinimumFetchLimit   int
 	MultiSearchMinimumPerPage  int
 	ExactGroupCountPageSize    int
+	MaxExactGroupCountPages    int
 	SuggestPreferParentFields  []string
 	SuggestPreferParentWeights []int
 	SuggestDocumentFields      []string
 	SuggestDocumentWeights     []int
 	Clock                      types.Clock
+	Limits                     types.RequestLimits
 }
 
 type Provider struct {
@@ -215,7 +218,7 @@ func (p *Provider) EnsureIndex(ctx context.Context, def types.IndexDefinition) e
 
 	p.mu.Lock()
 	p.indexes[def.Name] = managedIndex{
-		def:            def,
+		def:            def.Clone(),
 		collectionName: schema.Name,
 		schemaHash:     schemaHash,
 	}
@@ -225,6 +228,9 @@ func (p *Provider) EnsureIndex(ctx context.Context, def types.IndexDefinition) e
 }
 
 func (p *Provider) Search(ctx context.Context, req types.SearchRequest) (types.SearchResultPage, error) {
+	if err := requestvalidate.ProviderSearch(req, p.cfg.Limits); err != nil {
+		return types.SearchResultPage{}, err
+	}
 	if len(req.Indexes) == 0 {
 		return types.SearchResultPage{}, errs.UnknownIndex("", map[string]any{"reason": "no indexes requested"})
 	}
@@ -235,6 +241,9 @@ func (p *Provider) Search(ctx context.Context, req types.SearchRequest) (types.S
 }
 
 func (p *Provider) SearchBatch(ctx context.Context, requests []types.SearchRequest) ([]types.SearchResultPage, error) {
+	if err := requestvalidate.Batch(len(requests), p.cfg.Limits); err != nil {
+		return nil, err
+	}
 	if len(requests) == 0 {
 		return nil, nil
 	}
@@ -300,11 +309,14 @@ func (p *Provider) SearchBatch(ctx context.Context, requests []types.SearchReque
 			return nil, err
 		}
 		if item.req.GroupBy != "" {
-			total, err := p.exactGroupCount(ctx, item.runtime, item.req)
+			total, exact, err := p.exactGroupCount(ctx, item.runtime, item.req)
 			if err != nil {
 				return nil, err
 			}
 			page.Total = total
+			if !exact {
+				page.TotalAccuracy = types.TotalAccuracyLowerBound
+			}
 		}
 		pages[item.position] = page
 	}
@@ -312,6 +324,9 @@ func (p *Provider) SearchBatch(ctx context.Context, requests []types.SearchReque
 }
 
 func (p *Provider) Suggest(ctx context.Context, req types.SuggestRequest) (types.SuggestResult, error) {
+	if err := requestvalidate.Suggest(req, p.cfg.Limits); err != nil {
+		return types.SuggestResult{}, err
+	}
 	if len(req.Indexes) == 0 {
 		return types.SuggestResult{}, errs.UnknownIndex("", map[string]any{"reason": "no indexes requested"})
 	}
@@ -554,11 +569,14 @@ func (p *Provider) searchSingleIndex(ctx context.Context, index string, req type
 		return types.SearchResultPage{}, err
 	}
 	if req.GroupBy != "" {
-		total, err := p.exactGroupCount(ctx, runtime, req)
+		total, exact, err := p.exactGroupCount(ctx, runtime, req)
 		if err != nil {
 			return types.SearchResultPage{}, err
 		}
 		page.Total = total
+		if !exact {
+			page.TotalAccuracy = types.TotalAccuracyLowerBound
+		}
 	}
 	return page, nil
 }
@@ -774,13 +792,13 @@ func searchParamsToMulti(collectionName string, params *tsapi.SearchCollectionPa
 	return out, nil
 }
 
-func (p *Provider) exactGroupCount(ctx context.Context, runtime managedIndex, req types.SearchRequest) (int, error) {
+func (p *Provider) exactGroupCount(ctx context.Context, runtime managedIndex, req types.SearchRequest) (int, bool, error) {
 	countReq := req
 	countReq.Page = 1
 	countReq.PerPage = p.cfg.ExactGroupCountPageSize
 	params, err := compileSearchParams(p.cfg, runtime.def, countReq)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	includeFields := "id,parent_id"
 	highlightFields := "none"
@@ -790,20 +808,21 @@ func (p *Provider) exactGroupCount(ctx context.Context, runtime managedIndex, re
 	params.MaxFacetValues = nil
 
 	total := 0
-	for pageNumber := 1; ; pageNumber++ {
+	for pageNumber := 1; pageNumber <= p.cfg.MaxExactGroupCountPages; pageNumber++ {
 		params.Page = new(pageNumber)
 		result, err := p.client.Collection(runtime.collectionName).Documents().Search(ctx, params)
 		if err != nil {
-			return 0, errs.Wrap(err, map[string]any{"index": runtime.def.Name, "collection": runtime.collectionName, "page": pageNumber})
+			return 0, false, errs.Wrap(err, map[string]any{"index": runtime.def.Name, "collection": runtime.collectionName, "page": pageNumber})
 		}
 		if result == nil || result.GroupedHits == nil || len(*result.GroupedHits) == 0 {
-			return total, nil
+			return total, true, nil
 		}
 		total += len(*result.GroupedHits)
 		if len(*result.GroupedHits) < countReq.PerPage {
-			return total, nil
+			return total, true, nil
 		}
 	}
+	return total, false, nil
 }
 
 func (p *Provider) runtimeFor(index string) (managedIndex, error) {
@@ -813,6 +832,7 @@ func (p *Provider) runtimeFor(index string) (managedIndex, error) {
 	if !ok {
 		return managedIndex{}, errs.UnknownIndex(index, nil)
 	}
+	runtime.def = runtime.def.Clone()
 	return runtime, nil
 }
 
@@ -979,6 +999,7 @@ func flattenFacetMap(req types.SearchRequest, in map[string]map[string]int) []ty
 }
 
 func normalizeConfig(cfg Config) Config {
+	cfg.Limits = types.NormalizeRequestLimits(cfg.Limits)
 	if cfg.GroupedEvidenceLimit <= 0 {
 		cfg.GroupedEvidenceLimit = 5
 	}
@@ -993,6 +1014,9 @@ func normalizeConfig(cfg Config) Config {
 	}
 	if cfg.ExactGroupCountPageSize <= 0 {
 		cfg.ExactGroupCountPageSize = 250
+	}
+	if cfg.MaxExactGroupCountPages <= 0 {
+		cfg.MaxExactGroupCountPages = max(1, (cfg.Limits.MaxCandidateWindow+cfg.ExactGroupCountPageSize-1)/cfg.ExactGroupCountPageSize)
 	}
 	if len(cfg.SuggestPreferParentFields) == 0 {
 		cfg.SuggestPreferParentFields = []string{"title", "parent_title"}

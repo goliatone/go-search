@@ -1,5 +1,7 @@
 package types
 
+import "maps"
+
 type IndexDefinition struct {
 	DefaultWeightedQueryFields []QueryField         `json:"default_weighted_query_fields,omitempty"`
 	Name                       string               `json:"name"`
@@ -14,6 +16,69 @@ type IndexDefinition struct {
 	GroupByDefault             string               `json:"group_by_default"`
 	ProviderHints              map[string]any       `json:"provider_hints"`
 	Semantic                   *SemanticIndexConfig `json:"semantic"`
+}
+
+func (d IndexDefinition) Clone() IndexDefinition {
+	out := d
+	out.DefaultWeightedQueryFields = append([]QueryField(nil), d.DefaultWeightedQueryFields...)
+	out.DefaultQueryFields = append([]string(nil), d.DefaultQueryFields...)
+	out.SearchableFields = append([]string(nil), d.SearchableFields...)
+	out.FacetFields = append([]string(nil), d.FacetFields...)
+	out.SortableFields = append([]string(nil), d.SortableFields...)
+	out.FilterableFields = append([]string(nil), d.FilterableFields...)
+	out.HighlightFields = append([]string(nil), d.HighlightFields...)
+	out.DefaultSort = append([]Sort(nil), d.DefaultSort...)
+	out.ProviderHints = cloneAnyMap(d.ProviderHints)
+	if d.Semantic != nil {
+		semantic := *d.Semantic
+		semantic.Fields = make([]EmbeddingField, len(d.Semantic.Fields))
+		for i, field := range d.Semantic.Fields {
+			copy := field
+			copy.SourceFields = append([]string(nil), field.SourceFields...)
+			copy.ProviderHints = cloneAnyMap(field.ProviderHints)
+			if field.Chunking != nil {
+				chunking := *field.Chunking
+				copy.Chunking = &chunking
+			}
+			semantic.Fields[i] = copy
+		}
+		out.Semantic = &semantic
+	}
+	return out
+}
+
+func cloneAnyMap(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		out[key] = cloneAnyValue(value)
+	}
+	return out
+}
+
+func cloneAnyValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneAnyMap(typed)
+	case map[string]string:
+		return maps.Clone(typed)
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = cloneAnyValue(item)
+		}
+		return out
+	case []string:
+		return append([]string(nil), typed...)
+	case []int:
+		return append([]int(nil), typed...)
+	case []float64:
+		return append([]float64(nil), typed...)
+	default:
+		return value
+	}
 }
 
 type QueryField struct {

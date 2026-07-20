@@ -11,6 +11,7 @@ import (
 
 	"github.com/goliatone/go-search/internal/errs"
 	"github.com/goliatone/go-search/internal/filtervalidate"
+	"github.com/goliatone/go-search/internal/requestvalidate"
 	"github.com/goliatone/go-search/pkg/types"
 	"github.com/goliatone/go-search/ranking"
 )
@@ -20,20 +21,30 @@ type Provider struct {
 	indexes map[string]types.IndexDefinition
 	docs    map[string]map[string]types.Document
 	clock   types.Clock
+	limits  types.RequestLimits
+	maxScan int
 }
 
 type Config struct {
-	Clock types.Clock
+	Clock            types.Clock
+	Limits           types.RequestLimits
+	MaxScanDocuments int
 }
 
 func New(cfg Config) *Provider {
 	if cfg.Clock == nil {
 		cfg.Clock = types.SystemClock()
 	}
+	cfg.Limits = types.NormalizeRequestLimits(cfg.Limits)
+	if cfg.MaxScanDocuments <= 0 {
+		cfg.MaxScanDocuments = cfg.Limits.MaxCandidateWindow
+	}
 	return &Provider{
 		indexes: map[string]types.IndexDefinition{},
 		docs:    map[string]map[string]types.Document{},
 		clock:   cfg.Clock,
+		limits:  cfg.Limits,
+		maxScan: cfg.MaxScanDocuments,
 	}
 }
 
@@ -70,8 +81,16 @@ func (p *Provider) AggregateEvidence(ctx context.Context, in types.EvidenceReque
 		wanted[id] = true
 	}
 	hits := []types.SearchHit{}
+	scanned := 0
+	capped := false
+scanLoop:
 	for _, index := range in.Search.Indexes {
 		for _, doc := range p.docs[index] {
+			if scanned >= p.maxScan {
+				capped = true
+				break scanLoop
+			}
+			scanned++
 			probe := types.SearchHit{ID: doc.ID, Type: doc.Type, Document: &doc}
 			if !wanted[ranking.ResultID(probe)] || !matchesScope(in.Search.Scope, doc) || !matchesLocale(in.Search, doc) || !matchesFilter(in.Search.Filters, doc) {
 				continue
@@ -87,9 +106,18 @@ func (p *Provider) AggregateEvidence(ctx context.Context, in types.EvidenceReque
 		}
 	}
 	out := ranking.AggregateEvidence(hits, in.MaxSamplesPerLocation)
+	if capped {
+		for _, summary := range out {
+			summary.Exact = false
+			summary.Status = types.EvidenceStatusPartial
+		}
+	}
 	for id := range wanted {
 		if out[id] == nil {
-			out[id] = &types.MatchEvidenceSummary{Exact: true, Status: types.EvidenceStatusComplete}
+			out[id] = &types.MatchEvidenceSummary{Exact: !capped, Status: types.EvidenceStatusComplete}
+			if capped {
+				out[id].Status = types.EvidenceStatusPartial
+			}
 		}
 	}
 	return out, nil
@@ -98,7 +126,7 @@ func (p *Provider) AggregateEvidence(ctx context.Context, in types.EvidenceReque
 func (p *Provider) EnsureIndex(_ context.Context, def types.IndexDefinition) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.indexes[def.Name] = def
+	p.indexes[def.Name] = def.Clone()
 	if _, ok := p.docs[def.Name]; !ok {
 		p.docs[def.Name] = map[string]types.Document{}
 	}
@@ -216,13 +244,29 @@ func firstNonEmptyString(values ...string) string {
 func (p *Provider) Search(_ context.Context, req types.SearchRequest) (types.SearchResultPage, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
+	if err := requestvalidate.ProviderSearch(req, p.limits); err != nil {
+		return types.SearchResultPage{}, err
+	}
 	if err := validateSearchRequest(req); err != nil {
 		return types.SearchResultPage{}, err
 	}
 	started := p.clock.Now()
 	hits := []types.SearchHit{}
+	scannedDocs := map[string]map[string]types.Document{}
+	scanned := 0
+	capped := false
+scanLoop:
 	for _, index := range req.Indexes {
 		for _, doc := range p.docs[index] {
+			if scanned >= p.maxScan {
+				capped = true
+				break scanLoop
+			}
+			scanned++
+			if scannedDocs[index] == nil {
+				scannedDocs[index] = map[string]types.Document{}
+			}
+			scannedDocs[index][internalDocumentKey(doc)] = doc
 			if !matchesScope(req.Scope, doc) || !matchesLocale(req, doc) || !matchesFilter(req.Filters, doc) {
 				continue
 			}
@@ -236,11 +280,15 @@ func (p *Provider) Search(_ context.Context, req types.SearchRequest) (types.Sea
 	sortHits(hits, req)
 	page := types.SearchResultPage{
 		Hits:       paginateHits(hits, req.Page, req.PerPage),
-		Facets:     buildFacets(req, p.docs),
+		Facets:     buildFacets(req, scannedDocs),
 		Page:       req.Page,
 		PerPage:    req.PerPage,
 		Total:      len(hits),
 		DurationMS: p.clock.Now().Sub(started).Milliseconds(),
+	}
+	if capped {
+		page.TotalAccuracy = types.TotalAccuracyLowerBound
+		markFacetAccuracyLowerBound(page.Facets)
 	}
 	if req.GroupBy != "" {
 		page.Groups = paginateGroups(ranking.GroupHits(hits), req.Page, req.PerPage)
@@ -251,6 +299,9 @@ func (p *Provider) Search(_ context.Context, req types.SearchRequest) (types.Sea
 }
 
 func (p *Provider) SearchBatch(ctx context.Context, requests []types.SearchRequest) ([]types.SearchResultPage, error) {
+	if err := requestvalidate.Batch(len(requests), p.limits); err != nil {
+		return nil, err
+	}
 	out := make([]types.SearchResultPage, 0, len(requests))
 	for _, req := range requests {
 		page, err := p.Search(ctx, req)
@@ -265,10 +316,19 @@ func (p *Provider) SearchBatch(ctx context.Context, requests []types.SearchReque
 func (p *Provider) Suggest(_ context.Context, req types.SuggestRequest) (types.SuggestResult, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
+	if err := requestvalidate.Suggest(req, p.limits); err != nil {
+		return types.SuggestResult{}, err
+	}
 	items := []types.SuggestHit{}
 	seen := map[string]struct{}{}
+	scanned := 0
+scanLoop:
 	for _, index := range req.Indexes {
 		for _, doc := range p.docs[index] {
+			if scanned >= p.maxScan {
+				break scanLoop
+			}
+			scanned++
 			if !matchesScope(req.Scope, doc) {
 				continue
 			}
@@ -325,6 +385,12 @@ func (p *Provider) Health(_ context.Context, req types.HealthRequest) (types.Hea
 	}, nil
 }
 
+func markFacetAccuracyLowerBound(facets []types.SearchFacet) {
+	for i := range facets {
+		facets[i].Accuracy = types.FacetCountAccuracyLowerBound
+	}
+}
+
 func matchesLocale(req types.SearchRequest, doc types.Document) bool {
 	if req.Locale == "" && len(req.Locales) == 0 {
 		return true
@@ -362,14 +428,17 @@ func isExactLocaleMatch(requested, got string) bool {
 }
 
 func matchesScope(scope types.Scope, doc types.Document) bool {
-	if scope.TenantID != "" && doc.Scope.TenantID != "" && scope.TenantID != doc.Scope.TenantID {
+	if doc.Scope.TenantID != "" && !strings.EqualFold(strings.TrimSpace(scope.TenantID), strings.TrimSpace(doc.Scope.TenantID)) {
 		return false
 	}
-	if scope.OrgID != "" && doc.Scope.OrgID != "" && scope.OrgID != doc.Scope.OrgID {
+	if doc.Scope.OrgID != "" && !strings.EqualFold(strings.TrimSpace(scope.OrgID), strings.TrimSpace(doc.Scope.OrgID)) {
 		return false
 	}
-	for key, want := range scope.Labels {
-		if got, ok := doc.Scope.Labels[key]; !ok || got != want {
+	if len(doc.Scope.Labels) > 0 && len(scope.Labels) != len(doc.Scope.Labels) {
+		return false
+	}
+	for key, want := range doc.Scope.Labels {
+		if got, ok := scope.Labels[key]; !ok || !strings.EqualFold(strings.TrimSpace(got), strings.TrimSpace(want)) {
 			return false
 		}
 	}

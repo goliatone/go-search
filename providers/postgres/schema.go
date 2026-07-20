@@ -17,6 +17,8 @@ type Config struct {
 	SuggestTrigramThreshold float64
 	SchemaManagement        SchemaManagementMode
 	Clock                   types.Clock
+	Limits                  types.RequestLimits
+	MaxScanRows             int
 }
 
 type SchemaManagementMode string
@@ -41,6 +43,10 @@ func normalizeConfig(cfg Config) (Config, error) {
 	}
 	if cfg.Clock == nil {
 		cfg.Clock = types.SystemClock()
+	}
+	cfg.Limits = types.NormalizeRequestLimits(cfg.Limits)
+	if cfg.MaxScanRows <= 0 {
+		cfg.MaxScanRows = cfg.Limits.MaxCandidateWindow
 	}
 	mode, err := normalizeSchemaManagementMode(cfg.SchemaManagement)
 	if err != nil {

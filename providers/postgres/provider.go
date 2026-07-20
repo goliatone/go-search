@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/goliatone/go-search/internal/errs"
 	"github.com/goliatone/go-search/internal/filtervalidate"
+	"github.com/goliatone/go-search/internal/requestvalidate"
 	"github.com/goliatone/go-search/pkg/types"
 	"github.com/goliatone/go-search/ranking"
 	"github.com/uptrace/bun"
@@ -97,7 +99,7 @@ func (p *Provider) EnsureIndex(ctx context.Context, def types.IndexDefinition) e
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.indexes[def.Name] = def
+	p.indexes[def.Name] = def.Clone()
 	return nil
 }
 
@@ -264,6 +266,9 @@ func (p *Provider) Search(ctx context.Context, req types.SearchRequest) (types.S
 	if err := p.ensureSchema(ctx); err != nil {
 		return types.SearchResultPage{}, err
 	}
+	if err := requestvalidate.ProviderSearch(req, p.cfg.Limits); err != nil {
+		return types.SearchResultPage{}, err
+	}
 	if err := validateSearchRequest(req); err != nil {
 		return types.SearchResultPage{}, err
 	}
@@ -271,6 +276,10 @@ func (p *Provider) Search(ctx context.Context, req types.SearchRequest) (types.S
 	rows, err := p.searchRows(ctx, req)
 	if err != nil {
 		return types.SearchResultPage{}, err
+	}
+	capped := len(rows) > p.cfg.MaxScanRows
+	if capped {
+		rows = rows[:p.cfg.MaxScanRows]
 	}
 	hits := make([]types.SearchHit, 0, len(rows))
 	docsByIndex := map[string]map[string]types.Document{}
@@ -298,6 +307,10 @@ func (p *Provider) Search(ctx context.Context, req types.SearchRequest) (types.S
 		Total:      len(hits),
 		DurationMS: p.cfg.Clock.Now().Sub(started).Milliseconds(),
 	}
+	if capped {
+		page.TotalAccuracy = types.TotalAccuracyLowerBound
+		markFacetAccuracyLowerBound(page.Facets)
+	}
 	if req.GroupBy != "" {
 		grouped := ranking.GroupHits(hits)
 		page.Groups = paginateGroups(grouped, req.Page, req.PerPage)
@@ -308,6 +321,9 @@ func (p *Provider) Search(ctx context.Context, req types.SearchRequest) (types.S
 }
 
 func (p *Provider) SearchBatch(ctx context.Context, requests []types.SearchRequest) ([]types.SearchResultPage, error) {
+	if err := requestvalidate.Batch(len(requests), p.cfg.Limits); err != nil {
+		return nil, err
+	}
 	out := make([]types.SearchResultPage, 0, len(requests))
 	for _, req := range requests {
 		page, err := p.Search(ctx, req)
@@ -321,6 +337,9 @@ func (p *Provider) SearchBatch(ctx context.Context, requests []types.SearchReque
 
 func (p *Provider) Suggest(ctx context.Context, req types.SuggestRequest) (types.SuggestResult, error) {
 	if err := p.ensureSchema(ctx); err != nil {
+		return types.SuggestResult{}, err
+	}
+	if err := requestvalidate.Suggest(req, p.cfg.Limits); err != nil {
 		return types.SuggestResult{}, err
 	}
 	rows, err := p.suggestRows(ctx, req)
@@ -451,6 +470,12 @@ func (p *Provider) searchRows(ctx context.Context, req types.SearchRequest) ([]d
 		Model(&rows).
 		ColumnExpr("sd.*").
 		Where("index_name IN (?)", bun.List(req.Indexes))
+	q = applyScopeQuery(q, req.Scope)
+	if len(req.Locales) > 0 || strings.TrimSpace(req.Locale) != "" {
+		locales := append([]string{strings.TrimSpace(req.Locale)}, req.Locales...)
+		locales = append(locales, "")
+		q = q.Where("locale IN (?)", bun.List(locales))
+	}
 	if trimmed := strings.TrimSpace(req.Query); trimmed != "" {
 		querySearchConfig := requestSearchConfig(req, p.cfg.SearchConfig)
 		q = q.ColumnExpr(
@@ -481,10 +506,31 @@ func (p *Provider) searchRows(ctx context.Context, req types.SearchRequest) ([]d
 		q = q.ColumnExpr("1::double precision AS combined_score")
 		q = q.OrderExpr("document_id ASC")
 	}
+	q = q.Limit(p.cfg.MaxScanRows + 1)
 	if err := q.Scan(ctx); err != nil {
 		return nil, err
 	}
 	return rows, nil
+}
+
+func applyScopeQuery(q *bun.SelectQuery, scope types.Scope) *bun.SelectQuery {
+	tenantID := strings.TrimSpace(scope.TenantID)
+	if tenantID == "" {
+		q = q.Where("COALESCE(scope_tenant_id, '') = ''")
+	} else {
+		q = q.Where("(COALESCE(scope_tenant_id, '') = '' OR scope_tenant_id = ?)", tenantID)
+	}
+	orgID := strings.TrimSpace(scope.OrgID)
+	if orgID == "" {
+		q = q.Where("COALESCE(scope_org_id, '') = ''")
+	} else {
+		q = q.Where("(COALESCE(scope_org_id, '') = '' OR scope_org_id = ?)", orgID)
+	}
+	labels, _ := json.Marshal(scope.Labels)
+	if len(scope.Labels) == 0 {
+		return q.Where("COALESCE(scope_labels, '{}'::jsonb) = '{}'::jsonb")
+	}
+	return q.Where("(COALESCE(scope_labels, '{}'::jsonb) = '{}'::jsonb OR scope_labels = ?::jsonb)", string(labels))
 }
 
 func (p *Provider) suggestRows(ctx context.Context, req types.SuggestRequest) ([]documentModel, error) {
@@ -514,6 +560,7 @@ func (p *Provider) suggestRows(ctx context.Context, req types.SuggestRequest) ([
 				WhereOr("similarity(COALESCE(fields->>'parent_title', ''), ?) >= ?", query, p.cfg.SuggestTrigramThreshold)
 		}).
 		OrderExpr("combined_score DESC, title ASC")
+	q = applyScopeQuery(q, req.Scope)
 	if req.Locale != "" {
 		q = q.Where("(locale = '' OR locale = ?)", req.Locale)
 	}
@@ -526,6 +573,12 @@ func (p *Provider) suggestRows(ctx context.Context, req types.SuggestRequest) ([
 		return nil, err
 	}
 	return rows, nil
+}
+
+func markFacetAccuracyLowerBound(facets []types.SearchFacet) {
+	for i := range facets {
+		facets[i].Accuracy = types.FacetCountAccuracyLowerBound
+	}
 }
 
 func scoredDocument(row documentModel, query string, doc types.Document) (float64, bool) {
@@ -638,14 +691,17 @@ func facetResultID(doc types.Document) string {
 }
 
 func matchesScope(scope types.Scope, doc types.Document) bool {
-	if scope.TenantID != "" && doc.Scope.TenantID != "" && scope.TenantID != doc.Scope.TenantID {
+	if doc.Scope.TenantID != "" && !strings.EqualFold(strings.TrimSpace(scope.TenantID), strings.TrimSpace(doc.Scope.TenantID)) {
 		return false
 	}
-	if scope.OrgID != "" && doc.Scope.OrgID != "" && scope.OrgID != doc.Scope.OrgID {
+	if doc.Scope.OrgID != "" && !strings.EqualFold(strings.TrimSpace(scope.OrgID), strings.TrimSpace(doc.Scope.OrgID)) {
 		return false
 	}
-	for key, want := range scope.Labels {
-		if got, ok := doc.Scope.Labels[key]; !ok || got != want {
+	if len(doc.Scope.Labels) > 0 && len(scope.Labels) != len(doc.Scope.Labels) {
+		return false
+	}
+	for key, want := range doc.Scope.Labels {
+		if got, ok := scope.Labels[key]; !ok || !strings.EqualFold(strings.TrimSpace(got), strings.TrimSpace(want)) {
 			return false
 		}
 	}

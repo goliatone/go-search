@@ -53,7 +53,7 @@ func BuildSegmentDocuments(cues []Cue, opts DocumentOptions) []types.Document {
 			ResultType:    opts.ResultType,
 			MatchLocation: opts.MatchLocation,
 			MatchField:    opts.MatchField,
-			ChunkOrdinal:  intPtr(ordinal),
+			ChunkOrdinal:  new(ordinal),
 			SourceType:    opts.SourceType,
 			SourceID:      opts.SourceID,
 			SourceVersion: opts.Version,
@@ -98,8 +98,6 @@ func resolveAnchorURL(opts DocumentOptions, startMS int64) string {
 	}
 	return anchorURL(opts.BaseURL, startMS)
 }
-
-func intPtr(value int) *int { return &value }
 
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {

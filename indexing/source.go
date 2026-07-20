@@ -45,7 +45,7 @@ type RegistrationOptions struct {
 func NewRegistrationWithOptions[T any](indexName string, definition types.IndexDefinition, registrationKey string, sourceType string, source Source[T], projector Projector[T], idGetter func(T) string, opts RegistrationOptions) *Registration[T] {
 	return &Registration[T]{
 		indexName:       indexName,
-		definition:      definition,
+		definition:      definition.Clone(),
 		registrationKey: registrationKey,
 		sourceType:      sourceType,
 		source:          source,
@@ -60,7 +60,7 @@ func (r *Registration[T]) IndexName() string {
 }
 
 func (r *Registration[T]) Definition() types.IndexDefinition {
-	return r.definition
+	return r.definition.Clone()
 }
 
 func (r *Registration[T]) RegistrationKey() string {

@@ -91,6 +91,35 @@ func (p *TranscriptProjector) Project(_ context.Context, record TranscriptRecord
 		MaxGapMS:      p.cfg.MaxGapMS,
 		Version:       p.cfg.MergeVersion,
 	})
+	parentFields := map[string]any{
+		"topic":              mediaFields.TopicLeaf,
+		"topic_hierarchy":    append([]string(nil), mediaFields.TopicHierarchy...),
+		"category":           mediaFields.CategoryLeaf,
+		"category_hierarchy": append([]string(nil), mediaFields.CategoryHierarchy...),
+		"people":             append([]string(nil), mediaFields.People...),
+		"subject":            append([]string(nil), mediaFields.Subjects...),
+		"text":               append([]string(nil), mediaFields.Texts...),
+		"deity":              append([]string(nil), mediaFields.Deities...),
+		"location":           mediaFields.Location,
+		"sangha":             mediaFields.Sangha,
+		"format":             mediaFields.Format,
+		"series":             mediaFields.Series,
+		"decade":             mediaFields.Decade,
+		"duration_bucket":    mediaFields.DurationBucket,
+		"result_badge":       mediaFields.Badge,
+		"parent_title":       record.Media.Title,
+		"parent_summary":     record.Media.Summary,
+		"parent_url":         record.Media.URL,
+		"parent_thumbnail":   record.Media.Thumbnail,
+	}
+	parentNumeric := map[string]float64{}
+	if mediaFields.PublishedYear > 0 {
+		parentFields["published_year"] = mediaFields.PublishedYear
+		parentNumeric["published_year"] = float64(mediaFields.PublishedYear)
+	}
+	if mediaFields.DurationSeconds > 0 {
+		parentNumeric["duration_seconds"] = float64(mediaFields.DurationSeconds)
+	}
 	return subtitle.BuildSegmentDocuments(merged, subtitle.DocumentOptions{
 		Index:           p.cfg.Index,
 		SourceType:      p.cfg.SourceType,
@@ -125,32 +154,8 @@ func (p *TranscriptProjector) Project(_ context.Context, record TranscriptRecord
 			"format":             compact(mediaFields.Format),
 			"series":             compact(mediaFields.Series),
 		},
-		ParentFields: map[string]any{
-			"topic":              mediaFields.TopicLeaf,
-			"topic_hierarchy":    append([]string(nil), mediaFields.TopicHierarchy...),
-			"category":           mediaFields.CategoryLeaf,
-			"category_hierarchy": append([]string(nil), mediaFields.CategoryHierarchy...),
-			"people":             append([]string(nil), mediaFields.People...),
-			"subject":            append([]string(nil), mediaFields.Subjects...),
-			"text":               append([]string(nil), mediaFields.Texts...),
-			"deity":              append([]string(nil), mediaFields.Deities...),
-			"location":           mediaFields.Location,
-			"sangha":             mediaFields.Sangha,
-			"format":             mediaFields.Format,
-			"series":             mediaFields.Series,
-			"decade":             mediaFields.Decade,
-			"duration_bucket":    mediaFields.DurationBucket,
-			"published_year":     mediaFields.PublishedYear,
-			"result_badge":       mediaFields.Badge,
-			"parent_title":       record.Media.Title,
-			"parent_summary":     record.Media.Summary,
-			"parent_url":         record.Media.URL,
-			"parent_thumbnail":   record.Media.Thumbnail,
-		},
-		ParentNumeric: map[string]float64{
-			"published_year":   float64(mediaFields.PublishedYear),
-			"duration_seconds": float64(mediaFields.DurationSeconds),
-		},
+		ParentFields:   parentFields,
+		ParentNumeric:  parentNumeric,
 		ParentMetadata: record.ParentMetadata,
 		Metadata:       record.Metadata,
 		Visibility:     record.Visibility,

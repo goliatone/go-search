@@ -1,8 +1,12 @@
 package types
 
-import "maps"
-
-import "context"
+import (
+	"context"
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
+)
 
 type Scope struct {
 	TenantID string            `json:"tenant_id"`
@@ -48,6 +52,129 @@ type ScopeGuard interface {
 	AllowSearch(ctx context.Context, actor ActorRef, req SearchRequest) bool
 	AllowSuggest(ctx context.Context, actor ActorRef, req SuggestRequest) bool
 	AllowDocument(ctx context.Context, actor ActorRef, doc Document) bool
+}
+
+// DefaultScopeGuard is the fail-closed authorization policy used when a host
+// does not provide a more specific guard. Unscoped documents with no explicit
+// visibility policy retain legacy public behavior; any scope or visibility
+// constraint requires a matching authenticated actor.
+type DefaultScopeGuard struct{}
+
+// RequiresCandidateExpansion reports that authorization must run across the
+// bounded candidate window so unauthorized hits cannot skew pages or facets.
+func (DefaultScopeGuard) RequiresCandidateExpansion() bool { return true }
+
+func (DefaultScopeGuard) AllowSearch(_ context.Context, actor ActorRef, req SearchRequest) bool {
+	return requestScopeAllowed(actor, req.Scope)
+}
+
+func (DefaultScopeGuard) AllowSuggest(_ context.Context, actor ActorRef, req SuggestRequest) bool {
+	return requestScopeAllowed(actor, req.Scope)
+}
+
+func (DefaultScopeGuard) AllowDocument(_ context.Context, actor ActorRef, doc Document) bool {
+	if !documentScopeAllowed(actor, doc.Scope) {
+		return false
+	}
+	visibility := doc.Visibility
+	if visibility.Public {
+		return true
+	}
+	if matchesActorValues(actor.Metadata, "role", "roles", visibility.Roles) ||
+		matchesActorValues(actor.Metadata, "permission", "permissions", visibility.Permissions) {
+		return strings.TrimSpace(actor.UserID) != ""
+	}
+	// A completely unconstrained legacy document is public. A scoped document
+	// with no visibility fields is private to authenticated members of its scope.
+	if strings.TrimSpace(visibility.Status) == "" && len(visibility.Roles) == 0 && len(visibility.Permissions) == 0 {
+		if scopeEmpty(doc.Scope) {
+			return true
+		}
+		return strings.TrimSpace(actor.UserID) != ""
+	}
+	return false
+}
+
+func requestScopeAllowed(actor ActorRef, scope Scope) bool {
+	if scopeEmpty(scope) {
+		return true
+	}
+	if strings.TrimSpace(actor.UserID) == "" {
+		return false
+	}
+	if tenant := strings.TrimSpace(scope.TenantID); tenant != "" && !strings.EqualFold(tenant, strings.TrimSpace(actor.TenantID)) {
+		return false
+	}
+	if org := strings.TrimSpace(scope.OrgID); org != "" && !strings.EqualFold(org, strings.TrimSpace(actor.OrgID)) {
+		return false
+	}
+	return labelsAllowed(actor.Metadata, scope.Labels)
+}
+
+func documentScopeAllowed(actor ActorRef, scope Scope) bool {
+	if scopeEmpty(scope) {
+		return true
+	}
+	return requestScopeAllowed(actor, scope)
+}
+
+func scopeEmpty(scope Scope) bool {
+	return strings.TrimSpace(scope.TenantID) == "" && strings.TrimSpace(scope.OrgID) == "" && len(scope.Labels) == 0
+}
+
+func labelsAllowed(metadata map[string]any, required map[string]string) bool {
+	if len(required) == 0 {
+		return true
+	}
+	raw, ok := metadata["scope_labels"]
+	if !ok {
+		return false
+	}
+	labels := map[string]string{}
+	switch value := raw.(type) {
+	case map[string]string:
+		maps.Copy(labels, value)
+	case map[string]any:
+		for key, item := range value {
+			labels[key] = strings.TrimSpace(fmt.Sprint(item))
+		}
+	default:
+		return false
+	}
+	for key, want := range required {
+		if !strings.EqualFold(strings.TrimSpace(labels[key]), strings.TrimSpace(want)) {
+			return false
+		}
+	}
+	return true
+}
+
+func matchesActorValues(metadata map[string]any, singular, plural string, allowed []string) bool {
+	if len(allowed) == 0 || len(metadata) == 0 {
+		return false
+	}
+	values := []string{}
+	for _, key := range []string{singular, plural} {
+		switch value := metadata[key].(type) {
+		case string:
+			values = append(values, value)
+		case []string:
+			values = append(values, value...)
+		case []any:
+			for _, item := range value {
+				values = append(values, fmt.Sprint(item))
+			}
+		}
+	}
+	for _, candidate := range values {
+		candidate = strings.ToLower(strings.TrimSpace(candidate))
+		if slices.ContainsFunc(allowed, func(value string) bool {
+			return candidate != "" && candidate == strings.ToLower(strings.TrimSpace(value))
+		}) {
+			return true
+		}
+	}
+	return false
 }
 
 type CapabilityGate interface {

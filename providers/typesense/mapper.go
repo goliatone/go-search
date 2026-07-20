@@ -248,6 +248,7 @@ func mapDocument(raw *map[string]any) types.Document {
 		"scope_tenant_id",
 		"scope_org_id",
 		"scope_labels",
+		"scope_labels_fingerprint",
 		"visibility_public",
 		"visibility_roles",
 		"visibility_permissions",

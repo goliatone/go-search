@@ -1,7 +1,9 @@
 package goadmin
 
 import (
+	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/goliatone/go-search/pkg/types"
@@ -161,6 +163,7 @@ func ToSearchRequest(indexes []string, req SiteSearchRequest) types.SearchReques
 		Sort:     parseSort(req.Sort),
 		Filters:  combineFilterExprs(filterExprFromMap(req.Filters), filterExprFromRanges(req.Ranges)),
 		Metadata: metadata,
+		Actor:    actorRefFromAny(req.Actor),
 		Request:  req.Request,
 	}
 }
@@ -179,7 +182,114 @@ func ToSuggestRequest(indexes []string, req SiteSuggestRequest) types.SuggestReq
 		Locale:   strings.TrimSpace(req.Locale),
 		Limit:    positiveOr(req.Limit, 8),
 		Metadata: metadata,
-		Actor:    types.ActorRef{},
+		Actor:    actorRefFromAny(req.Actor),
+	}
+}
+
+func actorRefFromAny(value any) types.ActorRef {
+	switch actor := value.(type) {
+	case types.ActorRef:
+		actor.Metadata = cloneMetadata(actor.Metadata)
+		return actor
+	case *types.ActorRef:
+		if actor == nil {
+			return types.ActorRef{}
+		}
+		out := *actor
+		out.Metadata = cloneMetadata(actor.Metadata)
+		return out
+	}
+
+	payload := actorPayload(value)
+	if len(payload) == 0 {
+		return types.ActorRef{}
+	}
+	metadata, _ := payloadMapValue(payload, "metadata")
+	metadata = cloneMetadata(metadata)
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	for key, item := range payload {
+		switch normalizeActorKey(key) {
+		case "metadata", "userid", "actorid", "subject", "id", "tenantid", "tenant", "organizationid", "orgid", "organization", "org":
+			continue
+		default:
+			metadata[canonicalActorMetadataKey(key)] = item
+		}
+	}
+	if len(metadata) == 0 {
+		metadata = nil
+	}
+	return types.ActorRef{
+		UserID:   actorPayloadString(payload, "user_id", "actor_id", "subject", "id"),
+		TenantID: actorPayloadString(payload, "tenant_id", "tenant"),
+		OrgID:    actorPayloadString(payload, "organization_id", "org_id", "organization", "org"),
+		Metadata: metadata,
+	}
+}
+
+func actorPayload(value any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	if payload, ok := value.(map[string]any); ok {
+		out := make(map[string]any, len(payload))
+		maps.Copy(out, payload)
+		return out
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	out := map[string]any{}
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func actorPayloadString(payload map[string]any, keys ...string) string {
+	for _, wanted := range keys {
+		for key, value := range payload {
+			if normalizeActorKey(key) != normalizeActorKey(wanted) {
+				continue
+			}
+			if text := strings.TrimSpace(fmt.Sprint(value)); text != "" && text != "<nil>" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func payloadMapValue(payload map[string]any, wanted string) (map[string]any, bool) {
+	for key, value := range payload {
+		if normalizeActorKey(key) != normalizeActorKey(wanted) {
+			continue
+		}
+		mapped, ok := value.(map[string]any)
+		return mapped, ok
+	}
+	return nil, false
+}
+
+func normalizeActorKey(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	return strings.NewReplacer("_", "", "-", "", ".", "").Replace(value)
+}
+
+func canonicalActorMetadataKey(value string) string {
+	switch normalizeActorKey(value) {
+	case "role":
+		return "role"
+	case "resourceroles":
+		return "resource_roles"
+	case "impersonatorid":
+		return "impersonator_id"
+	case "isimpersonated", "impersonated":
+		return "is_impersonated"
+	default:
+		return value
 	}
 }
 

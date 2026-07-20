@@ -1,6 +1,7 @@
 package typesense
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"sort"
 	"strconv"
@@ -345,17 +346,32 @@ func storageFilterField(field string) string {
 }
 
 func compileScopeFilter(scope types.Scope) string {
-	parts := make([]string, 0, len(scope.Labels)+2)
+	parts := make([]string, 0, 3)
 	if tenantID := strings.TrimSpace(scope.TenantID); tenantID != "" {
-		parts = append(parts, fmt.Sprintf("scope_tenant_id:=%s", encodeStringValue(tenantID)))
+		parts = append(parts, fmt.Sprintf("(scope_tenant_id:=`` || scope_tenant_id:=%s)", encodeStringValue(tenantID)))
+	} else {
+		parts = append(parts, "scope_tenant_id:=``")
 	}
 	if orgID := strings.TrimSpace(scope.OrgID); orgID != "" {
-		parts = append(parts, fmt.Sprintf("scope_org_id:=%s", encodeStringValue(orgID)))
+		parts = append(parts, fmt.Sprintf("(scope_org_id:=`` || scope_org_id:=%s)", encodeStringValue(orgID)))
+	} else {
+		parts = append(parts, "scope_org_id:=``")
 	}
-	for _, label := range scopeLabelTokens(scope.Labels) {
-		parts = append(parts, fmt.Sprintf("scope_labels:=%s", encodeStringValue(label)))
+	if fingerprint := scopeLabelsFingerprint(scope.Labels); fingerprint != "" {
+		parts = append(parts, fmt.Sprintf("(scope_labels_fingerprint:=`` || scope_labels_fingerprint:=%s)", encodeStringValue(fingerprint)))
+	} else {
+		parts = append(parts, "scope_labels_fingerprint:=``")
 	}
 	return strings.Join(parts, " && ")
+}
+
+func scopeLabelsFingerprint(labels map[string]string) string {
+	tokens := scopeLabelTokens(labels)
+	if len(tokens) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(strings.Join(tokens, "\x00")))
+	return fmt.Sprintf("%x", sum[:])
 }
 
 func scopeLabelTokens(labels map[string]string) []string {
