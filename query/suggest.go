@@ -58,7 +58,7 @@ func (q *Suggest) Query(ctx context.Context, req types.SuggestRequest) (types.Su
 		return types.SuggestResult{}, err
 	}
 	providerReq := plan.ProviderRequest()
-	if q.planner.ScopeGuard() != nil {
+	if scopeGuardRequiresCandidateExpansion(q.planner.ScopeGuard()) {
 		providerReq.Limit = max(plan.Request.Limit*q.scopeGuardFetchMultiplier, q.minimumScopeFetchSize)
 	}
 	result, err := q.provider.Suggest(ctx, providerReq)

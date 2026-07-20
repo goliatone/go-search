@@ -15,10 +15,11 @@ type MemoryQueue struct {
 }
 
 type MemoryStorage struct {
-	mu     sync.Mutex
-	now    func() time.Time
-	nextID uint64
-	items  map[string]*memoryDispatch
+	mu       sync.Mutex
+	now      func() time.Time
+	leaseTTL time.Duration
+	nextID   uint64
+	items    map[string]*memoryDispatch
 }
 
 type memoryDispatch struct {
@@ -36,10 +37,26 @@ type memoryDispatch struct {
 }
 
 func NewMemoryQueue() *MemoryQueue {
+	return NewMemoryQueueWithConfig(MemoryQueueConfig{})
+}
+
+type MemoryQueueConfig struct {
+	LeaseTTL time.Duration
+	Now      func() time.Time
+}
+
+func NewMemoryQueueWithConfig(cfg MemoryQueueConfig) *MemoryQueue {
+	if cfg.LeaseTTL <= 0 {
+		cfg.LeaseTTL = 30 * time.Second
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
 	return &MemoryQueue{
 		storage: &MemoryStorage{
-			now:   time.Now,
-			items: map[string]*memoryDispatch{},
+			now:      cfg.Now,
+			leaseTTL: cfg.LeaseTTL,
+			items:    map[string]*memoryDispatch{},
 		},
 	}
 }
@@ -97,7 +114,15 @@ func (s *MemoryStorage) Dequeue(_ context.Context) (*job.ExecutionMessage, queue
 	var candidate *memoryDispatch
 	for _, item := range s.items {
 		if item.leaseToken != "" {
-			continue
+			if item.leaseUntil.After(now) {
+				continue
+			}
+			item.leaseToken = ""
+			item.leasedAt = time.Time{}
+			item.leaseUntil = time.Time{}
+			item.availableAt = now
+			item.updatedAt = now
+			item.state = queue.DispatchStateRetrying
 		}
 		if item.state != queue.DispatchStateAccepted && item.state != queue.DispatchStateRetrying {
 			continue
@@ -115,7 +140,7 @@ func (s *MemoryStorage) Dequeue(_ context.Context) (*job.ExecutionMessage, queue
 	candidate.attempts++
 	candidate.leasedAt = now
 	candidate.updatedAt = now
-	candidate.leaseUntil = now
+	candidate.leaseUntil = now.Add(s.leaseTTL)
 	candidate.leaseToken = fmt.Sprintf("%s-%d", candidate.id, candidate.attempts)
 	candidate.state = queue.DispatchStateRunning
 	return cloneExecutionMessage(candidate.message), queue.Receipt{
@@ -139,9 +164,13 @@ func (s *MemoryStorage) Ack(_ context.Context, receipt queue.Receipt) error {
 	if item.leaseToken != receipt.Token {
 		return fmt.Errorf("invalid lease token")
 	}
+	now := s.now().UTC()
+	if !item.leaseUntil.After(now) {
+		return fmt.Errorf("lease expired")
+	}
 	item.leaseToken = ""
 	item.leaseUntil = time.Time{}
-	item.updatedAt = s.now().UTC()
+	item.updatedAt = now
 	item.state = queue.DispatchStateSucceeded
 	return nil
 }
@@ -156,9 +185,13 @@ func (s *MemoryStorage) Nack(_ context.Context, receipt queue.Receipt, opts queu
 	if item.leaseToken != receipt.Token {
 		return fmt.Errorf("invalid lease token")
 	}
+	now := s.now().UTC()
+	if !item.leaseUntil.After(now) {
+		return fmt.Errorf("lease expired")
+	}
 	item.leaseToken = ""
 	item.leaseUntil = time.Time{}
-	item.updatedAt = s.now().UTC()
+	item.updatedAt = now
 	item.lastError = opts.Reason
 	switch opts.Disposition {
 	case queue.NackDispositionRetry:
@@ -175,6 +208,9 @@ func (s *MemoryStorage) Nack(_ context.Context, receipt queue.Receipt, opts queu
 }
 
 func (s *MemoryStorage) ExtendLease(_ context.Context, receipt queue.Receipt, ttl time.Duration) error {
+	if ttl <= 0 {
+		return fmt.Errorf("lease ttl must be > 0")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	item, ok := s.items[receipt.ID]
@@ -185,6 +221,9 @@ func (s *MemoryStorage) ExtendLease(_ context.Context, receipt queue.Receipt, tt
 		return fmt.Errorf("invalid lease token")
 	}
 	now := s.now().UTC()
+	if !item.leaseUntil.After(now) {
+		return fmt.Errorf("lease expired")
+	}
 	item.updatedAt = now
 	item.leaseUntil = now.Add(ttl)
 	return nil

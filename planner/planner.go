@@ -7,6 +7,7 @@ import (
 
 	"github.com/goliatone/go-search/internal/errs"
 	"github.com/goliatone/go-search/internal/filtervalidate"
+	"github.com/goliatone/go-search/internal/requestvalidate"
 	"github.com/goliatone/go-search/locale"
 	"github.com/goliatone/go-search/pkg/types"
 	"github.com/goliatone/go-search/ranking"
@@ -58,6 +59,7 @@ type Config struct {
 	CapabilityGate types.CapabilityGate
 	Defaults       Defaults
 	Profiles       ranking.ProfileRegistry
+	Limits         types.RequestLimits
 }
 
 type Planner struct {
@@ -68,6 +70,7 @@ type Planner struct {
 	capabilityGate types.CapabilityGate
 	defaults       Defaults
 	profiles       ranking.ProfileRegistry
+	limits         types.RequestLimits
 }
 
 type LocalePlan struct {
@@ -91,6 +94,10 @@ func New(cfg Config) (*Planner, error) {
 	}
 	cfg.Defaults = normalizeDefaults(cfg.Defaults)
 	cfg.LocalePolicy = normalizeLocalePolicy(cfg.LocalePolicy)
+	cfg.Limits = types.NormalizeRequestLimits(cfg.Limits)
+	if cfg.ScopeGuard == nil {
+		cfg.ScopeGuard = types.DefaultScopeGuard{}
+	}
 	return &Planner{
 		registry:       cfg.Registry,
 		localeRuntime:  cfg.LocaleRuntime,
@@ -99,6 +106,7 @@ func New(cfg Config) (*Planner, error) {
 		capabilityGate: cfg.CapabilityGate,
 		defaults:       cfg.Defaults,
 		profiles:       cfg.Profiles,
+		limits:         cfg.Limits,
 	}, nil
 }
 
@@ -172,6 +180,9 @@ func (p *Planner) BuildSearchPlan(ctx context.Context, req types.SearchRequest) 
 	if err := p.validateGroupedSearch(req, indexes); err != nil {
 		return SearchPlan{}, err
 	}
+	if err := validateRequestFields(req, indexes); err != nil {
+		return SearchPlan{}, err
+	}
 	if p.scopeGuard != nil && !p.scopeGuard.AllowSearch(ctx, req.Actor, req) {
 		return SearchPlan{}, errs.FeatureDisabled("search denied by scope guard", map[string]any{"indexes": req.Indexes})
 	}
@@ -221,6 +232,9 @@ func validateProfileIndexes(profile ranking.RankingProfile, indexes []types.Inde
 
 func (p *Planner) BuildSuggestPlan(ctx context.Context, req types.SuggestRequest) (SuggestPlan, error) {
 	req = p.NormalizeSuggestRequest(req)
+	if err := requestvalidate.Suggest(req, p.limits); err != nil {
+		return SuggestPlan{}, err
+	}
 	indexes, err := p.resolveIndexes(req.Indexes)
 	if err != nil {
 		return SuggestPlan{}, err
@@ -234,6 +248,9 @@ func (p *Planner) BuildSuggestPlan(ctx context.Context, req types.SuggestRequest
 }
 
 func (p *Planner) ValidateSearchRequest(_ context.Context, req types.SearchRequest) error {
+	if err := requestvalidate.Search(req, p.limits); err != nil {
+		return err
+	}
 	if len(req.Indexes) == 0 {
 		return errs.UnknownIndex("", map[string]any{"reason": "no indexes requested"})
 	}
@@ -388,6 +405,86 @@ func (p *Planner) validateGroupedSearch(req types.SearchRequest, indexes []types
 		})
 	}
 	return nil
+}
+
+func validateRequestFields(req types.SearchRequest, indexes []types.IndexDefinition) error {
+	for _, def := range indexes {
+		if err := validateFieldsForIndex(req, def); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateFieldsForIndex(req types.SearchRequest, def types.IndexDefinition) error {
+	contains := func(values []string, field string) bool {
+		return slices.ContainsFunc(values, func(value string) bool {
+			return strings.EqualFold(strings.TrimSpace(value), strings.TrimSpace(field))
+		})
+	}
+	for _, sort := range req.Sort {
+		if !contains(def.SortableFields, sort.Field) && !containsSort(def.DefaultSort, sort.Field) {
+			return errs.InvalidSort("sort field is not declared on the index", map[string]any{"index": def.Name, "field": sort.Field})
+		}
+	}
+	for _, facet := range req.Facets {
+		if !contains(def.FacetFields, facet.Field) {
+			return errs.InvalidFilter("facet field is not declared on the index", map[string]any{"index": def.Name, "field": facet.Field})
+		}
+	}
+	filterable := append([]string{}, def.FilterableFields...)
+	filterable = append(filterable, def.FacetFields...)
+	filterable = append(filterable, def.GroupByDefault)
+	for _, field := range filtervalidate.Fields(req.Filters) {
+		if !contains(filterable, field) && !isBuiltinFilterField(field) {
+			return errs.InvalidFilter("filter field is not declared on the index", map[string]any{"index": def.Name, "field": field})
+		}
+	}
+	for _, field := range req.Highlight {
+		if !contains(def.HighlightFields, field) {
+			return errs.InvalidInput("highlight field is not declared on the index", map[string]any{"index": def.Name, "field": field})
+		}
+	}
+	for _, field := range req.IncludeFields {
+		if !indexContainsField(def, field) {
+			return errs.InvalidInput("included field is not declared on the index", map[string]any{"index": def.Name, "field": field})
+		}
+	}
+	if fields, ok := req.QueryFields[def.Name]; ok {
+		for _, field := range fields {
+			if !contains(def.SearchableFields, field.Field) && !contains(def.DefaultQueryFields, field.Field) {
+				return errs.InvalidInput("query field is not declared on the index", map[string]any{"index": def.Name, "field": field.Field})
+			}
+		}
+	}
+	return nil
+}
+
+func containsSort(values []types.Sort, field string) bool {
+	return slices.ContainsFunc(values, func(value types.Sort) bool {
+		return strings.EqualFold(strings.TrimSpace(value.Field), strings.TrimSpace(field))
+	})
+}
+
+func indexContainsField(def types.IndexDefinition, field string) bool {
+	if isBuiltinFilterField(field) || field == "title" || field == "summary" || field == "body" || field == "url" {
+		return true
+	}
+	for _, values := range [][]string{def.SearchableFields, def.DefaultQueryFields, def.FilterableFields, def.FacetFields, def.SortableFields, def.HighlightFields} {
+		if slices.Contains(values, field) {
+			return true
+		}
+	}
+	return false
+}
+
+func isBuiltinFilterField(field string) bool {
+	switch strings.TrimSpace(field) {
+	case "id", "index", "type", "parent_id", "result_id", "match_location", "source_type", "source_id", "locale", "start_ms", "end_ms", "track_kind", "source_format", "topic", "scope_tenant_id", "scope_org_id", "scope_labels", "visibility_public", "visibility_roles", "visibility_permissions", "visibility_status":
+		return true
+	default:
+		return false
+	}
 }
 
 func supportsMode(caps types.CapabilitySet, mode types.SearchMode) bool {

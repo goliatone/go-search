@@ -132,8 +132,51 @@ func cloneProfile(p RankingProfile) RankingProfile {
 		cfg.QueryFields = append([]types.QueryField(nil), cfg.QueryFields...)
 		out.Indexes[name] = cfg
 	}
-	out.Signals = append([]ImplementationRef(nil), p.Signals...)
+	out.Fusion.Options = cloneProfileOptions(p.Fusion.Options)
+	out.Signals = make([]ImplementationRef, len(p.Signals))
+	for i, signal := range p.Signals {
+		signal.Options = cloneProfileOptions(signal.Options)
+		out.Signals[i] = signal
+	}
 	return out
+}
+
+func cloneProfileOptions(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		out[key] = cloneProfileOptionValue(value)
+	}
+	return out
+}
+
+func cloneProfileOptionValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneProfileOptions(typed)
+	case map[string]string:
+		out := make(map[string]string, len(typed))
+		for key, value := range typed {
+			out[key] = value
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = cloneProfileOptionValue(item)
+		}
+		return out
+	case []string:
+		return append([]string(nil), typed...)
+	case []int:
+		return append([]int(nil), typed...)
+	case []float64:
+		return append([]float64(nil), typed...)
+	default:
+		return value
+	}
 }
 
 func LegacyQueryFields(def types.IndexDefinition) []types.QueryField {

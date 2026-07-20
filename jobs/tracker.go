@@ -19,6 +19,8 @@ type Tracker struct {
 	byDispatchID   map[string]*DispatchSnapshot
 	byOperationKey map[string]*DispatchSnapshot
 	batches        map[string][]string
+	onPersistError func(context.Context, DispatchSnapshot, error)
+	lastPersistErr error
 }
 
 type TrackerOption func(*Tracker)
@@ -26,6 +28,12 @@ type TrackerOption func(*Tracker)
 func WithDispatchStore(store DispatchStore) TrackerOption {
 	return func(t *Tracker) {
 		t.store = store
+	}
+}
+
+func WithPersistenceErrorHandler(handler func(context.Context, DispatchSnapshot, error)) TrackerOption {
+	return func(t *Tracker) {
+		t.onPersistError = handler
 	}
 }
 
@@ -72,6 +80,9 @@ func (t *Tracker) Prepare(ctx context.Context, draft DispatchSnapshot) error {
 	if draft.UpdatedAt == nil {
 		draft.UpdatedAt = &now
 	}
+	if draft.Revision < 1 {
+		draft.Revision = 1
+	}
 
 	t.mu.Lock()
 	if _, exists := t.byOperationKey[operationKey]; exists {
@@ -112,12 +123,13 @@ func (t *Tracker) Bind(ctx context.Context, operationKey string, receipt Dispatc
 	enqueuedAt := receipt.EnqueuedAt.UTC()
 	snapshot.EnqueuedAt = &enqueuedAt
 	snapshot.UpdatedAt = &enqueuedAt
+	advanceRevision(snapshot)
 	t.indexSnapshotLocked(snapshot)
 	cloned := cloneDispatchSnapshot(*snapshot)
 	store := t.store
 	t.mu.Unlock()
 	if store != nil && cloned.DispatchID != "" {
-		return store.Upsert(ctx, cloned)
+		return t.persist(ctx, store, cloned)
 	}
 	return nil
 }
@@ -157,10 +169,13 @@ func (t *Tracker) RecordProgress(ctx context.Context, operationKey string, updat
 	}
 	now := t.now().UTC()
 	snapshot.UpdatedAt = &now
+	advanceRevision(snapshot)
 	cloned := cloneDispatchSnapshot(*snapshot)
 	store := t.store
 	t.mu.Unlock()
-	t.persist(ctx, store, cloned)
+	if err := t.persist(ctx, store, cloned); err != nil {
+		return
+	}
 }
 
 func (t *Tracker) RecordGeneration(ctx context.Context, operationKey, index string, generation int64) {
@@ -180,10 +195,13 @@ func (t *Tracker) RecordGeneration(ctx context.Context, operationKey, index stri
 	}
 	now := t.now().UTC()
 	snapshot.UpdatedAt = &now
+	advanceRevision(snapshot)
 	cloned := cloneDispatchSnapshot(*snapshot)
 	store := t.store
 	t.mu.Unlock()
-	t.persist(ctx, store, cloned)
+	if err := t.persist(ctx, store, cloned); err != nil {
+		return
+	}
 }
 
 func (t *Tracker) RecordActivity(ctx context.Context, operationKey string, event types.ActivityEvent) {
@@ -214,10 +232,13 @@ func (t *Tracker) RecordActivity(ctx context.Context, operationKey string, event
 	}
 	now := t.now().UTC()
 	snapshot.UpdatedAt = &now
+	advanceRevision(snapshot)
 	cloned := cloneDispatchSnapshot(*snapshot)
 	store := t.store
 	t.mu.Unlock()
-	t.persist(ctx, store, cloned)
+	if err := t.persist(ctx, store, cloned); err != nil {
+		return
+	}
 }
 
 func (t *Tracker) MarkStarted(ctx context.Context, operationKey string, attempt int) {
@@ -257,10 +278,13 @@ func (t *Tracker) MarkCancelRequested(ctx context.Context, dispatchID string) {
 	snapshot.CancelRequested = true
 	now := t.now().UTC()
 	snapshot.UpdatedAt = &now
+	advanceRevision(snapshot)
 	cloned := cloneDispatchSnapshot(*snapshot)
 	store := t.store
 	t.mu.Unlock()
-	t.persist(ctx, store, cloned)
+	if err := t.persist(ctx, store, cloned); err != nil {
+		return
+	}
 }
 
 func (t *Tracker) UpdateStatus(ctx context.Context, dispatchID string, status queue.DispatchStatus) {
@@ -270,6 +294,10 @@ func (t *Tracker) UpdateStatus(ctx context.Context, dispatchID string, status qu
 	t.mu.Lock()
 	snapshot := t.byDispatchID[strings.TrimSpace(dispatchID)]
 	if snapshot == nil {
+		t.mu.Unlock()
+		return
+	}
+	if status.UpdatedAt != nil && snapshot.UpdatedAt != nil && status.UpdatedAt.Before(*snapshot.UpdatedAt) {
 		t.mu.Unlock()
 		return
 	}
@@ -291,10 +319,13 @@ func (t *Tracker) UpdateStatus(ctx context.Context, dispatchID string, status qu
 	} else {
 		snapshot.NextRunAt = nil
 	}
+	advanceRevision(snapshot)
 	cloned := cloneDispatchSnapshot(*snapshot)
 	store := t.store
 	t.mu.Unlock()
-	t.persist(ctx, store, cloned)
+	if err := t.persist(ctx, store, cloned); err != nil {
+		return
+	}
 }
 
 func (t *Tracker) Get(ctx context.Context, dispatchID string, reader queue.DispatchStatusReader) (DispatchSnapshot, bool, error) {
@@ -412,6 +443,9 @@ func (t *Tracker) upsertSnapshot(snapshot DispatchSnapshot) {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if current := t.currentSnapshotLocked(snapshot); current != nil && !snapshotNewer(snapshot, *current) {
+		return
+	}
 	copy := cloneDispatchSnapshot(snapshot)
 	t.indexSnapshotLocked(&copy)
 }
@@ -453,6 +487,7 @@ func (t *Tracker) markAttemptState(ctx context.Context, operationKey string, sta
 	}
 	now := t.now().UTC()
 	snapshot.UpdatedAt = &now
+	advanceRevision(snapshot)
 	if nextRun != nil {
 		value := nextRun.UTC()
 		snapshot.NextRunAt = &value
@@ -462,14 +497,68 @@ func (t *Tracker) markAttemptState(ctx context.Context, operationKey string, sta
 	cloned := cloneDispatchSnapshot(*snapshot)
 	store := t.store
 	t.mu.Unlock()
-	t.persist(ctx, store, cloned)
-}
-
-func (t *Tracker) persist(ctx context.Context, store DispatchStore, snapshot DispatchSnapshot) {
-	if store == nil || snapshot.DispatchID == "" {
+	if err := t.persist(ctx, store, cloned); err != nil {
 		return
 	}
-	_ = store.Upsert(ctx, snapshot)
+}
+
+func (t *Tracker) persist(ctx context.Context, store DispatchStore, snapshot DispatchSnapshot) error {
+	if store == nil || snapshot.DispatchID == "" {
+		return nil
+	}
+	if err := store.Upsert(ctx, snapshot); err != nil {
+		t.mu.Lock()
+		t.lastPersistErr = err
+		handler := t.onPersistError
+		t.mu.Unlock()
+		if handler != nil {
+			handler(ctx, cloneDispatchSnapshot(snapshot), err)
+		}
+		return err
+	}
+	return nil
+}
+
+func (t *Tracker) PersistenceError() error {
+	if t == nil {
+		return nil
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.lastPersistErr
+}
+
+func advanceRevision(snapshot *DispatchSnapshot) {
+	if snapshot == nil {
+		return
+	}
+	if snapshot.Revision < 1 {
+		snapshot.Revision = 1
+		return
+	}
+	snapshot.Revision++
+}
+
+func (t *Tracker) currentSnapshotLocked(snapshot DispatchSnapshot) *DispatchSnapshot {
+	if snapshot.DispatchID != "" {
+		if current := t.byDispatchID[snapshot.DispatchID]; current != nil {
+			return current
+		}
+	}
+	if snapshot.OperationKey != "" {
+		return t.byOperationKey[snapshot.OperationKey]
+	}
+	return nil
+}
+
+func snapshotNewer(candidate, current DispatchSnapshot) bool {
+	if candidate.Revision != current.Revision {
+		return candidate.Revision > current.Revision
+	}
+	if candidate.UpdatedAt == nil {
+		return current.UpdatedAt == nil
+	}
+	return current.UpdatedAt == nil || candidate.UpdatedAt.After(*current.UpdatedAt)
 }
 
 func queueConflictError(operationKey string) error {

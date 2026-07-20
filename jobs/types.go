@@ -65,6 +65,7 @@ type DispatchSummary struct {
 }
 
 type DispatchSnapshot struct {
+	Revision        int64            `json:"revision"`
 	DispatchID      string           `json:"dispatch_id"`
 	CommandID       string           `json:"command_id"`
 	Operation       Operation        `json:"operation"`

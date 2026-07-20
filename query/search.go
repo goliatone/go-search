@@ -110,6 +110,16 @@ func (q *Search) Query(ctx context.Context, req types.SearchRequest) (types.Sear
 	}
 	page = annotateSearchPageLocales(page, plan.Locale)
 	page = filterSearchPage(ctx, plan.Request, page, q.planner.ScopeGuard())
+	if plan.Profile == nil && plan.Request.GroupBy == "" && len(rules) == 0 && scopeGuardRequiresCandidateExpansion(q.planner.ScopeGuard()) {
+		page.Page = plan.Request.Page
+		page.PerPage = plan.Request.PerPage
+		page.Hits = ranking.PaginateHits(page.Hits, plan.Request.Page, plan.Request.PerPage)
+		if page.DurationMS <= 0 {
+			page.DurationMS = q.clock.Now().Sub(startedAt).Milliseconds()
+		}
+		finalizeSearchObservation(ctx, q.metrics, q.logger, startedAt, page, 0)
+		return page, nil
+	}
 	if plan.Profile != nil {
 		page.Hits = ranking.GroupEntities(page.Hits, 1)
 		page.Total = len(page.Hits)
@@ -372,7 +382,17 @@ func candidateWindow(req types.SearchRequest, cfg ranking.CandidateConfig) int {
 }
 
 func requiresPostProcessing(req types.SearchRequest, rules []types.EditorialRankRule, guard types.ScopeGuard) bool {
-	return req.GroupBy != "" || len(rules) > 0 || guard != nil
+	return req.GroupBy != "" || len(rules) > 0 || scopeGuardRequiresCandidateExpansion(guard)
+}
+
+func scopeGuardRequiresCandidateExpansion(guard types.ScopeGuard) bool {
+	if guard == nil {
+		return false
+	}
+	if policy, ok := guard.(interface{ RequiresCandidateExpansion() bool }); ok {
+		return policy.RequiresCandidateExpansion()
+	}
+	return true
 }
 
 func (q *Search) buildGroupedDisjunctiveFacets(ctx context.Context, plan planner.SearchPlan, rules []types.EditorialRankRule, now time.Time) ([]types.SearchFacet, error) {
