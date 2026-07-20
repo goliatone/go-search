@@ -145,6 +145,23 @@ func (p *Provider) AggregateEvidence(ctx context.Context, in types.EvidenceReque
 	}
 	out := map[string]*types.MatchEvidenceSummary{}
 	for i, page := range pages {
+		if in.Guard != nil {
+			visible := make([]types.SearchHit, 0, len(page.Hits))
+			for _, hit := range page.Hits {
+				if hit.Document != nil && in.Guard.AllowDocument(ctx, in.Search.Actor, hit.Document.Clone()) {
+					visible = append(visible, hit)
+				}
+			}
+			summary := ranking.AggregateEvidence(visible, in.MaxSamplesPerLocation)[in.ResultIDs[i]]
+			if summary == nil {
+				summary = &types.MatchEvidenceSummary{}
+			}
+			summary.Exact = false
+			summary.Status = types.EvidenceStatusPartial
+			summary.Diagnostic = "visibility guard prevents exact provider facet counts"
+			out[in.ResultIDs[i]] = summary
+			continue
+		}
 		summary := &types.MatchEvidenceSummary{Exact: true, Status: types.EvidenceStatusComplete}
 		for _, facet := range page.Facets {
 			if facet.Field != "match_location" {

@@ -62,7 +62,7 @@ func (p *Provider) Capabilities(context.Context) (types.CapabilitySet, error) {
 	}, nil
 }
 
-func (p *Provider) AggregateEvidence(_ context.Context, in types.EvidenceRequest) (map[string]*types.MatchEvidenceSummary, error) {
+func (p *Provider) AggregateEvidence(ctx context.Context, in types.EvidenceRequest) (map[string]*types.MatchEvidenceSummary, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	wanted := map[string]bool{}
@@ -74,6 +74,9 @@ func (p *Provider) AggregateEvidence(_ context.Context, in types.EvidenceRequest
 		for _, doc := range p.docs[index] {
 			probe := types.SearchHit{ID: doc.ID, Type: doc.Type, Document: &doc}
 			if !wanted[ranking.ResultID(probe)] || !matchesScope(in.Search.Scope, doc) || !matchesLocale(in.Search, doc) || !matchesFilter(in.Search.Filters, doc) {
+				continue
+			}
+			if in.Guard != nil && !in.Guard.AllowDocument(ctx, in.Search.Actor, doc.Clone()) {
 				continue
 			}
 			score, ok := scoreDocumentWeighted(in.Search.Query, doc, in.Search.QueryFields[index])
