@@ -1,5 +1,33 @@
 # Changelog
 
+# [0.14.0](https://github.com/goliatone/go-search/compare/v0.13.0...v0.14.0) - (2026-07-20)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Dispatch revision ([c486662](https://github.com/goliatone/go-search/commit/c486662c88a0cfb77669e94ad3b9550ef97a4785))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.14.0 ([9de576d](https://github.com/goliatone/go-search/commit/9de576d7e078ecec96b42405cd428c6fbaf3508f))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Expirin queue leases ([2e8e8db](https://github.com/goliatone/go-search/commit/2e8e8dbe384d48837aa7f53baf3d17a608fac613))  - (goliatone)
+- Fail closed tenant, actor label, role, permission and docs visibility enforcement ([ce038a7](https://github.com/goliatone/go-search/commit/ce038a73fc767fc843fcaf84f6403c5557991eb1))  - (goliatone)
+- Limits ([1a72dd9](https://github.com/goliatone/go-search/commit/1a72dd92caa802b835dc2edf5f6be5c77dd4b200))  - (goliatone)
+- Request validate ([9006da0](https://github.com/goliatone/go-search/commit/9006da0c0f03fc03964459becf009ee0d7efed52))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.13.0 ([85a3e95](https://github.com/goliatone/go-search/commit/85a3e95bfd36f71824497c59ecb1afc8d9d1c6b2))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update examples ([d716112](https://github.com/goliatone/go-search/commit/d7161128a92112551767b945a7726fbb273d63e9))  - (goliatone)
+- Update deps ([4f7dbac](https://github.com/goliatone/go-search/commit/4f7dbac66bac99cb27fb8d0f768d390290268e5b))  - (goliatone)
+- Update tests ([a229e27](https://github.com/goliatone/go-search/commit/a229e279d98892f47a1a0039bb15adb2313a7f02))  - (goliatone)
+- Code quality ([165ac2e](https://github.com/goliatone/go-search/commit/165ac2e34c919620bee48d66778ba8fcf7b43144))  - (goliatone)
+
 # [0.13.0](https://github.com/goliatone/go-search/compare/v0.12.0...v0.13.0) - (2026-07-20)
 
 ## <!-- 13 -->📦 Bumps
