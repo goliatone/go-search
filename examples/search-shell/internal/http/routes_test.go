@@ -19,6 +19,8 @@ import (
 	"github.com/goliatone/go-search/pkg/types"
 )
 
+const fiberTestTimeoutMillis = 10_000
+
 func ptrInt(value int) *int { return &value }
 
 func TestNormalizeTopicsMergesLegacyAndCSVValues(t *testing.T) {
@@ -268,7 +270,7 @@ func TestDemoAPIsRoundTripCacheDisabledFlag(t *testing.T) {
 			{name: "suggest", url: "/api/demo/suggest?q=search&cache_disabled=true"},
 		} {
 			req := httptest.NewRequest(http.MethodGet, tc.url, nil)
-			resp, err := appCore.Fiber.Test(req)
+			resp, err := appCore.Fiber.Test(req, fiberTestTimeoutMillis)
 			if err != nil {
 				t.Fatalf("%s request: %v", tc.name, err)
 			}
@@ -300,7 +302,7 @@ func TestDemoAPIsRoundTripCacheDisabledFlag(t *testing.T) {
 		}
 		req := httptest.NewRequest(http.MethodGet, "/api/demo/stats", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
-		resp, err := appCore.Fiber.Test(req)
+		resp, err := appCore.Fiber.Test(req, fiberTestTimeoutMillis)
 		if err != nil {
 			t.Fatalf("authenticated stats: %v", err)
 		}
@@ -332,7 +334,7 @@ func TestPrivilegedDemoRoutesRequireAuthentication(t *testing.T) {
 			{method: http.MethodPost, path: "/api/demo/reindex"},
 			{method: http.MethodPost, path: "/api/demo/users/create"},
 		} {
-			resp, err := appCore.Fiber.Test(httptest.NewRequest(tc.method, tc.path, nil))
+			resp, err := appCore.Fiber.Test(httptest.NewRequest(tc.method, tc.path, nil), fiberTestTimeoutMillis)
 			if err != nil {
 				t.Fatalf("%s %s: %v", tc.method, tc.path, err)
 			}
@@ -355,7 +357,7 @@ func TestHomeDoesNotExposeAuthenticationSecrets(t *testing.T) {
 			t.Fatalf("register routes: %v", err)
 		}
 
-		resp, err := appCore.Fiber.Test(httptest.NewRequest(http.MethodGet, "/", nil))
+		resp, err := appCore.Fiber.Test(httptest.NewRequest(http.MethodGet, "/", nil), fiberTestTimeoutMillis)
 		if err != nil {
 			t.Fatalf("GET /: %v", err)
 		}
@@ -388,7 +390,7 @@ func TestEditorialRoutesCanBeDisabledByConfig(t *testing.T) {
 		}
 
 		req := httptest.NewRequest(http.MethodGet, "/api/demo/editorial", nil)
-		resp, err := appCore.Fiber.Test(req)
+		resp, err := appCore.Fiber.Test(req, fiberTestTimeoutMillis)
 		if err != nil {
 			t.Fatalf("request: %v", err)
 		}

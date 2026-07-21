@@ -32,6 +32,8 @@ type SearchV1RouteValidationReport struct {
 	Checks           []string `json:"checks"`
 }
 
+const routeValidationRequestTimeoutMillis = 10_000
+
 func RunSearchV1RuntimeValidationProfile(ctx context.Context, cfg searchdemo.Config) (SearchV1ValidationReport, error) {
 	runtime, err := searchdemo.New(cfg)
 	if err != nil {
@@ -338,7 +340,7 @@ func RunSearchV1RouteValidationProfile(ctx context.Context, cfg config.AppConfig
 		EditorialEnabled: cfg.SearchDemo.EditorialEnabled,
 	}
 
-	healthResp, err := appCore.Fiber.Test(httptest.NewRequest(http.MethodGet, "/api/demo/health", nil))
+	healthResp, err := appCore.Fiber.Test(httptest.NewRequest(http.MethodGet, "/api/demo/health", nil), routeValidationRequestTimeoutMillis)
 	if err != nil {
 		return report, err
 	}
@@ -347,7 +349,7 @@ func RunSearchV1RouteValidationProfile(ctx context.Context, cfg config.AppConfig
 	}
 	report.Checks = append(report.Checks, "demo_health")
 
-	searchResp, err := appCore.Fiber.Test(httptest.NewRequest(http.MethodGet, "/api/demo/search?surface=content_shared&locale=en&q=search", nil))
+	searchResp, err := appCore.Fiber.Test(httptest.NewRequest(http.MethodGet, "/api/demo/search?surface=content_shared&locale=en&q=search", nil), routeValidationRequestTimeoutMillis)
 	if err != nil {
 		return report, err
 	}
@@ -365,7 +367,7 @@ func RunSearchV1RouteValidationProfile(ctx context.Context, cfg config.AppConfig
 	}
 	report.Checks = append(report.Checks, "demo_search_api")
 
-	sitePageResp, err := appCore.Fiber.Test(httptest.NewRequest(http.MethodGet, "/site/search?q=search&locale=en", nil))
+	sitePageResp, err := appCore.Fiber.Test(httptest.NewRequest(http.MethodGet, "/site/search?q=search&locale=en", nil), routeValidationRequestTimeoutMillis)
 	if err != nil {
 		return report, err
 	}
@@ -374,7 +376,7 @@ func RunSearchV1RouteValidationProfile(ctx context.Context, cfg config.AppConfig
 	}
 	report.Checks = append(report.Checks, "site_search_page")
 
-	siteSearchResp, err := appCore.Fiber.Test(httptest.NewRequest(http.MethodGet, "/api/v1/site/search?q=search&locale=en", nil))
+	siteSearchResp, err := appCore.Fiber.Test(httptest.NewRequest(http.MethodGet, "/api/v1/site/search?q=search&locale=en", nil), routeValidationRequestTimeoutMillis)
 	if err != nil {
 		return report, err
 	}
@@ -383,7 +385,7 @@ func RunSearchV1RouteValidationProfile(ctx context.Context, cfg config.AppConfig
 	}
 	report.Checks = append(report.Checks, "site_search_api")
 
-	siteSuggestResp, err := appCore.Fiber.Test(httptest.NewRequest(http.MethodGet, "/api/v1/site/search/suggest?q=sea&locale=en", nil))
+	siteSuggestResp, err := appCore.Fiber.Test(httptest.NewRequest(http.MethodGet, "/api/v1/site/search/suggest?q=sea&locale=en", nil), routeValidationRequestTimeoutMillis)
 	if err != nil {
 		return report, err
 	}
@@ -392,7 +394,7 @@ func RunSearchV1RouteValidationProfile(ctx context.Context, cfg config.AppConfig
 	}
 	report.Checks = append(report.Checks, "site_suggest_api")
 
-	topicResp, err := appCore.Fiber.Test(httptest.NewRequest(http.MethodGet, "/demo/topics/architecture", nil))
+	topicResp, err := appCore.Fiber.Test(httptest.NewRequest(http.MethodGet, "/demo/topics/architecture", nil), routeValidationRequestTimeoutMillis)
 	if err != nil {
 		return report, err
 	}
@@ -409,7 +411,7 @@ func RunSearchV1RouteValidationProfile(ctx context.Context, cfg config.AppConfig
 		}
 		editorialReq.Header.Set("Authorization", "Bearer "+token)
 	}
-	editorialResp, err := appCore.Fiber.Test(editorialReq)
+	editorialResp, err := appCore.Fiber.Test(editorialReq, routeValidationRequestTimeoutMillis)
 	if err != nil {
 		return report, err
 	}
