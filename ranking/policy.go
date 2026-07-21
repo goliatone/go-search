@@ -140,10 +140,6 @@ func GroupHitsBy(hits []types.SearchHit, field string) []types.SearchGroup {
 	return groups
 }
 
-func groupingKeys(hit types.SearchHit) (string, string) {
-	return groupingKeysByField(hit, "parent_id")
-}
-
 func groupingKeysByField(hit types.SearchHit, field string) (string, string) {
 	field = strings.TrimSpace(field)
 	groupID := ""
