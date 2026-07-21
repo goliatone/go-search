@@ -19,29 +19,30 @@ import (
 )
 
 type Config struct {
-	ServerURL                  string
-	APIKey                     string
-	NearestNode                string
-	Nodes                      []string
-	CollectionPrefix           string
-	CollectionNamer            func(index string) string
-	NumRetries                 int
-	RetryInterval              time.Duration
-	HealthcheckInterval        time.Duration
-	ConnectionTimeout          time.Duration
-	GroupedEvidenceLimit       int
-	SuggestFetchMultiplier     int
-	SuggestMinimumFetchLimit   int
-	MultiSearchMinimumPerPage  int
-	ExactGroupCountPageSize    int
-	MaxExactGroupCountPages    int
-	SuggestPreferParentFields  []string
-	SuggestPreferParentWeights []int
-	SuggestDocumentFields      []string
-	SuggestDocumentWeights     []int
-	Clock                      types.Clock
-	Limits                     types.RequestLimits
-	MutationLocker             MutationLocker
+	ServerURL                   string
+	APIKey                      string
+	NearestNode                 string
+	Nodes                       []string
+	CollectionPrefix            string
+	CollectionNamer             func(index string) string
+	NumRetries                  int
+	RetryInterval               time.Duration
+	HealthcheckInterval         time.Duration
+	ConnectionTimeout           time.Duration
+	MutationCompensationTimeout time.Duration
+	GroupedEvidenceLimit        int
+	SuggestFetchMultiplier      int
+	SuggestMinimumFetchLimit    int
+	MultiSearchMinimumPerPage   int
+	ExactGroupCountPageSize     int
+	MaxExactGroupCountPages     int
+	SuggestPreferParentFields   []string
+	SuggestPreferParentWeights  []int
+	SuggestDocumentFields       []string
+	SuggestDocumentWeights      []int
+	Clock                       types.Clock
+	Limits                      types.RequestLimits
+	MutationLocker              MutationLocker
 }
 
 // MutationLocker coordinates collection mutations across provider instances.
@@ -60,9 +61,10 @@ type Provider struct {
 }
 
 type managedIndex struct {
-	def            types.IndexDefinition
-	collectionName string
-	schemaHash     string
+	def                         types.IndexDefinition
+	collectionName              string
+	schemaHash                  string
+	mutationCompensationTimeout time.Duration
 }
 
 func New(cfg Config) (*Provider, error) {
@@ -255,9 +257,10 @@ func (p *Provider) EnsureIndex(ctx context.Context, def types.IndexDefinition) e
 
 	p.mu.Lock()
 	p.indexes[def.Name] = managedIndex{
-		def:            def.Clone(),
-		collectionName: schema.Name,
-		schemaHash:     schemaHash,
+		def:                         def.Clone(),
+		collectionName:              schema.Name,
+		schemaHash:                  schemaHash,
+		mutationCompensationTimeout: p.cfg.MutationCompensationTimeout,
 	}
 	p.mu.Unlock()
 
@@ -1047,6 +1050,9 @@ func flattenFacetMap(req types.SearchRequest, in map[string]map[string]int) []ty
 
 func normalizeConfig(cfg Config) Config {
 	cfg.Limits = types.NormalizeRequestLimits(cfg.Limits)
+	if cfg.MutationCompensationTimeout <= 0 {
+		cfg.MutationCompensationTimeout = defaultMutationCompensationTimeout
+	}
 	if cfg.GroupedEvidenceLimit <= 0 {
 		cfg.GroupedEvidenceLimit = 5
 	}

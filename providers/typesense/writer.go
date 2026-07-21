@@ -8,12 +8,32 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/goliatone/go-search/internal/errs"
 	"github.com/goliatone/go-search/pkg/types"
 	tstypesense "github.com/typesense/typesense-go/v3/typesense"
 	tsapi "github.com/typesense/typesense-go/v3/typesense/api"
 )
+
+const defaultMutationCompensationTimeout = 30 * time.Second
+
+func withMutationCompensationContext(ctx context.Context, runtime managedIndex, compensate func(context.Context) error) error {
+	if compensate == nil {
+		return nil
+	}
+	base := context.Background()
+	if ctx != nil {
+		base = context.WithoutCancel(ctx)
+	}
+	timeout := runtime.mutationCompensationTimeout
+	if timeout <= 0 {
+		timeout = defaultMutationCompensationTimeout
+	}
+	compensationCtx, cancel := context.WithTimeout(base, timeout)
+	defer cancel()
+	return compensate(compensationCtx)
+}
 
 func upsertDocuments(ctx context.Context, client *tstypesense.Client, runtime managedIndex, docs []types.Document) error {
 	_, err := upsertDocumentsWithSnapshots(ctx, client, runtime, docs)
@@ -40,7 +60,9 @@ func upsertDocumentsWithSnapshots(ctx context.Context, client *tstypesense.Clien
 		ReturnId: new(true),
 	})
 	if err != nil {
-		rollbackErr := rollbackAppliedDocumentSnapshots(ctx, client, runtime, snapshots)
+		rollbackErr := withMutationCompensationContext(ctx, runtime, func(compensationCtx context.Context) error {
+			return rollbackAppliedDocumentSnapshots(compensationCtx, client, runtime, snapshots)
+		})
 		return nil, errs.Wrap(errors.Join(err, rollbackErr), map[string]any{
 			"collection": runtime.collectionName,
 			"index":      runtime.def.Name,
@@ -48,7 +70,9 @@ func upsertDocumentsWithSnapshots(ctx context.Context, client *tstypesense.Clien
 		})
 	}
 	if len(results) != len(payload) {
-		rollbackErr := rollbackAppliedDocumentSnapshots(ctx, client, runtime, snapshots)
+		rollbackErr := withMutationCompensationContext(ctx, runtime, func(compensationCtx context.Context) error {
+			return rollbackAppliedDocumentSnapshots(compensationCtx, client, runtime, snapshots)
+		})
 		return nil, errs.Wrap(errors.Join(io.ErrUnexpectedEOF, rollbackErr), map[string]any{
 			"collection": runtime.collectionName,
 			"index":      runtime.def.Name,
@@ -62,7 +86,10 @@ func upsertDocumentsWithSnapshots(ctx context.Context, client *tstypesense.Clien
 		if result != nil && result.Success {
 			continue
 		}
-		if rollbackErr := rollbackAppliedDocumentSnapshots(ctx, client, runtime, snapshots); rollbackErr != nil {
+		rollbackErr := withMutationCompensationContext(ctx, runtime, func(compensationCtx context.Context) error {
+			return rollbackAppliedDocumentSnapshots(compensationCtx, client, runtime, snapshots)
+		})
+		if rollbackErr != nil {
 			joined = errors.Join(io.ErrUnexpectedEOF, rollbackErr)
 		} else {
 			joined = io.ErrUnexpectedEOF
@@ -145,7 +172,10 @@ func replaceDocuments(ctx context.Context, client *tstypesense.Client, runtime m
 	}
 	existingIDs, err := listDocumentIDsBySource(ctx, client, runtime, registrationKey, sourceIDs)
 	if err != nil {
-		return errors.Join(err, rollbackAppliedDocumentSnapshots(ctx, client, runtime, writeSnapshots))
+		rollbackErr := withMutationCompensationContext(ctx, runtime, func(compensationCtx context.Context) error {
+			return rollbackAppliedDocumentSnapshots(compensationCtx, client, runtime, writeSnapshots)
+		})
+		return errors.Join(err, rollbackErr)
 	}
 	keep := map[string]struct{}{}
 	for _, doc := range docs {
@@ -162,17 +192,22 @@ func replaceDocuments(ctx context.Context, client *tstypesense.Client, runtime m
 	}
 	staleSnapshots, err := captureStoredDocumentSnapshots(ctx, client, runtime, stale)
 	if err != nil {
-		return errors.Join(err, rollbackAppliedDocumentSnapshots(ctx, client, runtime, writeSnapshots))
+		rollbackErr := withMutationCompensationContext(ctx, runtime, func(compensationCtx context.Context) error {
+			return rollbackAppliedDocumentSnapshots(compensationCtx, client, runtime, writeSnapshots)
+		})
+		return errors.Join(err, rollbackErr)
 	}
 	deleted, err := deleteDocumentsByStorageIDTracked(ctx, client, runtime, stale)
 	if err == nil {
 		return nil
 	}
-	return errors.Join(
-		err,
-		restoreDeletedDocumentSnapshots(ctx, client, runtime, staleSnapshots, deleted),
-		rollbackAppliedDocumentSnapshots(ctx, client, runtime, writeSnapshots),
-	)
+	compensationErr := withMutationCompensationContext(ctx, runtime, func(compensationCtx context.Context) error {
+		return errors.Join(
+			restoreDeletedDocumentSnapshots(compensationCtx, client, runtime, staleSnapshots, deleted),
+			rollbackAppliedDocumentSnapshots(compensationCtx, client, runtime, writeSnapshots),
+		)
+	})
+	return errors.Join(err, compensationErr)
 }
 
 func compileDocument(def types.IndexDefinition, doc types.Document) map[string]any {
