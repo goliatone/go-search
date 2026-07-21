@@ -1,5 +1,27 @@
 # Changelog
 
+# [0.14.2](https://github.com/goliatone/go-search/compare/v0.14.1...v0.14.2) - (2026-07-21)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Check group by to attach evidence ([34ccdbb](https://github.com/goliatone/go-search/commit/34ccdbb3480d11ef72cc16ecaff3a2f256438e6e))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.14.2 ([1ad8e07](https://github.com/goliatone/go-search/commit/1ad8e07c9a1b78dccc0955095e165aa1e83f940a))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Group by hits ([0c0ab5e](https://github.com/goliatone/go-search/commit/0c0ab5e15586c8b07a68ce3019021b1e85892c85))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.14.1 ([935e8f4](https://github.com/goliatone/go-search/commit/935e8f42f40d195a04fd50654414b0902e41fa1b))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([8bc29f8](https://github.com/goliatone/go-search/commit/8bc29f825349adf97562e0913006e68f7b9803ca))  - (goliatone)
+
 # [0.14.1](https://github.com/goliatone/go-search/compare/v0.14.0...v0.14.1) - (2026-07-21)
 
 ## <!-- 13 -->📦 Bumps
