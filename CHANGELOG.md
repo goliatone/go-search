@@ -1,5 +1,28 @@
 # Changelog
 
+# [0.14.3](https://github.com/goliatone/go-search/compare/v0.14.2...v0.14.3) - (2026-07-21)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Lock locations ([692d8d5](https://github.com/goliatone/go-search/commit/692d8d52d09a284d75e8cd0e4f7b6cd6d0f057fd))  - (goliatone)
+- Rollback document ([39f0477](https://github.com/goliatone/go-search/commit/39f047725295bc156354897accabbc73466f9d2e))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.14.3 ([f1cb1d8](https://github.com/goliatone/go-search/commit/f1cb1d8c83c7bc0e25577a77177417db973cdb3d))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Unscoped search value ([e073f12](https://github.com/goliatone/go-search/commit/e073f1234dd104396ac5257358d41172e836f5e9))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.14.2 ([bd1f24e](https://github.com/goliatone/go-search/commit/bd1f24e5de0ca710bf6d78fb03901df688fd4a18))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([c48ee3f](https://github.com/goliatone/go-search/commit/c48ee3f5177a86b31e0a049e3c8a4a44e6dae6f1))  - (goliatone)
+
 # [0.14.2](https://github.com/goliatone/go-search/compare/v0.14.1...v0.14.2) - (2026-07-21)
 
 ## <!-- 1 -->🐛 Bug Fixes
