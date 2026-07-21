@@ -9,11 +9,148 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/goliatone/go-search/pkg/types"
 )
+
+func TestUpsertDocumentsCompensatesAfterCallerCancellation(t *testing.T) {
+	const (
+		collection      = "media"
+		registrationKey = "archive"
+	)
+	storageID := storageDocumentIDFor(registrationKey, "new")
+	documents := map[string]map[string]any{}
+	var mutationCanceled atomic.Bool
+	var compensationRequests atomic.Int32
+	var canceledCompensationRequest atomic.Bool
+	ctx, cancel := context.WithCancel(t.Context())
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := strings.TrimPrefix(r.URL.Path, "/collections/"+collection+"/documents")
+		switch {
+		case r.Method == http.MethodPost && path == "/import":
+			scanner := bufio.NewScanner(r.Body)
+			for scanner.Scan() {
+				var document map[string]any
+				if err := json.Unmarshal(scanner.Bytes(), &document); err != nil {
+					t.Error(err)
+					return
+				}
+				documents[stringify(document["id"])] = document
+			}
+			mutationCanceled.Store(true)
+			cancel()
+			_, _ = w.Write([]byte(`{"success":true,"id":` + mustJSON(t, storageID) + "}\n"))
+			return
+		case strings.HasPrefix(path, "/"):
+			id, err := url.PathUnescape(strings.TrimPrefix(path, "/"))
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			if mutationCanceled.Load() {
+				compensationRequests.Add(1)
+				if r.Context().Err() != nil {
+					canceledCompensationRequest.Store(true)
+				}
+			}
+			document := documents[id]
+			switch r.Method {
+			case http.MethodGet:
+				if document == nil {
+					writeTypesenseTestError(w, http.StatusNotFound, "not found")
+					return
+				}
+				_ = json.NewEncoder(w).Encode(document)
+				return
+			case http.MethodDelete:
+				if document == nil {
+					writeTypesenseTestError(w, http.StatusNotFound, "not found")
+					return
+				}
+				delete(documents, id)
+				_ = json.NewEncoder(w).Encode(document)
+				return
+			}
+		}
+		writeTypesenseTestError(w, http.StatusNotFound, "unexpected request")
+	}))
+	t.Cleanup(server.Close)
+
+	provider, err := New(Config{ServerURL: server.URL, APIKey: "test-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := managedIndex{
+		collectionName:              collection,
+		def:                         types.IndexDefinition{Name: collection},
+		mutationCompensationTimeout: time.Second,
+	}
+	err = upsertDocuments(ctx, provider.client, runtime, []types.Document{{
+		ID: "new", Index: collection, RegistrationKey: registrationKey, Body: "new body",
+	}})
+	if err == nil || !strings.Contains(err.Error(), context.Canceled.Error()) {
+		t.Fatalf("upsert error = %v", err)
+	}
+	if !mutationCanceled.Load() || ctx.Err() != context.Canceled {
+		t.Fatalf("mutation context was not canceled: %v", ctx.Err())
+	}
+	if compensationRequests.Load() < 2 {
+		t.Fatalf("compensation requests = %d", compensationRequests.Load())
+	}
+	if canceledCompensationRequest.Load() {
+		t.Fatal("compensation reused the canceled mutation context")
+	}
+	if documents[storageID] != nil {
+		t.Fatalf("document survived cancellation rollback: %#v", documents[storageID])
+	}
+}
+
+func TestNormalizeConfigDefaultsMutationCompensationTimeout(t *testing.T) {
+	cfg := normalizeConfig(Config{})
+	if cfg.MutationCompensationTimeout != defaultMutationCompensationTimeout {
+		t.Fatalf("mutation compensation timeout = %s", cfg.MutationCompensationTimeout)
+	}
+}
+
+func TestMutationCompensationContextReplacesCallerDeadlineWithBoundedCleanupDeadline(t *testing.T) {
+	type contextKey string
+	const key contextKey = "request-id"
+	callerCtx, cancel := context.WithDeadline(context.WithValue(t.Context(), key, "request-1"), time.Now().Add(-time.Second))
+	defer cancel()
+	if callerCtx.Err() != context.DeadlineExceeded {
+		t.Fatalf("caller context error = %v", callerCtx.Err())
+	}
+
+	const cleanupTimeout = 25 * time.Millisecond
+	started := time.Now()
+	err := withMutationCompensationContext(callerCtx, managedIndex{
+		mutationCompensationTimeout: cleanupTimeout,
+	}, func(compensationCtx context.Context) error {
+		if err := compensationCtx.Err(); err != nil {
+			t.Fatalf("compensation started canceled: %v", err)
+		}
+		if got := compensationCtx.Value(key); got != "request-1" {
+			t.Fatalf("request value = %v", got)
+		}
+		deadline, ok := compensationCtx.Deadline()
+		if !ok || time.Until(deadline) > cleanupTimeout {
+			t.Fatalf("compensation deadline = %v, present = %v", deadline, ok)
+		}
+		<-compensationCtx.Done()
+		return compensationCtx.Err()
+	})
+	if err != context.DeadlineExceeded {
+		t.Fatalf("compensation error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed < cleanupTimeout {
+		t.Fatalf("compensation elapsed = %s", elapsed)
+	}
+}
 
 func TestReplaceDocumentsRestoresOldSetWhenStaleDeletionFails(t *testing.T) {
 	const (
