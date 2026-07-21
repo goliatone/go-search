@@ -58,7 +58,7 @@ func GroupEntities(hits []types.SearchHit, topK int) []types.SearchHit {
 		}
 		score := 0.0
 		limit := min(topK, len(units))
-		for i := 0; i < limit; i++ {
+		for i := range limit {
 			score += units[i].FinalScore / float64(i+1)
 		}
 		rep.BaseScore = score

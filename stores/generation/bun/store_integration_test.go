@@ -51,12 +51,10 @@ func TestGenerationStoreIntegration(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, workers)
 	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, err := store.Bump(ctx, "concurrent-media")
 			errs <- err
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)

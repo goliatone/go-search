@@ -2,6 +2,7 @@ package ranking
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"strings"
 	"sync"
@@ -158,9 +159,7 @@ func cloneProfileOptionValue(value any) any {
 		return cloneProfileOptions(typed)
 	case map[string]string:
 		out := make(map[string]string, len(typed))
-		for key, value := range typed {
-			out[key] = value
-		}
+		maps.Copy(out, typed)
 		return out
 	case []any:
 		out := make([]any, len(typed))
