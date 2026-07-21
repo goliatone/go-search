@@ -37,15 +37,75 @@ type DocumentOptions struct {
 }
 
 func BuildSegmentDocuments(cues []Cue, opts DocumentOptions) []types.Document {
+	segments := make([]documentSegment, 0, len(cues))
 	canonicalLocale := locale.Normalize(opts.Locale)
-	trackLocale := locale.Normalize(opts.Track.Locale)
-	out := make([]types.Document, 0, len(cues))
-	for ordinal, cue := range cues {
+	for _, cue := range cues {
 		start := cue.Start
 		end := cue.End
-		id := SegmentDocumentID(opts.SourceType, opts.SourceID, canonicalLocale, opts.Version, cue)
+		segments = append(segments, documentSegment{
+			id:      SegmentDocumentID(opts.SourceType, opts.SourceID, canonicalLocale, opts.Version, cue),
+			text:    cue.Text,
+			startMS: &start,
+			endMS:   &end,
+		})
+	}
+	return buildDocuments(segments, opts)
+}
+
+// BuildUnitDocuments validates, bounds, merges, and projects caller-normalized
+// timed or untimed transcript units. SourceType and SourceID are required and
+// canonicalized before they participate in document identity.
+func BuildUnitDocuments(units []NormalizedUnit, cfg MergeConfig, opts DocumentOptions) ([]types.Document, error) {
+	var err error
+	opts, err = normalizeUnitDocumentOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	cfg = normalizeMergeConfig(cfg)
+	opts.Version = cfg.Version
+	merged, err := mergeUnits(units, cfg)
+	if err != nil {
+		return nil, err
+	}
+	canonicalLocale := locale.Normalize(opts.Locale)
+	segments := make([]documentSegment, 0, len(merged))
+	for _, segment := range merged {
+		segments = append(segments, documentSegment{
+			id:      normalizedSegmentDocumentID(opts.SourceType, opts.SourceID, canonicalLocale, opts.Version, segment),
+			text:    segment.text,
+			startMS: cloneInt64(segment.startMS),
+			endMS:   cloneInt64(segment.endMS),
+		})
+	}
+	return buildDocuments(segments, opts), nil
+}
+
+func normalizeUnitDocumentOptions(opts DocumentOptions) (DocumentOptions, error) {
+	opts.SourceType = strings.TrimSpace(opts.SourceType)
+	if opts.SourceType == "" {
+		return DocumentOptions{}, fmt.Errorf("normalized subtitle source type is required")
+	}
+	opts.SourceID = strings.TrimSpace(opts.SourceID)
+	if opts.SourceID == "" {
+		return DocumentOptions{}, fmt.Errorf("normalized subtitle source id is required")
+	}
+	return opts, nil
+}
+
+type documentSegment struct {
+	id      string
+	text    string
+	startMS *int64
+	endMS   *int64
+}
+
+func buildDocuments(segments []documentSegment, opts DocumentOptions) []types.Document {
+	canonicalLocale := locale.Normalize(opts.Locale)
+	trackLocale := locale.Normalize(opts.Track.Locale)
+	out := make([]types.Document, 0, len(segments))
+	for ordinal, segment := range segments {
 		doc := types.Document{
-			ID:            id,
+			ID:            segment.id,
 			Index:         opts.Index,
 			Type:          types.DocumentTypeTranscriptSegment,
 			ParentID:      opts.ParentID,
@@ -59,12 +119,9 @@ func BuildSegmentDocuments(cues []Cue, opts DocumentOptions) []types.Document {
 			SourceVersion: opts.Version,
 			Title:         opts.ParentTitle,
 			Summary:       opts.ParentSummary,
-			Body:          strings.TrimSpace(cue.Text),
+			Body:          strings.TrimSpace(segment.text),
 			URL:           opts.ParentURL,
-			AnchorURL:     resolveAnchorURL(opts, cue.Start),
 			Locale:        canonicalLocale,
-			StartMS:       &start,
-			EndMS:         &end,
 			Fields: map[string]any{
 				"track_kind":    opts.Track.TrackKind,
 				"source_format": opts.Track.SourceFormat,
@@ -73,8 +130,17 @@ func BuildSegmentDocuments(cues []Cue, opts DocumentOptions) []types.Document {
 				"parent_type":   firstNonEmpty(opts.ParentType, types.DocumentTypeVideo),
 			},
 			Facets:     cloneFacets(opts.ParentFacets),
-			Numeric:    map[string]float64{"start_ms": float64(cue.Start), "end_ms": float64(cue.End)},
+			Numeric:    map[string]float64{},
 			Visibility: opts.Visibility.Clone(),
+		}
+		if segment.startMS != nil && segment.endMS != nil {
+			start := *segment.startMS
+			end := *segment.endMS
+			doc.StartMS = &start
+			doc.EndMS = &end
+			doc.Numeric["start_ms"] = float64(start)
+			doc.Numeric["end_ms"] = float64(end)
+			doc.AnchorURL = resolveAnchorURL(opts, start)
 		}
 		if opts.ParentThumbnail != "" {
 			doc.Fields["parent_thumbnail"] = opts.ParentThumbnail
