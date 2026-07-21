@@ -16,8 +16,13 @@ import (
 )
 
 func upsertDocuments(ctx context.Context, client *tstypesense.Client, runtime managedIndex, docs []types.Document) error {
+	_, err := upsertDocumentsWithSnapshots(ctx, client, runtime, docs)
+	return err
+}
+
+func upsertDocumentsWithSnapshots(ctx context.Context, client *tstypesense.Client, runtime managedIndex, docs []types.Document) ([]documentSnapshot, error) {
 	if len(docs) == 0 {
-		return nil
+		return nil, nil
 	}
 	payload := make([]any, 0, len(docs))
 	snapshots := make([]documentSnapshot, 0, len(docs))
@@ -26,7 +31,7 @@ func upsertDocuments(ctx context.Context, client *tstypesense.Client, runtime ma
 		payload = append(payload, compiled)
 		snapshot, err := captureDocumentSnapshot(ctx, client, runtime, compiled)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		snapshots = append(snapshots, snapshot)
 	}
@@ -35,7 +40,7 @@ func upsertDocuments(ctx context.Context, client *tstypesense.Client, runtime ma
 		ReturnId: new(true),
 	})
 	if err != nil {
-		return errs.Wrap(err, map[string]any{"collection": runtime.collectionName, "index": runtime.def.Name})
+		return nil, errs.Wrap(err, map[string]any{"collection": runtime.collectionName, "index": runtime.def.Name})
 	}
 	var joined error
 	for i, result := range results {
@@ -47,7 +52,7 @@ func upsertDocuments(ctx context.Context, client *tstypesense.Client, runtime ma
 		} else {
 			joined = io.ErrUnexpectedEOF
 		}
-		return errs.Wrap(joined, map[string]any{
+		return nil, errs.Wrap(joined, map[string]any{
 			"collection": runtime.collectionName,
 			"index":      runtime.def.Name,
 			"position":   i,
@@ -55,7 +60,7 @@ func upsertDocuments(ctx context.Context, client *tstypesense.Client, runtime ma
 			"document":   result.Document,
 		})
 	}
-	return nil
+	return snapshots, nil
 }
 
 func deleteDocuments(ctx context.Context, client *tstypesense.Client, runtime managedIndex, ids []string) error {
@@ -67,16 +72,26 @@ func deleteDocuments(ctx context.Context, client *tstypesense.Client, runtime ma
 }
 
 func deleteDocumentsByStorageID(ctx context.Context, client *tstypesense.Client, runtime managedIndex, ids []string) error {
+	_, err := deleteDocumentsByStorageIDTracked(ctx, client, runtime, ids)
+	return err
+}
+
+func deleteDocumentsByStorageIDTracked(ctx context.Context, client *tstypesense.Client, runtime managedIndex, ids []string) ([]string, error) {
+	deleted := make([]string, 0, len(ids))
 	for _, id := range ids {
 		id = strings.TrimSpace(id)
 		if id == "" {
 			continue
 		}
-		if _, err := client.Collection(runtime.collectionName).Document(id).Delete(ctx); err != nil && !isTypesenseStatus(err, 404) {
-			return errs.Wrap(err, map[string]any{"collection": runtime.collectionName, "index": runtime.def.Name, "id": id})
+		if _, err := client.Collection(runtime.collectionName).Document(id).Delete(ctx); err != nil {
+			if isTypesenseStatus(err, 404) {
+				continue
+			}
+			return deleted, errs.Wrap(err, map[string]any{"collection": runtime.collectionName, "index": runtime.def.Name, "id": id})
 		}
+		deleted = append(deleted, id)
 	}
-	return nil
+	return deleted, nil
 }
 
 func deleteBySource(ctx context.Context, client *tstypesense.Client, runtime managedIndex, registrationKey string, sourceIDs []string) error {
@@ -100,7 +115,8 @@ func replaceDocuments(ctx context.Context, client *tstypesense.Client, runtime m
 	for i := range docs {
 		docs[i].RegistrationKey = firstNonEmpty(strings.TrimSpace(docs[i].RegistrationKey), registrationKey)
 	}
-	if err := upsertDocuments(ctx, client, runtime, docs); err != nil {
+	writeSnapshots, err := upsertDocumentsWithSnapshots(ctx, client, runtime, docs)
+	if err != nil {
 		return err
 	}
 	if len(sourceIDs) == 0 {
@@ -108,7 +124,7 @@ func replaceDocuments(ctx context.Context, client *tstypesense.Client, runtime m
 	}
 	existingIDs, err := listDocumentIDsBySource(ctx, client, runtime, registrationKey, sourceIDs)
 	if err != nil {
-		return err
+		return errors.Join(err, rollbackAppliedDocumentSnapshots(ctx, client, runtime, writeSnapshots))
 	}
 	keep := map[string]struct{}{}
 	for _, doc := range docs {
@@ -123,7 +139,19 @@ func replaceDocuments(ctx context.Context, client *tstypesense.Client, runtime m
 		}
 		stale = append(stale, id)
 	}
-	return deleteDocumentsByStorageID(ctx, client, runtime, stale)
+	staleSnapshots, err := captureStoredDocumentSnapshots(ctx, client, runtime, stale)
+	if err != nil {
+		return errors.Join(err, rollbackAppliedDocumentSnapshots(ctx, client, runtime, writeSnapshots))
+	}
+	deleted, err := deleteDocumentsByStorageIDTracked(ctx, client, runtime, stale)
+	if err == nil {
+		return nil
+	}
+	return errors.Join(
+		err,
+		restoreDeletedDocumentSnapshots(ctx, client, runtime, staleSnapshots, deleted),
+		rollbackAppliedDocumentSnapshots(ctx, client, runtime, writeSnapshots),
+	)
 }
 
 func compileDocument(def types.IndexDefinition, doc types.Document) map[string]any {
@@ -298,6 +326,65 @@ func rollbackDocumentSnapshots(ctx context.Context, client *tstypesense.Client, 
 				"index":      runtime.def.Name,
 				"id":         snapshot.DocumentID,
 				"operation":  "cleanup",
+			}))
+		}
+	}
+	return joined
+}
+
+func rollbackAppliedDocumentSnapshots(ctx context.Context, client *tstypesense.Client, runtime managedIndex, snapshots []documentSnapshot) error {
+	results := make([]*tsapi.ImportDocumentResponse, len(snapshots))
+	for i := range results {
+		results[i] = &tsapi.ImportDocumentResponse{Success: true}
+	}
+	return rollbackDocumentSnapshots(ctx, client, runtime, snapshots, results)
+}
+
+func captureStoredDocumentSnapshots(ctx context.Context, client *tstypesense.Client, runtime managedIndex, ids []string) ([]documentSnapshot, error) {
+	out := make([]documentSnapshot, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		current, err := currentDocumentSnapshot(ctx, client, runtime, id)
+		if err != nil {
+			return nil, err
+		}
+		if current == nil {
+			continue
+		}
+		out = append(out, documentSnapshot{DocumentID: id, Exists: true, Previous: current})
+	}
+	return out, nil
+}
+
+func restoreDeletedDocumentSnapshots(ctx context.Context, client *tstypesense.Client, runtime managedIndex, snapshots []documentSnapshot, deleted []string) error {
+	deletedSet := make(map[string]struct{}, len(deleted))
+	for _, id := range deleted {
+		deletedSet[strings.TrimSpace(id)] = struct{}{}
+	}
+	var joined error
+	for _, snapshot := range snapshots {
+		if _, ok := deletedSet[snapshot.DocumentID]; !ok || !snapshot.Exists || snapshot.Previous == nil {
+			continue
+		}
+		current, err := currentDocumentSnapshot(ctx, client, runtime, snapshot.DocumentID)
+		if err != nil {
+			joined = errors.Join(joined, err)
+			continue
+		}
+		if current != nil {
+			// A concurrent writer recreated the document after our delete. Do not
+			// overwrite newer state while compensating this replacement.
+			continue
+		}
+		if _, err := client.Collection(runtime.collectionName).Documents().Upsert(ctx, snapshot.Previous, &tsapi.DocumentIndexParameters{}); err != nil {
+			joined = errors.Join(joined, errs.Wrap(err, map[string]any{
+				"collection": runtime.collectionName,
+				"index":      runtime.def.Name,
+				"id":         snapshot.DocumentID,
+				"operation":  "restore_stale",
 			}))
 		}
 	}
