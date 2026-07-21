@@ -40,24 +40,45 @@ func upsertDocumentsWithSnapshots(ctx context.Context, client *tstypesense.Clien
 		ReturnId: new(true),
 	})
 	if err != nil {
-		return nil, errs.Wrap(err, map[string]any{"collection": runtime.collectionName, "index": runtime.def.Name})
+		rollbackErr := rollbackAppliedDocumentSnapshots(ctx, client, runtime, snapshots)
+		return nil, errs.Wrap(errors.Join(err, rollbackErr), map[string]any{
+			"collection": runtime.collectionName,
+			"index":      runtime.def.Name,
+			"operation":  "import",
+		})
+	}
+	if len(results) != len(payload) {
+		rollbackErr := rollbackAppliedDocumentSnapshots(ctx, client, runtime, snapshots)
+		return nil, errs.Wrap(errors.Join(io.ErrUnexpectedEOF, rollbackErr), map[string]any{
+			"collection": runtime.collectionName,
+			"index":      runtime.def.Name,
+			"operation":  "import",
+			"expected":   len(payload),
+			"actual":     len(results),
+		})
 	}
 	var joined error
 	for i, result := range results {
-		if result == nil || result.Success {
+		if result != nil && result.Success {
 			continue
 		}
-		if rollbackErr := rollbackDocumentSnapshots(ctx, client, runtime, snapshots, results); rollbackErr != nil {
+		if rollbackErr := rollbackAppliedDocumentSnapshots(ctx, client, runtime, snapshots); rollbackErr != nil {
 			joined = errors.Join(io.ErrUnexpectedEOF, rollbackErr)
 		} else {
 			joined = io.ErrUnexpectedEOF
+		}
+		failure := "missing import result"
+		document := any(nil)
+		if result != nil {
+			failure = result.Error
+			document = result.Document
 		}
 		return nil, errs.Wrap(joined, map[string]any{
 			"collection": runtime.collectionName,
 			"index":      runtime.def.Name,
 			"position":   i,
-			"error":      result.Error,
-			"document":   result.Document,
+			"error":      failure,
+			"document":   document,
 		})
 	}
 	return snapshots, nil
