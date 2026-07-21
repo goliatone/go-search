@@ -32,6 +32,49 @@ func TestCandidateWindowIsBounded(t *testing.T) {
 		t.Fatalf("overflow-safe cap got %d", got)
 	}
 }
+
+func TestGroupedSearchWithoutRankingProfileAttachesCompleteEvidence(t *testing.T) {
+	registry := indexing.NewRegistry()
+	def := types.IndexDefinition{
+		Name: "media", SearchableFields: []string{"body"},
+		FacetFields: []string{"result_id"}, FilterableFields: []string{"result_id"},
+		GroupByDefault: "result_id",
+	}
+	if err := registry.Register(def, nil); err != nil {
+		t.Fatal(err)
+	}
+	provider := memory.New(memory.Config{})
+	if err := provider.EnsureIndex(t.Context(), def); err != nil {
+		t.Fatal(err)
+	}
+	docs := []types.Document{
+		{ID: "chunk-1", Index: "media", Type: types.DocumentTypeTranscriptSegment, ResultID: "session:one", ResultType: "session", Body: "shared prayer", MatchLocation: "transcript", MatchField: "body", Visibility: types.Visibility{Public: true, Status: "published"}},
+		{ID: "chunk-2", Index: "media", Type: types.DocumentTypeTranscriptSegment, ResultID: "session:one", ResultType: "session", Body: "shared prayer", MatchLocation: "transcript", MatchField: "body", Visibility: types.Visibility{Public: true, Status: "published"}},
+	}
+	if err := provider.UpsertDocuments(t.Context(), "media", docs); err != nil {
+		t.Fatal(err)
+	}
+	pln, err := planner.New(planner.Config{Registry: registry})
+	if err != nil {
+		t.Fatal(err)
+	}
+	search, err := NewSearch(SearchConfig{Planner: pln, Provider: provider})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := search.Query(t.Context(), types.SearchRequest{Indexes: []string{"media"}, Query: "prayer", Page: 1, PerPage: 10, GroupBy: "result_id"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 1 || len(page.Hits) != 2 {
+		t.Fatalf("grouped page = %#v", page)
+	}
+	for _, hit := range page.Hits {
+		if hit.Evidence == nil || !hit.Evidence.Exact || hit.Evidence.Status != types.EvidenceStatusComplete || len(hit.Evidence.Locations) != 1 || hit.Evidence.Locations[0].Count != 2 {
+			t.Fatalf("grouped evidence = %#v", hit.Evidence)
+		}
+	}
+}
 func BenchmarkCandidateWindow(b *testing.B) {
 	cfg := ranking.CandidateConfig{Multiplier: 5, MaxPerIndex: 250, MaxRefillRounds: 2}
 	req := types.SearchRequest{Page: 3, PerPage: 20}

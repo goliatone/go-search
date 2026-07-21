@@ -37,3 +37,15 @@ func TestGroupHitsNamespacesKeysByIndex(t *testing.T) {
 		t.Fatalf("expected internal group keys to be namespaced, got %+v", groups)
 	}
 }
+
+func TestGroupHitsByResultIDCollapsesAcrossIndexes(t *testing.T) {
+	hits := []types.SearchHit{
+		{ID: "event-hit", ResultID: "event:shared", FinalScore: 10, Document: &types.Document{Index: "site_content"}},
+		{ID: "transcript-hit", ResultID: "event:shared", FinalScore: 9, Document: &types.Document{Index: "archive_media"}},
+	}
+
+	groups := GroupHitsBy(hits, "result_id")
+	if len(groups) != 1 || groups[0].Key != "event:shared" || groups[0].Count != 2 {
+		t.Fatalf("result entity groups = %+v", groups)
+	}
+}
