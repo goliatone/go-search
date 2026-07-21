@@ -1,5 +1,25 @@
 # Changelog
 
+# [0.14.1](https://github.com/goliatone/go-search/compare/v0.14.0...v0.14.1) - (2026-07-21)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.14.1 ([aa026ee](https://github.com/goliatone/go-search/commit/aa026ee0af31d07d2706fa4f948b5bad307b9a6b))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Anchor url in payload ([d4e155d](https://github.com/goliatone/go-search/commit/d4e155d36d1e476859f4ff446f1586425a29d593))  - (goliatone)
+- Normalize subtitle ([74ca718](https://github.com/goliatone/go-search/commit/74ca7180cf451af180a5a916b4b8605cb829afe8))  - (goliatone)
+- Indexing subtitle units ([a63408a](https://github.com/goliatone/go-search/commit/a63408a05e9930fede3cbc46148ff03b06c52f27))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.14.0 ([330c82f](https://github.com/goliatone/go-search/commit/330c82fcca8b33bb22bb000232e762268c0d213d))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([9e81f53](https://github.com/goliatone/go-search/commit/9e81f5352bf850d056b24febdeaec0601cf87c17))  - (goliatone)
+
 # [0.14.0](https://github.com/goliatone/go-search/compare/v0.13.0...v0.14.0) - (2026-07-20)
 
 ## <!-- 1 -->🐛 Bug Fixes
