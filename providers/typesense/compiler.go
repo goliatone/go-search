@@ -13,6 +13,8 @@ import (
 	tsapi "github.com/typesense/typesense-go/v3/typesense/api"
 )
 
+const unscopedStorageValue = "__go_search_unscoped__"
+
 func compileSearchParams(cfg Config, def types.IndexDefinition, req types.SearchRequest) (*tsapi.SearchCollectionParams, error) {
 	cfg = normalizeConfig(cfg)
 	weighted := req.QueryFields[def.Name]
@@ -348,21 +350,37 @@ func storageFilterField(field string) string {
 func compileScopeFilter(scope types.Scope) string {
 	parts := make([]string, 0, 3)
 	if tenantID := strings.TrimSpace(scope.TenantID); tenantID != "" {
-		parts = append(parts, fmt.Sprintf("(scope_tenant_id:=`` || scope_tenant_id:=%s)", encodeStringValue(tenantID)))
+		parts = append(parts, fmt.Sprintf("(scope_tenant_id:=%s || scope_tenant_id:=%s)", encodeStringValue(unscopedStorageValue), encodeStringValue(tenantID)))
 	} else {
-		parts = append(parts, "scope_tenant_id:=``")
+		parts = append(parts, fmt.Sprintf("scope_tenant_id:=%s", encodeStringValue(unscopedStorageValue)))
 	}
 	if orgID := strings.TrimSpace(scope.OrgID); orgID != "" {
-		parts = append(parts, fmt.Sprintf("(scope_org_id:=`` || scope_org_id:=%s)", encodeStringValue(orgID)))
+		parts = append(parts, fmt.Sprintf("(scope_org_id:=%s || scope_org_id:=%s)", encodeStringValue(unscopedStorageValue), encodeStringValue(orgID)))
 	} else {
-		parts = append(parts, "scope_org_id:=``")
+		parts = append(parts, fmt.Sprintf("scope_org_id:=%s", encodeStringValue(unscopedStorageValue)))
 	}
 	if fingerprint := scopeLabelsFingerprint(scope.Labels); fingerprint != "" {
-		parts = append(parts, fmt.Sprintf("(scope_labels_fingerprint:=`` || scope_labels_fingerprint:=%s)", encodeStringValue(fingerprint)))
+		parts = append(parts, fmt.Sprintf("(scope_labels_fingerprint:=%s || scope_labels_fingerprint:=%s)", encodeStringValue(unscopedStorageValue), encodeStringValue(fingerprint)))
 	} else {
-		parts = append(parts, "scope_labels_fingerprint:=``")
+		parts = append(parts, fmt.Sprintf("scope_labels_fingerprint:=%s", encodeStringValue(unscopedStorageValue)))
 	}
 	return strings.Join(parts, " && ")
+}
+
+func scopeStorageValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return unscopedStorageValue
+	}
+	return value
+}
+
+func scopeDomainValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == unscopedStorageValue {
+		return ""
+	}
+	return value
 }
 
 func scopeLabelsFingerprint(labels map[string]string) string {
