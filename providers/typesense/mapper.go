@@ -197,8 +197,8 @@ func mapDocument(raw *map[string]any) types.Document {
 		Fields:     map[string]any{},
 		Metadata:   map[string]any{},
 		Scope: types.Scope{
-			TenantID: fieldStringValue(*raw, "scope_tenant_id"),
-			OrgID:    fieldStringValue(*raw, "scope_org_id"),
+			TenantID: scopeDomainValue(fieldStringValue(*raw, "scope_tenant_id")),
+			OrgID:    scopeDomainValue(fieldStringValue(*raw, "scope_org_id")),
 			Labels:   scopeLabelsFromValue((*raw)["scope_labels"]),
 		},
 		Visibility: types.Visibility{
@@ -256,6 +256,9 @@ func mapDocument(raw *map[string]any) types.Document {
 	} {
 		reserved[field] = struct{}{}
 		if value, ok := (*raw)[field]; ok {
+			if field == "scope_tenant_id" || field == "scope_org_id" || field == "scope_labels_fingerprint" {
+				value = scopeDomainValue(stringify(value))
+			}
 			doc.Fields[field] = value
 			doc.Metadata[field] = value
 		}

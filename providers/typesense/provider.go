@@ -41,6 +41,13 @@ type Config struct {
 	SuggestDocumentWeights     []int
 	Clock                      types.Clock
 	Limits                     types.RequestLimits
+	MutationLocker             MutationLocker
+}
+
+// MutationLocker coordinates collection mutations across provider instances.
+// Implementations commonly use a database advisory lock shared by every writer.
+type MutationLocker interface {
+	WithLock(context.Context, func() error) error
 }
 
 type Provider struct {
@@ -112,6 +119,18 @@ func (p *Provider) lockMutation(collection string) func() {
 
 	lock.Lock()
 	return lock.Unlock
+}
+
+func (p *Provider) withMutationLock(ctx context.Context, collection string, mutate func() error) error {
+	if mutate == nil {
+		return nil
+	}
+	unlock := p.lockMutation(collection)
+	defer unlock()
+	if p.cfg.MutationLocker != nil {
+		return p.cfg.MutationLocker.WithLock(ctx, mutate)
+	}
+	return mutate()
 }
 
 func (p *Provider) Name() string { return "typesense" }
@@ -400,8 +419,9 @@ func (p *Provider) UpsertDocuments(ctx context.Context, index string, docs []typ
 	if err != nil {
 		return err
 	}
-	defer p.lockMutation(runtime.collectionName)()
-	return upsertDocuments(ctx, p.client, runtime, docs)
+	return p.withMutationLock(ctx, runtime.collectionName, func() error {
+		return upsertDocuments(ctx, p.client, runtime, docs)
+	})
 }
 
 func (p *Provider) DeleteDocuments(ctx context.Context, index string, ids []string) error {
@@ -409,8 +429,9 @@ func (p *Provider) DeleteDocuments(ctx context.Context, index string, ids []stri
 	if err != nil {
 		return err
 	}
-	defer p.lockMutation(runtime.collectionName)()
-	return deleteDocuments(ctx, p.client, runtime, ids)
+	return p.withMutationLock(ctx, runtime.collectionName, func() error {
+		return deleteDocuments(ctx, p.client, runtime, ids)
+	})
 }
 
 func (p *Provider) DeleteBySource(ctx context.Context, index, registrationKey string, sourceIDs []string) error {
@@ -418,8 +439,9 @@ func (p *Provider) DeleteBySource(ctx context.Context, index, registrationKey st
 	if err != nil {
 		return err
 	}
-	defer p.lockMutation(runtime.collectionName)()
-	return deleteBySource(ctx, p.client, runtime, registrationKey, sourceIDs)
+	return p.withMutationLock(ctx, runtime.collectionName, func() error {
+		return deleteBySource(ctx, p.client, runtime, registrationKey, sourceIDs)
+	})
 }
 
 func (p *Provider) ReplaceDocuments(ctx context.Context, index, registrationKey string, sourceIDs []string, docs []types.Document) error {
@@ -427,8 +449,9 @@ func (p *Provider) ReplaceDocuments(ctx context.Context, index, registrationKey 
 	if err != nil {
 		return err
 	}
-	defer p.lockMutation(runtime.collectionName)()
-	return replaceDocuments(ctx, p.client, runtime, registrationKey, sourceIDs, docs)
+	return p.withMutationLock(ctx, runtime.collectionName, func() error {
+		return replaceDocuments(ctx, p.client, runtime, registrationKey, sourceIDs, docs)
+	})
 }
 
 func (p *Provider) ResetRegistration(ctx context.Context, index, registrationKey string) error {
@@ -436,8 +459,9 @@ func (p *Provider) ResetRegistration(ctx context.Context, index, registrationKey
 	if err != nil {
 		return err
 	}
-	defer p.lockMutation(runtime.collectionName)()
-	return deleteByRegistration(ctx, p.client, runtime, registrationKey)
+	return p.withMutationLock(ctx, runtime.collectionName, func() error {
+		return deleteByRegistration(ctx, p.client, runtime, registrationKey)
+	})
 }
 
 func (p *Provider) Health(ctx context.Context, req types.HealthRequest) (types.HealthStatus, error) {

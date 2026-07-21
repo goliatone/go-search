@@ -2,6 +2,7 @@ package typesense
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -360,6 +361,30 @@ func TestProviderSerializesConcurrentMutationsPerCollection(t *testing.T) {
 	if len(documents) != 1 || documents[storageDocumentIDFor(registrationKey, "second")] == nil {
 		t.Fatalf("final documents = %#v", documents)
 	}
+}
+
+func TestProviderMutationLockCoordinatesExternalWriters(t *testing.T) {
+	locker := &recordingTypesenseMutationLocker{}
+	provider := &Provider{cfg: Config{MutationLocker: locker}, mutationLocks: map[string]*sync.Mutex{}}
+	called := false
+	if err := provider.withMutationLock(t.Context(), "media", func() error {
+		called = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !called || locker.calls != 1 {
+		t.Fatalf("mutation called=%v external lock calls=%d", called, locker.calls)
+	}
+}
+
+type recordingTypesenseMutationLocker struct {
+	calls int
+}
+
+func (l *recordingTypesenseMutationLocker) WithLock(_ context.Context, mutate func() error) error {
+	l.calls++
+	return mutate()
 }
 
 func mustJSON(t *testing.T, value any) string {

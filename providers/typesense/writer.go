@@ -191,10 +191,10 @@ func compileDocument(def types.IndexDefinition, doc types.Document) map[string]a
 		"body":                     doc.Body,
 		"url":                      doc.URL,
 		"locale":                   doc.Locale,
-		"scope_tenant_id":          strings.TrimSpace(doc.Scope.TenantID),
-		"scope_org_id":             strings.TrimSpace(doc.Scope.OrgID),
+		"scope_tenant_id":          scopeStorageValue(doc.Scope.TenantID),
+		"scope_org_id":             scopeStorageValue(doc.Scope.OrgID),
 		"scope_labels":             scopeLabelTokens(doc.Scope.Labels),
-		"scope_labels_fingerprint": scopeLabelsFingerprint(doc.Scope.Labels),
+		"scope_labels_fingerprint": scopeStorageValue(scopeLabelsFingerprint(doc.Scope.Labels)),
 		"visibility_public":        doc.Visibility.Public,
 		"visibility_roles":         append([]string(nil), doc.Visibility.Roles...),
 		"visibility_permissions":   append([]string(nil), doc.Visibility.Permissions...),
@@ -451,7 +451,11 @@ func extractDocumentIDs(result *tsapi.SearchResult) []string {
 }
 
 func listDocumentIDsBySource(ctx context.Context, client *tstypesense.Client, runtime managedIndex, registrationKey string, sourceIDs []string) ([]string, error) {
-	return listDocumentIDsByField(ctx, client, runtime, "source_id", sourceIDs, "registration_key:="+encodeStringValue(strings.TrimSpace(registrationKey)))
+	extraFilters := []string{}
+	if registrationKey = strings.TrimSpace(registrationKey); registrationKey != "" {
+		extraFilters = append(extraFilters, "registration_key:="+encodeStringValue(registrationKey))
+	}
+	return listDocumentIDsByField(ctx, client, runtime, "source_id", sourceIDs, extraFilters...)
 }
 
 func listDocumentIDsByField(ctx context.Context, client *tstypesense.Client, runtime managedIndex, field string, rawValues []string, extraFilters ...string) ([]string, error) {
