@@ -231,6 +231,44 @@ func TestBuildUnitDocumentsRejectsInvalidUnits(t *testing.T) {
 	}
 }
 
+func TestBuildUnitDocumentsRequiresSourceIdentity(t *testing.T) {
+	unit := []NormalizedUnit{{ID: "unit-1", Order: 0, Text: "searchable"}}
+	tests := map[string]struct {
+		opts    DocumentOptions
+		wantErr string
+	}{
+		"source type": {opts: DocumentOptions{SourceID: "track-1", SourceType: " \t "}, wantErr: "source type is required"},
+		"source id":   {opts: DocumentOptions{SourceType: "transcript", SourceID: " \n "}, wantErr: "source id is required"},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := BuildUnitDocuments(unit, MergeConfig{Version: "v1"}, test.opts)
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("blank %s error = %v", name, err)
+			}
+		})
+	}
+}
+
+func TestBuildUnitDocumentsCanonicalizesSourceIdentity(t *testing.T) {
+	units := []NormalizedUnit{{ID: "unit-1", Order: 0, Text: "searchable"}}
+	cfg := MergeConfig{Version: "v1"}
+	canonical, err := BuildUnitDocuments(units, cfg, DocumentOptions{SourceType: "transcript", SourceID: "track-1"})
+	if err != nil {
+		t.Fatalf("build canonical documents: %v", err)
+	}
+	spaced, err := BuildUnitDocuments(units, cfg, DocumentOptions{SourceType: " transcript ", SourceID: " track-1 "})
+	if err != nil {
+		t.Fatalf("build spaced documents: %v", err)
+	}
+	if len(canonical) != 1 || len(spaced) != 1 || canonical[0].ID != spaced[0].ID {
+		t.Fatalf("source identity canonicalization: canonical=%#v spaced=%#v", canonical, spaced)
+	}
+	if spaced[0].SourceType != "transcript" || spaced[0].SourceID != "track-1" {
+		t.Fatalf("emitted source identity = %q/%q", spaced[0].SourceType, spaced[0].SourceID)
+	}
+}
+
 func TestBuildSegmentDocumentsPreservesLegacyIDAndTiming(t *testing.T) {
 	docs := BuildSegmentDocuments([]Cue{{Start: 1000, End: 2000, Text: "legacy"}}, DocumentOptions{
 		SourceType: "transcript", SourceID: "track-1", Locale: "en", Version: "v1", BaseURL: "/session/1",

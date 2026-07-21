@@ -3,9 +3,11 @@ package indexing
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/goliatone/go-search/adapters/media"
+	"github.com/goliatone/go-search/indexing/subtitle"
 	"github.com/goliatone/go-search/internal/testkit"
 	"github.com/goliatone/go-search/pkg/types"
 	"github.com/goliatone/go-search/providers/memory"
@@ -250,6 +252,32 @@ func TestIndexerIndexDeleteAndReindex(t *testing.T) {
 	}
 	if err := indexer.ReindexIndex(context.Background(), "media", "", 10); err != nil {
 		t.Fatalf("reindex index: %v", err)
+	}
+}
+
+func TestRegistrationRejectsNormalizedTranscriptBeforeSourceIdentityBackfill(t *testing.T) {
+	unit := subtitle.NormalizedUnit{ID: "unit-1", Order: 0, Text: "same searchable text"}
+	source := &mutableTranscriptListSource{records: map[string]media.TranscriptRecord{
+		"external-1": {Media: media.MediaRecord{ID: "video-1"}, Track: types.TranscriptTrack{Locale: "en"}, Units: []subtitle.NormalizedUnit{unit}},
+		"external-2": {Media: media.MediaRecord{ID: "video-2"}, Track: types.TranscriptTrack{Locale: "en"}, Units: []subtitle.NormalizedUnit{unit}},
+	}}
+	projector := media.NewTranscriptProjector(media.TranscriptProjectorConfig{Index: "media", SourceType: "transcript"})
+	registration := NewRegistration(
+		"media",
+		types.IndexDefinition{Name: "media"},
+		"transcript",
+		source,
+		projector,
+		nil,
+	)
+	for _, recordID := range []string{"external-1", "external-2"} {
+		docs, err := registration.IndexRecord(context.Background(), recordID)
+		if err == nil {
+			t.Fatalf("record %q reached late source identity backfill: %#v", recordID, docs)
+		}
+		if !strings.Contains(err.Error(), "source id is required") {
+			t.Fatalf("record %q error = %v", recordID, err)
+		}
 	}
 }
 

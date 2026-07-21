@@ -111,6 +111,43 @@ ocean wind
 	}
 }
 
+func TestTranscriptProjectorPreservesLegacyUTF8ByteMergeBoundary(t *testing.T) {
+	record := TranscriptRecord{
+		ID:     "track-legacy-utf8",
+		Media:  MediaRecord{ID: "video-1", URL: "/videos/1"},
+		Track:  types.TranscriptTrack{Locale: "zh", SourceFormat: "srt"},
+		Format: "srt",
+		Content: `1
+00:00:01,000 --> 00:00:02,000
+你
+
+2
+00:00:02,100 --> 00:00:03,000
+好
+`,
+	}
+	docs, err := NewTranscriptProjector(TranscriptProjectorConfig{
+		Index: "media", SourceType: "transcript", MergeVersion: "v1", MaxChars: 5, MaxGapMS: 500,
+	}).Project(context.Background(), record)
+	if err != nil {
+		t.Fatalf("project legacy UTF-8 transcript: %v", err)
+	}
+	if len(docs) != 2 {
+		t.Fatalf("legacy UTF-8 chunks = %#v", docs)
+	}
+	wantIDs := []string{
+		"13742da0b7216e9adb41f4571187b35d559285cebcda7269e23968663193eb9b",
+		"e307fdb306013c9672001e1762749c6e4b8457f2296d566ff7ee3cc138d6aca5",
+	}
+	wantStart := []int64{1000, 2100}
+	wantEnd := []int64{2000, 3000}
+	for index, doc := range docs {
+		if doc.ID != wantIDs[index] || doc.StartMS == nil || *doc.StartMS != wantStart[index] || doc.EndMS == nil || *doc.EndMS != wantEnd[index] {
+			t.Fatalf("legacy UTF-8 chunk %d = %#v", index, doc)
+		}
+	}
+}
+
 func TestTranscriptProjectorEmitsArchiveFacetMetadata(t *testing.T) {
 	publishedAt := time.Date(2024, time.March, 20, 0, 0, 0, 0, time.UTC)
 	record := TranscriptRecord{
