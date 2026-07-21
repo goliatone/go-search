@@ -150,7 +150,7 @@ func (q *Search) Query(ctx context.Context, req types.SearchRequest) (types.Sear
 	if len(groupedFacets) > 0 {
 		page.Facets = groupedFacets
 	}
-	if plan.Profile != nil {
+	if plan.Profile != nil || plan.Request.GroupBy != "" {
 		q.attachEvidence(ctx, plan.Request, &page)
 	}
 	if page.DurationMS <= 0 {
