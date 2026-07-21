@@ -113,7 +113,7 @@ func TestCompileSearchParamsAddsLocaleFilterGroupingAndSortBoost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile search params: %v", err)
 	}
-	if params.FilterBy == nil || !strings.Contains(*params.FilterBy, "locale:=[en,bo,``]") || !strings.Contains(*params.FilterBy, "scope_tenant_id:=``") {
+	if params.FilterBy == nil || !strings.Contains(*params.FilterBy, "locale:=[en,bo,``]") || !strings.Contains(*params.FilterBy, "scope_tenant_id:="+unscopedStorageValue) {
 		t.Fatalf("expected locale filter, got %+v", params.FilterBy)
 	}
 	if params.GroupBy == nil || *params.GroupBy != "parent_id" {
@@ -127,6 +127,16 @@ func TestCompileSearchParamsAddsLocaleFilterGroupingAndSortBoost(t *testing.T) {
 	}
 	if params.QueryByWeights == nil || *params.QueryByWeights != "1,1" {
 		t.Fatalf("weights=%v", params.QueryByWeights)
+	}
+}
+
+func TestCompileSearchParamsUsesIndexedSentinelForUnscopedDocuments(t *testing.T) {
+	filter := compileScopeFilter(types.Scope{})
+	for _, field := range []string{"scope_tenant_id", "scope_org_id", "scope_labels_fingerprint"} {
+		want := field + ":=" + unscopedStorageValue
+		if !strings.Contains(filter, want) {
+			t.Fatalf("expected %q in %q", want, filter)
+		}
 	}
 }
 
@@ -351,6 +361,22 @@ func TestCompileDocumentAddsExistsShadowFields(t *testing.T) {
 	}
 	if payload["__exists_source_id"] != false {
 		t.Fatalf("expected empty source_id shadow field to be false, got %+v", payload["__exists_source_id"])
+	}
+}
+
+func TestCompileAndMapDocumentRoundTripUnscopedSentinel(t *testing.T) {
+	payload := compileDocument(types.IndexDefinition{Name: "content"}, types.Document{ID: "doc-1"})
+	for _, field := range []string{"scope_tenant_id", "scope_org_id", "scope_labels_fingerprint"} {
+		if payload[field] != unscopedStorageValue {
+			t.Fatalf("%s storage value = %#v, want %q", field, payload[field], unscopedStorageValue)
+		}
+	}
+	doc := mapDocument(&payload)
+	if doc.Scope.TenantID != "" || doc.Scope.OrgID != "" {
+		t.Fatalf("unscoped storage sentinel leaked into domain scope: %#v", doc.Scope)
+	}
+	if doc.Fields["scope_tenant_id"] != "" || doc.Fields["scope_org_id"] != "" || doc.Fields["scope_labels_fingerprint"] != "" {
+		t.Fatalf("unscoped storage sentinel leaked into fields: %#v", doc.Fields)
 	}
 }
 
