@@ -47,8 +47,9 @@ type Provider struct {
 	client *tstypesense.Client
 	cfg    Config
 
-	mu      sync.RWMutex
-	indexes map[string]managedIndex
+	mu            sync.RWMutex
+	indexes       map[string]managedIndex
+	mutationLocks map[string]*sync.Mutex
 }
 
 type managedIndex struct {
@@ -90,10 +91,27 @@ func New(cfg Config) (*Provider, error) {
 	}
 
 	return &Provider{
-		client:  tstypesense.NewClient(opts...),
-		cfg:     cfg,
-		indexes: map[string]managedIndex{},
+		client:        tstypesense.NewClient(opts...),
+		cfg:           cfg,
+		indexes:       map[string]managedIndex{},
+		mutationLocks: map[string]*sync.Mutex{},
 	}, nil
+}
+
+func (p *Provider) lockMutation(collection string) func() {
+	p.mu.Lock()
+	if p.mutationLocks == nil {
+		p.mutationLocks = map[string]*sync.Mutex{}
+	}
+	lock := p.mutationLocks[collection]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		p.mutationLocks[collection] = lock
+	}
+	p.mu.Unlock()
+
+	lock.Lock()
+	return lock.Unlock
 }
 
 func (p *Provider) Name() string { return "typesense" }
@@ -382,6 +400,7 @@ func (p *Provider) UpsertDocuments(ctx context.Context, index string, docs []typ
 	if err != nil {
 		return err
 	}
+	defer p.lockMutation(runtime.collectionName)()
 	return upsertDocuments(ctx, p.client, runtime, docs)
 }
 
@@ -390,6 +409,7 @@ func (p *Provider) DeleteDocuments(ctx context.Context, index string, ids []stri
 	if err != nil {
 		return err
 	}
+	defer p.lockMutation(runtime.collectionName)()
 	return deleteDocuments(ctx, p.client, runtime, ids)
 }
 
@@ -398,6 +418,7 @@ func (p *Provider) DeleteBySource(ctx context.Context, index, registrationKey st
 	if err != nil {
 		return err
 	}
+	defer p.lockMutation(runtime.collectionName)()
 	return deleteBySource(ctx, p.client, runtime, registrationKey, sourceIDs)
 }
 
@@ -406,6 +427,7 @@ func (p *Provider) ReplaceDocuments(ctx context.Context, index, registrationKey 
 	if err != nil {
 		return err
 	}
+	defer p.lockMutation(runtime.collectionName)()
 	return replaceDocuments(ctx, p.client, runtime, registrationKey, sourceIDs, docs)
 }
 
@@ -414,6 +436,7 @@ func (p *Provider) ResetRegistration(ctx context.Context, index, registrationKey
 	if err != nil {
 		return err
 	}
+	defer p.lockMutation(runtime.collectionName)()
 	return deleteByRegistration(ctx, p.client, runtime, registrationKey)
 }
 
