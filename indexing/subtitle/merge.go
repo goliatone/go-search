@@ -34,6 +34,9 @@ func MergeCues(cues []Cue, cfg MergeConfig) []Cue {
 	out := []Cue{}
 	for _, cue := range cues[1:] {
 		mergedText := strings.TrimSpace(current.Text + " " + cue.Text)
+		// Preserve the historical SRT/VTT contract: MaxCharacters was measured
+		// in UTF-8 bytes. The normalized-unit path uses rune-safe sizing without
+		// changing legacy chunk boundaries and document identities.
 		if cue.Start-current.End <= cfg.MaxGapMS && len(mergedText) <= cfg.MaxCharacters {
 			current.End = cue.End
 			current.Text = mergedText

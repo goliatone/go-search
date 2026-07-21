@@ -141,7 +141,6 @@ func compileDocument(def types.IndexDefinition, doc types.Document) map[string]a
 		"summary":                  doc.Summary,
 		"body":                     doc.Body,
 		"url":                      doc.URL,
-		"anchor_url":               doc.AnchorURL,
 		"locale":                   doc.Locale,
 		"scope_tenant_id":          strings.TrimSpace(doc.Scope.TenantID),
 		"scope_org_id":             strings.TrimSpace(doc.Scope.OrgID),
@@ -154,6 +153,9 @@ func compileDocument(def types.IndexDefinition, doc types.Document) map[string]a
 	}
 	if doc.ChunkOrdinal != nil {
 		payload["chunk_ordinal"] = *doc.ChunkOrdinal
+	}
+	if anchorURL := strings.TrimSpace(doc.AnchorURL); anchorURL != "" {
+		payload["anchor_url"] = anchorURL
 	}
 	if doc.StartMS != nil {
 		payload["start_ms"] = *doc.StartMS
