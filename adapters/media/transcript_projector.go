@@ -34,11 +34,14 @@ type MediaRecord struct {
 }
 
 type TranscriptRecord struct {
-	ID             string
-	Media          MediaRecord
-	Track          types.TranscriptTrack
-	Content        string
-	Format         string
+	ID      string
+	Media   MediaRecord
+	Track   types.TranscriptTrack
+	Content string
+	Format  string
+	// Units selects the caller-normalized input path when non-nil. Content and
+	// Format remain the backwards-compatible SRT/VTT input path.
+	Units          []subtitle.NormalizedUnit
 	Metadata       map[string]any
 	ResultID       string
 	ResultType     string
@@ -82,15 +85,11 @@ func (p *TranscriptProjector) Project(_ context.Context, record TranscriptRecord
 	if err != nil {
 		return nil, err
 	}
-	cues, err := subtitle.Parse(record.Format, record.Content)
-	if err != nil {
-		return nil, err
-	}
-	merged := subtitle.MergeCues(cues, subtitle.MergeConfig{
+	mergeConfig := subtitle.MergeConfig{
 		MaxCharacters: p.cfg.MaxChars,
 		MaxGapMS:      p.cfg.MaxGapMS,
 		Version:       p.cfg.MergeVersion,
-	})
+	}
 	parentFields := map[string]any{
 		"topic":              mediaFields.TopicLeaf,
 		"topic_hierarchy":    append([]string(nil), mediaFields.TopicHierarchy...),
@@ -120,7 +119,7 @@ func (p *TranscriptProjector) Project(_ context.Context, record TranscriptRecord
 	if mediaFields.DurationSeconds > 0 {
 		parentNumeric["duration_seconds"] = float64(mediaFields.DurationSeconds)
 	}
-	return subtitle.BuildSegmentDocuments(merged, subtitle.DocumentOptions{
+	documentOptions := subtitle.DocumentOptions{
 		Index:           p.cfg.Index,
 		SourceType:      p.cfg.SourceType,
 		SourceID:        record.ID,
@@ -160,7 +159,15 @@ func (p *TranscriptProjector) Project(_ context.Context, record TranscriptRecord
 		Metadata:       record.Metadata,
 		Visibility:     record.Visibility,
 		Track:          record.Track,
-	}), nil
+	}
+	if record.Units != nil {
+		return subtitle.BuildUnitDocuments(record.Units, mergeConfig, documentOptions)
+	}
+	cues, err := subtitle.Parse(record.Format, record.Content)
+	if err != nil {
+		return nil, err
+	}
+	return subtitle.BuildSegmentDocuments(subtitle.MergeCues(cues, mergeConfig), documentOptions), nil
 }
 
 func compact(values ...string) []string {
