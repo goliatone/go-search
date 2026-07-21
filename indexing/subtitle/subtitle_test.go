@@ -1,7 +1,10 @@
 package subtitle
 
 import (
+	"reflect"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/goliatone/go-search/pkg/types"
 )
@@ -104,5 +107,142 @@ func TestBuildSegmentDocumentsDefaultsToNonPublic(t *testing.T) {
 	docs := BuildSegmentDocuments([]Cue{{Text: "cue"}}, DocumentOptions{SourceType: "transcript", SourceID: "track", Version: "v1"})
 	if len(docs) != 1 || docs[0].Visibility.Public {
 		t.Fatalf("ambiguous visibility became public: %#v", docs)
+	}
+}
+
+func TestBuildUnitDocumentsProjectsTimedUntimedAndMixedUnits(t *testing.T) {
+	start0, end0 := int64(0), int64(1000)
+	start1, end1 := int64(1200), int64(2000)
+	start2, end2 := int64(3000), int64(4000)
+	units := []NormalizedUnit{
+		{ID: "cue-1", Order: 0, Text: "first timed", StartMS: &start0, EndMS: &end0},
+		{ID: "cue-2", Order: 1, Text: "second timed", StartMS: &start1, EndMS: &end1},
+		{ID: "paragraph-1", Order: 2, Text: "first untimed"},
+		{ID: "paragraph-2", Order: 3, Text: "second untimed"},
+		{ID: "cue-3", Order: 4, Text: "third timed", StartMS: &start2, EndMS: &end2},
+	}
+	docs, err := BuildUnitDocuments(units, MergeConfig{MaxCharacters: 80, MaxGapMS: 500, Version: "v2"}, DocumentOptions{
+		SourceType: "transcript",
+		SourceID:   "track-1",
+		Locale:     "en",
+		BaseURL:    "https://example.org/session/1",
+		ParentURL:  "https://example.org/session/1",
+	})
+	if err != nil {
+		t.Fatalf("build unit documents: %v", err)
+	}
+	if len(docs) != 3 {
+		t.Fatalf("expected timed, untimed, timed segments, got %#v", docs)
+	}
+	if docs[0].Body != "first timed second timed" || docs[0].StartMS == nil || *docs[0].StartMS != 0 || docs[0].EndMS == nil || *docs[0].EndMS != 2000 {
+		t.Fatalf("timed merge = %#v", docs[0])
+	}
+	if docs[0].AnchorURL != "https://example.org/session/1#t=0" || docs[0].Numeric["start_ms"] != 0 || docs[0].Numeric["end_ms"] != 2000 {
+		t.Fatalf("timed evidence = %#v", docs[0])
+	}
+	if docs[1].Body != "first untimed second untimed" || docs[1].StartMS != nil || docs[1].EndMS != nil || docs[1].AnchorURL != "" {
+		t.Fatalf("untimed merge = %#v", docs[1])
+	}
+	if _, exists := docs[1].Numeric["start_ms"]; exists {
+		t.Fatalf("untimed start numeric = %#v", docs[1].Numeric)
+	}
+	if _, exists := docs[1].Numeric["end_ms"]; exists {
+		t.Fatalf("untimed end numeric = %#v", docs[1].Numeric)
+	}
+	for ordinal, doc := range docs {
+		if doc.ChunkOrdinal == nil || *doc.ChunkOrdinal != ordinal {
+			t.Fatalf("chunk %d ordinal = %#v", ordinal, doc.ChunkOrdinal)
+		}
+	}
+}
+
+func TestBuildUnitDocumentsIsDeterministicAndRuneBounded(t *testing.T) {
+	units := []NormalizedUnit{{ID: "unicode-1", Order: 0, Text: "菩提心བསྐྱེད"}}
+	cfg := MergeConfig{MaxCharacters: 4, Version: "unicode-v1"}
+	opts := DocumentOptions{SourceType: "transcript", SourceID: "track-unicode", Locale: "bo"}
+	left, err := BuildUnitDocuments(units, cfg, opts)
+	if err != nil {
+		t.Fatalf("build first projection: %v", err)
+	}
+	right, err := BuildUnitDocuments(units, cfg, opts)
+	if err != nil {
+		t.Fatalf("build second projection: %v", err)
+	}
+	if !reflect.DeepEqual(left, right) {
+		t.Fatalf("normalized projection is not deterministic:\nleft=%#v\nright=%#v", left, right)
+	}
+	var rebuilt strings.Builder
+	for ordinal, doc := range left {
+		if utf8.RuneCountInString(doc.Body) > cfg.MaxCharacters {
+			t.Fatalf("chunk %d exceeds rune limit: %q", ordinal, doc.Body)
+		}
+		if doc.ChunkOrdinal == nil || *doc.ChunkOrdinal != ordinal || doc.ID == "" {
+			t.Fatalf("chunk %d identity/ordinal = %#v", ordinal, doc)
+		}
+		if doc.SourceVersion != cfg.Version {
+			t.Fatalf("chunk %d source version = %q", ordinal, doc.SourceVersion)
+		}
+		rebuilt.WriteString(doc.Body)
+	}
+	if rebuilt.String() != units[0].Text {
+		t.Fatalf("complete text coverage = %q, want %q", rebuilt.String(), units[0].Text)
+	}
+	otherLocale, err := BuildUnitDocuments(units, cfg, DocumentOptions{SourceType: "transcript", SourceID: "track-unicode", Locale: "zh"})
+	if err != nil || len(otherLocale) != len(left) {
+		t.Fatalf("build other locale: docs=%#v err=%v", otherLocale, err)
+	}
+	if otherLocale[0].ID == left[0].ID {
+		t.Fatalf("normalized document identity does not include locale: %q", left[0].ID)
+	}
+}
+
+func TestBuildUnitDocumentsSkipsBlankUnitsDeterministically(t *testing.T) {
+	docs, err := BuildUnitDocuments([]NormalizedUnit{
+		{Order: 0, Text: " \n\t "},
+		{ID: "kept", Order: 1, Text: "searchable"},
+	}, MergeConfig{Version: "v1"}, DocumentOptions{SourceType: "transcript", SourceID: "track-1", Locale: "en"})
+	if err != nil {
+		t.Fatalf("build units: %v", err)
+	}
+	if len(docs) != 1 || docs[0].Body != "searchable" || docs[0].ChunkOrdinal == nil || *docs[0].ChunkOrdinal != 0 {
+		t.Fatalf("blank unit handling = %#v", docs)
+	}
+}
+
+func TestBuildUnitDocumentsRejectsInvalidUnits(t *testing.T) {
+	negative, zero, one, two := int64(-1), int64(0), int64(1), int64(2)
+	tests := map[string][]NormalizedUnit{
+		"negative order":     {{ID: "one", Order: -1, Text: "one"}},
+		"nonincreasing":      {{ID: "one", Order: 1, Text: "one"}, {ID: "two", Order: 1, Text: "two"}},
+		"empty identity":     {{Order: 0, Text: "one"}},
+		"duplicate identity": {{ID: "same", Order: 0, Text: "one"}, {ID: "same", Order: 1, Text: "two"}},
+		"partial timing":     {{ID: "one", Order: 0, Text: "one", StartMS: &zero}},
+		"negative timing":    {{ID: "one", Order: 0, Text: "one", StartMS: &negative, EndMS: &one}},
+		"empty timing":       {{ID: "one", Order: 0, Text: "one", StartMS: &one, EndMS: &one}},
+		"reversed timing":    {{ID: "one", Order: 0, Text: "one", StartMS: &two, EndMS: &one}},
+		"timing order":       {{ID: "one", Order: 0, Text: "one", StartMS: &one, EndMS: &two}, {ID: "two", Order: 1, Text: "two", StartMS: &zero, EndMS: &one}},
+	}
+	for name, units := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := BuildUnitDocuments(units, MergeConfig{Version: "v1"}, DocumentOptions{SourceType: "transcript", SourceID: "track-1", Locale: "en"}); err == nil {
+				t.Fatalf("expected invalid units to fail: %#v", units)
+			}
+		})
+	}
+}
+
+func TestBuildSegmentDocumentsPreservesLegacyIDAndTiming(t *testing.T) {
+	docs := BuildSegmentDocuments([]Cue{{Start: 1000, End: 2000, Text: "legacy"}}, DocumentOptions{
+		SourceType: "transcript", SourceID: "track-1", Locale: "en", Version: "v1", BaseURL: "/session/1",
+	})
+	if len(docs) != 1 {
+		t.Fatalf("legacy documents = %#v", docs)
+	}
+	doc := docs[0]
+	if doc.ID != "c51724d08fc119afacf449b5b9a58ed066b6f13545ec685d0fff5df4c22db227" {
+		t.Fatalf("legacy document id = %q", doc.ID)
+	}
+	if doc.StartMS == nil || *doc.StartMS != 1000 || doc.EndMS == nil || *doc.EndMS != 2000 || doc.AnchorURL != "/session/1#t=1" {
+		t.Fatalf("legacy timing = %#v", doc)
 	}
 }

@@ -460,6 +460,28 @@ func TestDocumentPayloadHashIgnoresMapOrder(t *testing.T) {
 	}
 }
 
+func TestCompileDocumentOmitsAbsentTranscriptTimingAndAnchor(t *testing.T) {
+	payload := compileDocument(types.IndexDefinition{Name: "media"}, types.Document{
+		ID: "segment-untimed", Index: "media", Type: types.DocumentTypeTranscriptSegment,
+		SourceType: "transcript", SourceID: "track-1", Body: "untimed teaching",
+	})
+	for _, field := range []string{"start_ms", "end_ms", "anchor_url"} {
+		if value, exists := payload[field]; exists {
+			t.Fatalf("untimed payload contains %s=%#v", field, value)
+		}
+	}
+
+	zero, end := int64(0), int64(1000)
+	timed := compileDocument(types.IndexDefinition{Name: "media"}, types.Document{
+		ID: "segment-timed", Index: "media", Type: types.DocumentTypeTranscriptSegment,
+		SourceType: "transcript", SourceID: "track-1", Body: "timed teaching",
+		StartMS: &zero, EndMS: &end, AnchorURL: "/session/1#t=0",
+	})
+	if timed["start_ms"] != int64(0) || timed["end_ms"] != int64(1000) || timed["anchor_url"] != "/session/1#t=0" {
+		t.Fatalf("timed payload = %#v", timed)
+	}
+}
+
 func TestMapDocumentPrefersExternalDocumentID(t *testing.T) {
 	doc := mapDocument(&map[string]any{
 		"id":               "video::shared-1",

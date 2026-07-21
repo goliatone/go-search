@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/goliatone/go-search/indexing/subtitle"
 	"github.com/goliatone/go-search/pkg/types"
 )
 
@@ -261,5 +262,65 @@ func TestTranscriptProjectorPartialRecordDoesNotReceiveSyntheticFacts(t *testing
 	}
 	if doc.Visibility.Public {
 		t.Fatal("ambiguous visibility became public")
+	}
+}
+
+func TestTranscriptProjectorUsesNormalizedUnitsWithoutParsingContent(t *testing.T) {
+	start, end := int64(0), int64(1200)
+	record := TranscriptRecord{
+		ID: "track-normalized",
+		Media: MediaRecord{
+			ID:      "session-1",
+			Title:   "Normalized transcript",
+			Summary: "Public entity summary",
+			URL:     "/sessions/1",
+		},
+		Track:   types.TranscriptTrack{Locale: "bo", SourceFormat: "normalized"},
+		Format:  "not-a-subtitle-format",
+		Content: "this content must not be parsed",
+		Units: []subtitle.NormalizedUnit{
+			{ID: "cue-1", Order: 0, Text: "timed teaching", StartMS: &start, EndMS: &end},
+			{ID: "paragraph-1", Order: 1, Text: "untimed teaching"},
+		},
+		ResultID: "session-1", ResultType: "archive_session", MatchLocation: "transcript", MatchField: "body",
+		Visibility: types.Visibility{Public: true, Status: "published"},
+	}
+	docs, err := NewTranscriptProjector(TranscriptProjectorConfig{
+		Index: "media", SourceType: "transcript", MergeVersion: "normalized-v1",
+	}).Project(context.Background(), record)
+	if err != nil {
+		t.Fatalf("project normalized transcript: %v", err)
+	}
+	if len(docs) != 2 {
+		t.Fatalf("normalized documents = %#v", docs)
+	}
+	if docs[0].StartMS == nil || *docs[0].StartMS != 0 || docs[0].AnchorURL != "/sessions/1#t=0" {
+		t.Fatalf("timed normalized document = %#v", docs[0])
+	}
+	if docs[1].StartMS != nil || docs[1].EndMS != nil || docs[1].AnchorURL != "" || len(docs[1].Numeric) != 0 {
+		t.Fatalf("untimed normalized document = %#v", docs[1])
+	}
+	for _, doc := range docs {
+		if doc.Summary != record.Media.Summary || doc.Summary == doc.Body || !doc.Visibility.Public {
+			t.Fatalf("entity/visibility contract = %#v", doc)
+		}
+	}
+}
+
+func TestTranscriptProjectorExplicitEmptyUnitsDoesNotFallBackToParsing(t *testing.T) {
+	record := TranscriptRecord{
+		ID:      "track-empty",
+		Media:   MediaRecord{ID: "session-1"},
+		Track:   types.TranscriptTrack{Locale: "en"},
+		Format:  "invalid",
+		Content: "invalid",
+		Units:   []subtitle.NormalizedUnit{},
+	}
+	docs, err := NewTranscriptProjector(TranscriptProjectorConfig{SourceType: "transcript"}).Project(context.Background(), record)
+	if err != nil {
+		t.Fatalf("project explicit empty units: %v", err)
+	}
+	if len(docs) != 0 {
+		t.Fatalf("explicit empty units = %#v", docs)
 	}
 }
