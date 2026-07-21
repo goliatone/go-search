@@ -25,7 +25,7 @@ func (p *DefaultPolicy) Apply(req types.SearchRequest, page types.SearchResultPa
 	page.PerPage = req.PerPage
 	page.Hits = ApplyRulesToHits(req, page.Hits, rules, now)
 	if req.GroupBy != "" {
-		allGroups := GroupHits(page.Hits)
+		allGroups := GroupHitsBy(page.Hits, req.GroupBy)
 		sort.SliceStable(allGroups, func(i, j int) bool {
 			return compareHits(req, *allGroups[i].TopHit, *allGroups[j].TopHit)
 		})
@@ -83,10 +83,14 @@ func ApplyRulesToHits(req types.SearchRequest, hits []types.SearchHit, rules []t
 }
 
 func GroupHits(hits []types.SearchHit) []types.SearchGroup {
+	return GroupHitsBy(hits, "parent_id")
+}
+
+func GroupHitsBy(hits []types.SearchHit, field string) []types.SearchGroup {
 	byParent := map[string][]types.SearchHit{}
 	order := []string{}
 	for _, hit := range hits {
-		internalKey, externalKey := groupingKeys(hit)
+		internalKey, externalKey := groupingKeysByField(hit, field)
 		if _, ok := byParent[internalKey]; !ok {
 			order = append(order, internalKey)
 		}
@@ -103,7 +107,7 @@ func GroupHits(hits []types.SearchHit) []types.SearchGroup {
 			return groupHits[i].FinalScore > groupHits[j].FinalScore
 		})
 		top := groupHits[0]
-		_, externalKey := groupingKeys(top)
+		_, externalKey := groupingKeysByField(top, field)
 		group := types.SearchGroup{
 			Key:    externalKey,
 			Parent: top.Parent,
@@ -137,9 +141,38 @@ func GroupHits(hits []types.SearchHit) []types.SearchGroup {
 }
 
 func groupingKeys(hit types.SearchHit) (string, string) {
-	groupID := strings.TrimSpace(hit.ID)
-	if hit.Parent != nil && strings.TrimSpace(hit.Parent.ID) != "" {
-		groupID = strings.TrimSpace(hit.Parent.ID)
+	return groupingKeysByField(hit, "parent_id")
+}
+
+func groupingKeysByField(hit types.SearchHit, field string) (string, string) {
+	field = strings.TrimSpace(field)
+	groupID := ""
+	switch field {
+	case "result_id":
+		groupID = strings.TrimSpace(ResultID(hit))
+	case "parent_id", "":
+		if hit.Parent != nil {
+			groupID = strings.TrimSpace(hit.Parent.ID)
+		}
+		if groupID == "" && hit.Document != nil {
+			groupID = strings.TrimSpace(hit.Document.ParentID)
+		}
+	default:
+		if hit.Document != nil && hit.Document.Fields != nil {
+			groupID = strings.TrimSpace(fmt.Sprint(hit.Document.Fields[field]))
+		}
+		if groupID == "" && hit.Fields != nil {
+			groupID = strings.TrimSpace(fmt.Sprint(hit.Fields[field]))
+		}
+	}
+	if groupID == "" || groupID == "<nil>" {
+		groupID = strings.TrimSpace(hit.ID)
+	}
+	if field == "result_id" {
+		// Result IDs are the provider-neutral public entity identity and must
+		// collapse across indexes. Generic parent IDs remain index-scoped below
+		// because different document families can legitimately reuse them.
+		return groupID, groupID
 	}
 	index := ""
 	if hit.Document != nil {
