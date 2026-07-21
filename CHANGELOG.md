@@ -1,5 +1,23 @@
 # Changelog
 
+# [0.14.4](https://github.com/goliatone/go-search/compare/v0.14.3...v0.14.4) - (2026-07-21)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Tombstone safe clean up, mutations with lock ([ce07deb](https://github.com/goliatone/go-search/commit/ce07deba27a753aa28c44a254603b63ecc2cf4aa))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.14.4 ([19fdb1c](https://github.com/goliatone/go-search/commit/19fdb1ce9442ebe1f6413edbc1f55a1095a773c6))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.14.3 ([d4153e4](https://github.com/goliatone/go-search/commit/d4153e456a847952594830bdfa8c225b3250c02b))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([940a745](https://github.com/goliatone/go-search/commit/940a74518142445349f9566ebc483ba6d4b6b3d7))  - (goliatone)
+
 # [0.14.3](https://github.com/goliatone/go-search/compare/v0.14.2...v0.14.3) - (2026-07-21)
 
 ## <!-- 1 -->🐛 Bug Fixes
