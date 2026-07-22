@@ -81,7 +81,9 @@ func (q *Search) Query(ctx context.Context, req types.SearchRequest) (types.Sear
 			return types.SearchResultPage{}, err
 		}
 	}
-	requiresPost := requiresPostProcessing(plan.Request, rules, q.planner.ScopeGuard())
+	guard := q.planner.ScopeGuard()
+	providerEnforcesAuthorization := searchResponseAuthorizationEnforcedByProvider(ctx, guard, plan.Request)
+	requiresPost := requiresPostProcessing(plan.Request, rules, guard, providerEnforcesAuthorization)
 	providerReq := plan.ProviderRequest()
 	if requiresPost {
 		providerReq.Page = 1
@@ -109,8 +111,10 @@ func (q *Search) Query(ctx context.Context, req types.SearchRequest) (types.Sear
 		page = normalizeLegacyCandidatePage(page, providerReq.PerPage)
 	}
 	page = annotateSearchPageLocales(page, plan.Locale)
-	page = filterSearchPage(ctx, plan.Request, page, q.planner.ScopeGuard())
-	if plan.Profile == nil && plan.Request.GroupBy == "" && len(rules) == 0 && scopeGuardRequiresCandidateExpansion(q.planner.ScopeGuard()) {
+	if !providerEnforcesAuthorization {
+		page = filterSearchPage(ctx, plan.Request, page, guard)
+	}
+	if plan.Profile == nil && plan.Request.GroupBy == "" && len(rules) == 0 && scopeGuardRequiresCandidateExpansion(guard) && !providerEnforcesAuthorization {
 		page.Page = plan.Request.Page
 		page.PerPage = plan.Request.PerPage
 		page.Hits = ranking.PaginateHits(page.Hits, plan.Request.Page, plan.Request.PerPage)
@@ -151,7 +155,7 @@ func (q *Search) Query(ctx context.Context, req types.SearchRequest) (types.Sear
 		page.Facets = groupedFacets
 	}
 	if plan.Profile != nil || plan.Request.GroupBy != "" {
-		q.attachEvidence(ctx, plan.Request, &page)
+		q.attachEvidence(ctx, plan.Request, &page, providerEnforcesAuthorization)
 	}
 	if page.DurationMS <= 0 {
 		page.DurationMS = q.clock.Now().Sub(startedAt).Milliseconds()
@@ -160,7 +164,7 @@ func (q *Search) Query(ctx context.Context, req types.SearchRequest) (types.Sear
 	return page, nil
 }
 
-func (q *Search) attachEvidence(ctx context.Context, req types.SearchRequest, page *types.SearchResultPage) {
+func (q *Search) attachEvidence(ctx context.Context, req types.SearchRequest, page *types.SearchResultPage, providerEnforcesAuthorization bool) {
 	aggregator, ok := q.provider.(providers.EvidenceAggregator)
 	if !ok {
 		if page.Metadata == nil {
@@ -174,7 +178,11 @@ func (q *Search) attachEvidence(ctx context.Context, req types.SearchRequest, pa
 	for _, hit := range page.Hits {
 		ids = append(ids, ranking.ResultID(hit))
 	}
-	summaries, err := aggregator.AggregateEvidence(ctx, types.EvidenceRequest{Search: req, ResultIDs: ids, MaxSamplesPerLocation: 3, Guard: q.planner.ScopeGuard()})
+	var guard types.ScopeGuard
+	if !providerEnforcesAuthorization {
+		guard = q.planner.ScopeGuard()
+	}
+	summaries, err := aggregator.AggregateEvidence(ctx, types.EvidenceRequest{Search: req, ResultIDs: ids, MaxSamplesPerLocation: 3, Guard: guard})
 	if err != nil {
 		if page.Metadata == nil {
 			page.Metadata = map[string]any{}
@@ -381,8 +389,30 @@ func candidateWindow(req types.SearchRequest, cfg ranking.CandidateConfig) int {
 	return min(window*multiplier, cap)
 }
 
-func requiresPostProcessing(req types.SearchRequest, rules []types.EditorialRankRule, guard types.ScopeGuard) bool {
-	return req.GroupBy != "" || len(rules) > 0 || scopeGuardRequiresCandidateExpansion(guard)
+func requiresPostProcessing(req types.SearchRequest, rules []types.EditorialRankRule, guard types.ScopeGuard, providerEnforcesAuthorization bool) bool {
+	return req.GroupBy != "" || len(rules) > 0 || (scopeGuardRequiresCandidateExpansion(guard) && !providerEnforcesAuthorization)
+}
+
+func searchAuthorizationEnforcedByProvider(ctx context.Context, guard types.ScopeGuard, req types.SearchRequest) bool {
+	policy, ok := guard.(types.ProviderEnforcedSearchScopeGuard)
+	return ok && policy.SearchAuthorizationEnforcedByProvider(ctx, req.Actor, req)
+}
+
+func searchResponseAuthorizationEnforcedByProvider(ctx context.Context, guard types.ScopeGuard, req types.SearchRequest) bool {
+	if !searchAuthorizationEnforcedByProvider(ctx, guard, req) {
+		return false
+	}
+	for _, facet := range req.Facets {
+		if !facet.Disjunctive {
+			continue
+		}
+		facetReq := req
+		facetReq.Filters = types.RemoveFacetFilter(req.Filters, facet.Field)
+		if !searchAuthorizationEnforcedByProvider(ctx, guard, facetReq) {
+			return false
+		}
+	}
+	return true
 }
 
 func scopeGuardRequiresCandidateExpansion(guard types.ScopeGuard) bool {
@@ -430,7 +460,10 @@ func (q *Search) buildGroupedDisjunctiveFacets(ctx context.Context, plan planner
 		page := pages[i]
 		countRequest := countRequests[i]
 		page = annotateSearchPageLocales(page, plan.Locale)
-		hits := filterAuthorizedHits(ctx, countRequest.Actor, page.Hits, q.planner.ScopeGuard())
+		hits := page.Hits
+		if !searchAuthorizationEnforcedByProvider(ctx, q.planner.ScopeGuard(), countRequest) {
+			hits = filterAuthorizedHits(ctx, countRequest.Actor, hits, q.planner.ScopeGuard())
+		}
 		hits = ranking.ApplyRulesToHits(countRequest, hits, rules, now)
 		facet := buildGroupedFacet(facetReq, plan.Request.Filters, hits)
 		if !candidatePageExhausted(page, baseProviderReq.PerPage) {
