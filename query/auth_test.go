@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/goliatone/go-search/indexing"
@@ -55,10 +56,8 @@ func requiresPublicVisibility(expr types.FilterExpr) bool {
 		public, ok := value.Value.(bool)
 		return value.Field == "visibility_public" && value.Op == types.FilterOpEQ && ok && public
 	case types.AndExpr:
-		for _, term := range value.Terms {
-			if requiresPublicVisibility(term) {
-				return true
-			}
+		if slices.ContainsFunc(value.Terms, requiresPublicVisibility) {
+			return true
 		}
 	}
 	return false
