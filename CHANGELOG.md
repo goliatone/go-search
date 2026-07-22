@@ -1,5 +1,29 @@
 # Changelog
 
+# [0.14.5](https://github.com/goliatone/go-search/compare/v0.14.4...v0.14.5) - (2026-07-22)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Code quality ([0277ebb](https://github.com/goliatone/go-search/commit/0277ebb81e08c632996e62e399453f726b52c167))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.14.5 ([e9589a4](https://github.com/goliatone/go-search/commit/e9589a43e220d2ac9a46aa74661d1c710a2622b6))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Provider enforced search scope guard ([bad0afe](https://github.com/goliatone/go-search/commit/bad0afe9d994c87626bc17fa5b0994dfd971ee18))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.14.4 ([1f7a990](https://github.com/goliatone/go-search/commit/1f7a9903dafb42edbf85a4d675bfd1e54004467a))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([42e84ad](https://github.com/goliatone/go-search/commit/42e84adff1c6ccbd6398b9a6247fbe944f88c7fe))  - (goliatone)
+- Update deps ([faf2b8c](https://github.com/goliatone/go-search/commit/faf2b8cdfa2052b153dec14cf22999acca40bf1b))  - (goliatone)
+- Update examples ([021e1a5](https://github.com/goliatone/go-search/commit/021e1a5d85f6941d168a2ba8c0c85106bca7b1b0))  - (goliatone)
+
 # [0.14.4](https://github.com/goliatone/go-search/compare/v0.14.3...v0.14.4) - (2026-07-21)
 
 ## <!-- 1 -->🐛 Bug Fixes
