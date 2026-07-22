@@ -54,6 +54,21 @@ type ScopeGuard interface {
 	AllowDocument(ctx context.Context, actor ActorRef, doc Document) bool
 }
 
+// ProviderEnforcedSearchScopeGuard is an optional ScopeGuard contract for
+// hosts that compile document authorization into provider search filters.
+//
+// SearchAuthorizationEnforcedByProvider must return true only when every
+// document matched by the normalized request is guaranteed to satisfy the
+// same authorization policy as AllowDocument. When it returns true, the query
+// layer trusts the provider result set and preserves provider totals, facets,
+// and evidence accuracy instead of applying bounded post-filtering.
+//
+// Guards that do not implement this interface remain fail closed.
+type ProviderEnforcedSearchScopeGuard interface {
+	ScopeGuard
+	SearchAuthorizationEnforcedByProvider(ctx context.Context, actor ActorRef, req SearchRequest) bool
+}
+
 // DefaultScopeGuard is the fail-closed authorization policy used when a host
 // does not provide a more specific guard. Unscoped documents with no explicit
 // visibility policy retain legacy public behavior; any scope or visibility
