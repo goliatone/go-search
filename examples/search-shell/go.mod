@@ -8,7 +8,7 @@ require (
 	github.com/goliatone/go-admin/quickstart v0.32.0
 	github.com/goliatone/go-auth v0.40.0
 	github.com/goliatone/go-cms v0.45.0
-	github.com/goliatone/go-command v0.19.0
+	github.com/goliatone/go-command v0.23.3
 	github.com/goliatone/go-featuregate v0.6.0
 	github.com/goliatone/go-persistence-bun v0.16.1
 	github.com/goliatone/go-router v0.55.0
@@ -100,14 +100,14 @@ require (
 	github.com/goliatone/go-crud v0.23.0 // indirect
 	github.com/goliatone/go-crud/gql v0.23.0 // indirect
 	github.com/goliatone/go-dashboard v0.9.0 // indirect
-	github.com/goliatone/go-errors v0.10.0 // indirect
+	github.com/goliatone/go-errors v0.12.0 // indirect
 	github.com/goliatone/go-export v0.7.0 // indirect
 	github.com/goliatone/go-export/adapters/template/go-template v0.7.0 // indirect
 	github.com/goliatone/go-formgen v0.18.0 // indirect
 	github.com/goliatone/go-i18n v0.5.0 // indirect
 	github.com/goliatone/go-job v0.19.0 // indirect
-	github.com/goliatone/go-logger v0.8.0 // indirect
-	github.com/goliatone/go-masker v0.1.0 // indirect
+	github.com/goliatone/go-logger v0.8.4 // indirect
+	github.com/goliatone/go-masker v0.2.0 // indirect
 	github.com/goliatone/go-notifications v0.14.0 // indirect
 	github.com/goliatone/go-options v0.7.1 // indirect
 	github.com/goliatone/go-print v0.4.1 // indirect
@@ -201,9 +201,9 @@ require (
 	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa // indirect
 	golang.org/x/net v0.55.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20251213004720-97cd9d5aeac2 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251213004720-97cd9d5aeac2 // indirect
