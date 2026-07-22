@@ -29,6 +29,41 @@ func (g allowListScopeGuard) AllowDocument(_ context.Context, _ types.ActorRef, 
 	return ok
 }
 
+type providerEnforcedPublicScopeGuard struct{}
+
+var _ types.ProviderEnforcedSearchScopeGuard = providerEnforcedPublicScopeGuard{}
+
+func (providerEnforcedPublicScopeGuard) AllowSearch(context.Context, types.ActorRef, types.SearchRequest) bool {
+	return true
+}
+
+func (providerEnforcedPublicScopeGuard) AllowSuggest(context.Context, types.ActorRef, types.SuggestRequest) bool {
+	return true
+}
+
+func (providerEnforcedPublicScopeGuard) AllowDocument(_ context.Context, _ types.ActorRef, doc types.Document) bool {
+	return doc.Visibility.Public
+}
+
+func (providerEnforcedPublicScopeGuard) SearchAuthorizationEnforcedByProvider(_ context.Context, _ types.ActorRef, req types.SearchRequest) bool {
+	return requiresPublicVisibility(req.Filters)
+}
+
+func requiresPublicVisibility(expr types.FilterExpr) bool {
+	switch value := expr.(type) {
+	case types.TermExpr:
+		public, ok := value.Value.(bool)
+		return value.Field == "visibility_public" && value.Op == types.FilterOpEQ && ok && public
+	case types.AndExpr:
+		for _, term := range value.Terms {
+			if requiresPublicVisibility(term) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type capturingSuggestProvider struct {
 	lastSuggest types.SuggestRequest
 }
@@ -36,6 +71,20 @@ type capturingSuggestProvider struct {
 type capturingSearchProvider struct {
 	lastSearch types.SearchRequest
 	page       types.SearchResultPage
+}
+
+type capturingEvidenceProvider struct {
+	capturingSearchProvider
+	lastGuard types.ScopeGuard
+}
+
+func (p *capturingEvidenceProvider) AggregateEvidence(_ context.Context, req types.EvidenceRequest) (map[string]*types.MatchEvidenceSummary, error) {
+	p.lastGuard = req.Guard
+	out := make(map[string]*types.MatchEvidenceSummary, len(req.ResultIDs))
+	for _, id := range req.ResultIDs {
+		out[id] = &types.MatchEvidenceSummary{Exact: true, Status: types.EvidenceStatusComplete}
+	}
+	return out, nil
 }
 
 func (p *capturingSuggestProvider) Name() string { return "capture" }
@@ -292,6 +341,160 @@ func TestSearchScopeGuardRebuildsEntityFacetsAsUniqueLowerBound(t *testing.T) {
 	}
 	if filtered.Facets[0].Accuracy != types.FacetCountAccuracyLowerBound || filtered.TotalAccuracy != types.TotalAccuracyLowerBound {
 		t.Fatalf("accuracy = %q total_accuracy = %q", filtered.Facets[0].Accuracy, filtered.TotalAccuracy)
+	}
+}
+
+func TestSearchPreservesProviderAccuracyWhenGuardAssertsProviderAuthorization(t *testing.T) {
+	registry := indexing.NewRegistry()
+	def := types.IndexDefinition{Name: "content", FacetFields: []string{"topic"}}
+	if err := registry.Register(def, nil); err != nil {
+		t.Fatalf("register index: %v", err)
+	}
+	provider := memory.New(memory.Config{})
+	if err := provider.EnsureIndex(context.Background(), def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	if err := provider.UpsertDocuments(context.Background(), "content", []types.Document{
+		{
+			ID:         "public",
+			Index:      "content",
+			Title:      "Prayer",
+			Visibility: types.Visibility{Public: true},
+			Fields:     map[string]any{"visibility_public": true},
+			Facets:     map[string][]string{"topic": {"practice"}},
+		},
+		{
+			ID:         "private",
+			Index:      "content",
+			Title:      "Prayer",
+			Visibility: types.Visibility{Public: false},
+			Fields:     map[string]any{"visibility_public": false},
+			Facets:     map[string][]string{"topic": {"restricted"}},
+		},
+	}); err != nil {
+		t.Fatalf("upsert docs: %v", err)
+	}
+	p, err := planner.New(planner.Config{Registry: registry, ScopeGuard: providerEnforcedPublicScopeGuard{}})
+	if err != nil {
+		t.Fatalf("new planner: %v", err)
+	}
+	search, err := NewSearch(SearchConfig{Planner: p, Provider: provider})
+	if err != nil {
+		t.Fatalf("new search query: %v", err)
+	}
+	page, err := search.Query(context.Background(), types.SearchRequest{
+		Indexes: []string{"content"}, Query: "Prayer", Page: 1, PerPage: 10,
+		Filters: types.TermExpr{Field: "visibility_public", Op: types.FilterOpEQ, Value: true},
+		Facets:  []types.FacetRequest{{Field: "topic", Limit: 10}},
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if page.Total != 1 || len(page.Hits) != 1 || page.Hits[0].ID != "public" {
+		t.Fatalf("expected only provider-authorized result, got %+v", page)
+	}
+	if page.TotalAccuracy != "" && page.TotalAccuracy != types.TotalAccuracyExact {
+		t.Fatalf("total accuracy = %q", page.TotalAccuracy)
+	}
+	if len(page.Facets) != 1 || (page.Facets[0].Accuracy != "" && page.Facets[0].Accuracy != types.FacetCountAccuracyExact) || len(page.Facets[0].Values) != 1 || page.Facets[0].Values[0].Value != "practice" {
+		t.Fatalf("expected exact provider facet, got %+v", page.Facets)
+	}
+}
+
+func TestSearchFallsBackToConservativeFilteringWithoutProviderAuthorizationAssertion(t *testing.T) {
+	registry := indexing.NewRegistry()
+	def := types.IndexDefinition{Name: "content", FacetFields: []string{"topic"}}
+	if err := registry.Register(def, nil); err != nil {
+		t.Fatalf("register index: %v", err)
+	}
+	provider := memory.New(memory.Config{})
+	if err := provider.EnsureIndex(context.Background(), def); err != nil {
+		t.Fatalf("ensure index: %v", err)
+	}
+	if err := provider.UpsertDocuments(context.Background(), "content", []types.Document{
+		{ID: "public", Index: "content", Title: "Prayer", Visibility: types.Visibility{Public: true}, Facets: map[string][]string{"topic": {"practice"}}},
+		{ID: "private", Index: "content", Title: "Prayer", Visibility: types.Visibility{Public: false}, Facets: map[string][]string{"topic": {"restricted"}}},
+	}); err != nil {
+		t.Fatalf("upsert docs: %v", err)
+	}
+	p, err := planner.New(planner.Config{Registry: registry, ScopeGuard: providerEnforcedPublicScopeGuard{}})
+	if err != nil {
+		t.Fatalf("new planner: %v", err)
+	}
+	search, err := NewSearch(SearchConfig{Planner: p, Provider: provider})
+	if err != nil {
+		t.Fatalf("new search query: %v", err)
+	}
+	page, err := search.Query(context.Background(), types.SearchRequest{
+		Indexes: []string{"content"}, Query: "Prayer", Page: 1, PerPage: 10,
+		Facets: []types.FacetRequest{{Field: "topic", Limit: 10}},
+	})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if page.Total != 1 || len(page.Hits) != 1 || page.Hits[0].ID != "public" {
+		t.Fatalf("expected post-filtered public result, got %+v", page)
+	}
+	if page.TotalAccuracy != types.TotalAccuracyLowerBound {
+		t.Fatalf("total accuracy = %q", page.TotalAccuracy)
+	}
+	if len(page.Facets) != 1 || page.Facets[0].Accuracy != types.FacetCountAccuracyLowerBound {
+		t.Fatalf("expected conservative facet accuracy, got %+v", page.Facets)
+	}
+}
+
+func TestSearchScopeGuardPreservesExactEmptyTotal(t *testing.T) {
+	page := filterSearchPage(context.Background(), types.SearchRequest{}, types.SearchResultPage{
+		Total:         0,
+		TotalAccuracy: types.TotalAccuracyExact,
+	}, allowListScopeGuard{allowed: map[string]struct{}{}})
+	if page.Total != 0 || page.TotalAccuracy != types.TotalAccuracyExact {
+		t.Fatalf("expected exact empty total, got total=%d accuracy=%q", page.Total, page.TotalAccuracy)
+	}
+}
+
+func TestSearchScopeGuardKeepsBoundedEmptyTotalConservative(t *testing.T) {
+	page := filterSearchPage(context.Background(), types.SearchRequest{}, types.SearchResultPage{
+		Total:         0,
+		TotalAccuracy: types.TotalAccuracyLowerBound,
+	}, allowListScopeGuard{allowed: map[string]struct{}{}})
+	if page.Total != 0 || page.TotalAccuracy != types.TotalAccuracyLowerBound {
+		t.Fatalf("expected bounded empty total to remain conservative, got total=%d accuracy=%q", page.Total, page.TotalAccuracy)
+	}
+}
+
+func TestProviderAuthorizationAssertionCoversDisjunctiveFacetFilters(t *testing.T) {
+	guard := providerEnforcedPublicScopeGuard{}
+	req := types.SearchRequest{
+		Filters: types.TermExpr{Field: "visibility_public", Op: types.FilterOpEQ, Value: true},
+		Facets:  []types.FacetRequest{{Field: "visibility_public", Disjunctive: true}},
+	}
+	if searchResponseAuthorizationEnforcedByProvider(context.Background(), guard, req) {
+		t.Fatal("expected provider assertion to fail when disjunctive facet counting removes its authorization filter")
+	}
+}
+
+func TestProviderAuthorizedEvidenceDoesNotReapplyGuard(t *testing.T) {
+	registry := indexing.NewRegistry()
+	if err := registry.Register(types.IndexDefinition{Name: "content"}, nil); err != nil {
+		t.Fatalf("register index: %v", err)
+	}
+	p, err := planner.New(planner.Config{Registry: registry, ScopeGuard: providerEnforcedPublicScopeGuard{}})
+	if err != nil {
+		t.Fatalf("new planner: %v", err)
+	}
+	provider := new(capturingEvidenceProvider)
+	search, err := NewSearch(SearchConfig{Planner: p, Provider: provider})
+	if err != nil {
+		t.Fatalf("new search query: %v", err)
+	}
+	page := types.SearchResultPage{Hits: []types.SearchHit{{ID: "public", ResultID: "public"}}}
+	search.attachEvidence(context.Background(), types.SearchRequest{Indexes: []string{"content"}}, &page, true)
+	if provider.lastGuard != nil {
+		t.Fatal("expected provider-authorized evidence aggregation to omit the post-filter guard")
+	}
+	if page.Hits[0].Evidence == nil || page.Hits[0].Evidence.Status != types.EvidenceStatusComplete {
+		t.Fatalf("expected complete provider evidence, got %+v", page.Hits[0].Evidence)
 	}
 }
 
