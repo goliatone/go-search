@@ -3,8 +3,8 @@ module github.com/goliatone/go-search
 go 1.26.5
 
 require (
-	github.com/goliatone/go-command v0.19.0
-	github.com/goliatone/go-errors v0.10.0
+	github.com/goliatone/go-command v0.23.3
+	github.com/goliatone/go-errors v0.12.0
 	github.com/goliatone/go-i18n v0.5.0
 	github.com/goliatone/go-job v0.19.0
 	github.com/goliatone/go-persistence-bun v0.16.1
@@ -32,7 +32,8 @@ require (
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.4+incompatible // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
-	github.com/goliatone/go-logger v0.8.0 // indirect
+	github.com/goliatone/go-logger v0.8.4 // indirect
+	github.com/goliatone/go-masker v0.2.0 // indirect
 	github.com/goliatone/go-slug v0.1.0 // indirect
 	github.com/goliatone/hashid v0.2.0 // indirect
 	github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e // indirect
@@ -47,6 +48,7 @@ require (
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
+	github.com/showa-93/go-mask v0.6.2 // indirect
 	github.com/sony/gobreaker v1.0.0 // indirect
 	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect
 	github.com/uptrace/bun/dbfixture v1.2.18 // indirect
