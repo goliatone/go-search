@@ -12,6 +12,7 @@ func filterSearchPage(ctx context.Context, req types.SearchRequest, page types.S
 	if guard == nil {
 		return page
 	}
+	exactEmpty := page.Total == 0 && len(page.Hits) == 0 && len(page.Groups) == 0 && candidateTotalExact(page.TotalAccuracy)
 	if len(page.Groups) > 0 {
 		page.Groups = filterAuthorizedGroups(ctx, req.Actor, page.Groups, guard)
 		page.Hits = flattenGroupHits(page.Groups)
@@ -24,6 +25,9 @@ func filterSearchPage(ctx context.Context, req types.SearchRequest, page types.S
 	page.Total = len(page.Hits)
 	page.Facets = buildFacets(req.Facets, req.Filters, page.Hits)
 	page.TotalAccuracy = types.TotalAccuracyLowerBound
+	if exactEmpty {
+		page.TotalAccuracy = types.TotalAccuracyExact
+	}
 	return page
 }
 
@@ -102,7 +106,11 @@ func buildFacets(requests []types.FacetRequest, filters types.FilterExpr, hits [
 				counts[value]++
 			}
 		}
-		out = append(out, types.BuildFacet(facetReq, counts, types.SelectedFacetValues(filters, facetReq.Field)))
+		facet := types.BuildFacet(facetReq, counts, types.SelectedFacetValues(filters, facetReq.Field))
+		// Guard filtering only sees the bounded candidate window, so ordinary
+		// facet counts are lower bounds for the same reason entity counts are.
+		facet.Accuracy = types.FacetCountAccuracyLowerBound
+		out = append(out, facet)
 	}
 	return out
 }
