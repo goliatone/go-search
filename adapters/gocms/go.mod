@@ -1,6 +1,6 @@
 module github.com/goliatone/go-search/adapters/gocms
 
-go 1.26.4
+go 1.26.5
 
 require (
 	github.com/goliatone/go-cms v0.45.0

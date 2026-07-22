@@ -1,6 +1,6 @@
 module github.com/goliatone/go-search/examples/search-shell
 
-go 1.26.4
+go 1.26.5
 
 require (
 	github.com/gofiber/fiber/v2 v2.52.12

@@ -1,6 +1,6 @@
 module github.com/goliatone/go-search
 
-go 1.26.4
+go 1.26.5
 
 require (
 	github.com/goliatone/go-command v0.19.0
