@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"github.com/goliatone/go-search/pkg/types"
+	tstypesense "github.com/typesense/typesense-go/v3/typesense"
 )
 
 func TestUpsertDocumentsCompensatesAfterCallerCancellation(t *testing.T) {
@@ -93,7 +96,7 @@ func TestUpsertDocumentsCompensatesAfterCallerCancellation(t *testing.T) {
 	err = upsertDocuments(ctx, provider.client, runtime, []types.Document{{
 		ID: "new", Index: collection, RegistrationKey: registrationKey, Body: "new body",
 	}})
-	if err == nil || !strings.Contains(err.Error(), context.Canceled.Error()) {
+	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("upsert error = %v", err)
 	}
 	if !mutationCanceled.Load() || ctx.Err() != context.Canceled {
@@ -249,7 +252,9 @@ func TestReplaceDocumentsRestoresOldSetWhenStaleDeletionFails(t *testing.T) {
 	err = replaceDocuments(t.Context(), provider.client, runtime, registrationKey, []string{sourceID}, []types.Document{{
 		ID: "new", Index: collection, SourceID: sourceID, Body: "new replacement",
 	}})
-	if err == nil || !strings.Contains(err.Error(), "injected stale delete failure") {
+	var httpErr *tstypesense.HTTPError
+	if !errors.As(err, &httpErr) || httpErr.Status != http.StatusInternalServerError ||
+		!strings.Contains(string(httpErr.Body), "injected stale delete failure") {
 		t.Fatalf("replace error = %v", err)
 	}
 	if deleteAttempts < 2 {
@@ -355,7 +360,7 @@ func TestReplaceDocumentsRejectsIncompleteImportResponsesBeforeStaleDeletion(t *
 				{ID: "new-1", Index: collection, SourceID: sourceID, Body: "first"},
 				{ID: "new-2", Index: collection, SourceID: sourceID, Body: "second"},
 			})
-			if err == nil || !strings.Contains(err.Error(), "unexpected EOF") {
+			if !errors.Is(err, io.ErrUnexpectedEOF) {
 				t.Fatalf("replace error = %v", err)
 			}
 			if staleDeleteAttempts != 0 {

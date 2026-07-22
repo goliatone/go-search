@@ -3,9 +3,10 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"strings"
+	"errors"
 	"testing"
 
+	goerrors "github.com/goliatone/go-errors"
 	"github.com/goliatone/go-search/pkg/types"
 	"github.com/uptrace/bun"
 )
@@ -63,8 +64,9 @@ func TestPostgresProviderAutoSchemaManagementStillRequiresBunDBForMigrations(t *
 	if err == nil {
 		t.Fatalf("expected EnsureIndex to fail without *bun.DB in auto mode")
 	}
-	if !strings.Contains(err.Error(), "requires *bun.DB for migrations") {
-		t.Fatalf("unexpected EnsureIndex error: %v", err)
+	var richErr *goerrors.Error
+	if !errors.As(err, &richErr) || richErr.Message != "postgres provider requires *bun.DB for migrations" {
+		t.Fatalf("unexpected EnsureIndex error: %#v", richErr)
 	}
 }
 
@@ -86,7 +88,8 @@ func TestPostgresProviderRejectsInvalidSchemaManagementMode(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected invalid schema management mode to fail")
 	}
-	if !strings.Contains(err.Error(), "invalid schema management mode") {
-		t.Fatalf("unexpected invalid schema management error: %v", err)
+	var richErr *goerrors.Error
+	if !errors.As(err, &richErr) || richErr.Message != `invalid schema management mode "invalid"` {
+		t.Fatalf("unexpected invalid schema management error: %#v", richErr)
 	}
 }
